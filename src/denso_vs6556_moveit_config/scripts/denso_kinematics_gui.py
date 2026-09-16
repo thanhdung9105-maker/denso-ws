@@ -245,7 +245,7 @@ class DensoKinematicsGUI(QMainWindow):
             return box, lbl_v, lbl_s
 
         self.card_tau_box, self.card_tau_val, self.card_tau_sub = make_card(
-            "⚡ MÔ-MEN LỚN NHẤT (MAX TORQUE)", "0.0 N·m", "Khớp J2 định mức 100 N·m", "#0284c7"
+            "MÔ-MEN LỚN NHẤT (MAX TORQUE)", "0.0 N·m", "Khớp J2 định mức 100 N·m", "#0284c7"
         )
         self.card_load_box, self.card_load_val, self.card_load_sub = make_card(
             "TẢI MOTOR CAO NHẤT (% LOAD)", "0.0%", "Ngưỡng an toàn < 80%", "#10b981"
@@ -254,7 +254,7 @@ class DensoKinematicsGUI(QMainWindow):
             "TẢI TRỌNG ĐẦU GẮP (PAYLOAD)", "0.0 kg", "Khả năng chịu tải tối đa 6.5 kg", "#8b5cf6"
         )
         self.card_status_box, self.card_status_val, self.card_status_sub = make_card(
-            "TRẠNG THÁI HỆ THỐNG (STATUS)", "● AN TOÀN", "Tất cả các khớp hoạt động bình thường", "#059669"
+            "TRẠNG THÁI HỆ THỐNG (STATUS)", "● AN TOÀN", "Tất cả khớp hoạt động <50% định mức", "#059669"
         )
 
         cards_layout.addWidget(self.card_tau_box)
@@ -456,16 +456,18 @@ class DensoKinematicsGUI(QMainWindow):
                 background-color: #ffffff;
                 border: 1px solid #cbd5e1;
                 border-radius: 8px;
-                margin-top: 5px;
-                padding: 10px 14px;
+                margin-top: 16px;
+                padding: 14px 14px 10px 14px;
                 color: #0f172a;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
+                left: 12px;
                 padding: 0 8px;
                 color: #0284c7;
                 font-weight: bold;
+                background-color: #ffffff;
             }
         """)
         ctrl_layout = QHBoxLayout(ctrl_box)
@@ -853,26 +855,26 @@ class DensoKinematicsGUI(QMainWindow):
             if pct > max_load_pct:
                 max_load_pct = pct
 
-            # Col 2: Position q (Degrees first, then radians)
+            # Col 2: Position q (Degrees first)
             q_deg = np.rad2deg(q[i])
             if abs(q_deg) < 0.05:
                 q_deg = 0.0
             q_val = 0.0 if abs(q[i]) < 0.0005 else q[i]
-            self.telemetry_table.item(i, 2).setText(f"{q_deg:+.1f}° ({q_val:+.3f} rad)")
+            self.telemetry_table.item(i, 2).setText(f"{q_deg:+.1f}° ({q_val:+.2f} rad)")
 
             # Col 3: Velocity qd
             qd_deg = np.rad2deg(qd[i])
             if abs(qd_deg) < 0.05:
                 qd_deg = 0.0
             qd_val = 0.0 if abs(qd[i]) < 0.0005 else qd[i]
-            self.telemetry_table.item(i, 3).setText(f"{qd_deg:+.1f}°/s ({qd_val:+.3f} rad/s)")
+            self.telemetry_table.item(i, 3).setText(f"{qd_deg:+.1f}°/s ({qd_val:+.2f} rad/s)")
 
             # Col 4: Acceleration qdd
             qdd_deg = np.rad2deg(qdd[i])
             if abs(qdd_deg) < 0.05:
                 qdd_deg = 0.0
             qdd_val = 0.0 if abs(qdd[i]) < 0.0005 else qdd[i]
-            self.telemetry_table.item(i, 4).setText(f"{qdd_deg:+.1f}°/s² ({qdd_val:+.2f} rad/s²)")
+            self.telemetry_table.item(i, 4).setText(f"{qdd_deg:+.1f}°/s² ({qdd_val:+.1f} rad/s²)")
 
             # Col 5: Torque tau (Prevent -0.00 N·m glitch!)
             if abs(t_val) < 0.005:
