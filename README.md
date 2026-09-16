@@ -94,18 +94,33 @@ Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
 
 ---
 
-## 📊 4. Tính Năng Bảng Động Học (Kinematics Dashboard)
+## 📊 4. Tính Năng Bảng Động Học & Động Lực Học (Kinematics & Dynamics Dashboard)
 
-* **Động Học Thuận (Forward Kinematics - FK)**:
+* **1. Động Học Thuận (Forward Kinematics - FK)**:
   - Lắng nghe real-time topic `/joint_states`.
   - Hiển thị góc của 5 trục: $J_1$ (Base Z), $J_2$ (Shoulder Y), $J_3$ (Elbow Y), $J_4$ (Forearm X), $J_5$ (Wrist Y) theo cả **Radian** và **Độ ($^\circ$)**.
   - Tính toán ma trận biến đổi thuần nhất $T_{0}^{5}$ để xuất tọa độ đầu gắp: $X, Y, Z$ (mm & m), Roll, Pitch, Yaw ($^\circ$), bán kính với gốc $R$.
   - Thanh trượt Jogging cho phép kéo thử từng góc khớp để xem tọa độ thay đổi tức thời.
-* **Động Học Nghịch (Inverse Kinematics - IK)**:
+* **2. Động Học Nghịch (Inverse Kinematics - IK)**:
   - Ô nhập tọa độ mục tiêu $X, Y, Z$ (mm).
   - Nút *"📌 Lấy tọa độ hiện tại"* giúp lấy nhanh vị trí làm mốc.
   - Bộ giải Jacobian Damped Least Squares (Levenberg-Marquardt) tốc độ $<2\text{ms}$, sai số $<0.5\text{mm}$.
   - Nút *"🚀 Gửi tới Robot trong RViz2"* để điều khiển cánh tay xoay mượt mà theo đường cong S-curve tới tọa độ mục tiêu.
+* **3. Động Lực Học Nghịch (Inverse Dynamics - ID)**:
+  - Thuật toán đệ quy **RNEA (Recursive Newton-Euler Algorithm)** tính toán mô-men xoắn yêu cầu $\tau = M(q)\ddot{q} + C(q, \dot{q})\dot{q} + g(q) + \tau_f + J^T F_{ext}$.
+  - Phân tích chi tiết từng thành phần: Lực quán tính $M\ddot{q}$, Lực Coriolis & ly tâm $C\dot{q}$, Trọng lực $g(q)$, Lực do tải trọng $J^TF$, Ma sát $\tau_f$.
+  - Nút *"⚖️ Cân bằng trọng lực tĩnh"* để tính nhanh mô-men giữ cánh tay chống rơi tự do.
+  - Hỗ trợ nhập tải trọng đầu gắp $m_{payload}$ (0 - 5kg) và ngoại lực $F_z$ (N).
+  - Thanh đo % tải trọng động cơ kèm mã màu cảnh báo (Xanh an toàn, Vàng cảnh báo, Đỏ quá tải).
+* **4. Động Lực Học Thuận (Forward Dynamics - FD)**:
+  - Giải bài toán gia tốc góc khớp: $\ddot{q} = M(q)^{-1} (\tau - C(q, \dot{q})\dot{q} - g(q) - \tau_f - J^T F_{ext})$.
+  - Thanh trượt chỉnh mô-men xoắn $\tau_1 \dots \tau_5$ (N·m) cho từng khớp.
+  - Xuất ma trận khối lượng đối xứng xác định dương $M(q)$ kích thước $5 \times 5$ và vector gia tốc góc $\ddot{q}$ ($rad/s^2$ & $deg/s^2$).
+  - **Mô phỏng tương tác vật lý thời gian thực trên RViz2 (20Hz)**: Bấm *"▶️ Bắt đầu mô phỏng RViz2"*, người dùng kéo thanh trượt mô-men xoắn, cánh tay robot trong RViz2 sẽ chuyển động và gia tốc theo đúng quy luật lực Newton!
+* **5. Trực Quan Hóa Động Lực Học 3D Trên RViz2**:
+  - Tự động hiển thị tại 5 khớp của robot trong RViz2 qua topic `/denso/joint_dynamics_markers`:
+    + **Mũi tên vector mô-men xoắn 3D (Torque Arrows)**: Căn chỉnh đúng trục quay từng khớp, tự co giãn theo độ lớn và đổi màu cảnh báo tải trọng.
+    + **Nhãn chữ nổi 3D (3D Billboard Text Labels)**: Luôn hướng về phía camera, hiển thị chính xác tên khớp, giá trị Torque (N·m), % tải và gia tốc $\ddot{q}$.
 
 ---
 
