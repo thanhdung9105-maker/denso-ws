@@ -385,6 +385,7 @@ class DensoDynamicsEngine:
         base_marker.pose.position.x = -0.40
         base_marker.pose.position.y = 0.35
         base_marker.pose.position.z = 0.01
+        base_marker.pose.orientation.w = 1.0
         base_marker.scale.x = 0.16
         base_marker.scale.y = 0.16
         base_marker.scale.z = 0.02
@@ -401,6 +402,7 @@ class DensoDynamicsEngine:
         pole_marker.pose.position.x = -0.40
         pole_marker.pose.position.y = 0.35
         pole_marker.pose.position.z = 0.13
+        pole_marker.pose.orientation.w = 1.0
         pole_marker.scale.x = 0.02
         pole_marker.scale.y = 0.02
         pole_marker.scale.z = 0.24
@@ -450,6 +452,7 @@ class DensoDynamicsEngine:
         table_marker.pose.position.x = -0.40
         table_marker.pose.position.y = 0.35
         table_marker.pose.position.z = 0.30
+        table_marker.pose.orientation.w = 1.0
 
         table_marker.text = "\n".join(table_lines)
         table_marker.scale.z = 0.015  # Compact sharp text height (15mm)

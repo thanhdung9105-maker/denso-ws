@@ -78,8 +78,6 @@ class DensoController(Node):
 
         # Visual Marker publisher for RViz2 dynamics visualization
         self.marker_pub = self.create_publisher(MarkerArray, '/denso/joint_dynamics_markers', 1)
-        # 2D HUD Image publisher for RViz2 dashboard overlay
-        self.image_pub = self.create_publisher(Image, '/denso/dynamics_dashboard_image', 1)
 
         self.cmd_sub = self.create_subscription(
             String,
@@ -353,18 +351,13 @@ class DensoController(Node):
                 msg.effort = [float(x) for x in dyn_res['tau']]
                 self.js_pub.publish(msg)
 
-                # Publish RViz2 Dynamics Visual Markers & 2D Image HUD
+                # Publish RViz2 Dynamics Visual Markers
                 if self.dynamics_markers_visible:
                     try:
                         markers = self.dynamics_engine.build_marker_array(
                             self.current_positions, dyn_res['tau'], qdd, frame_id="world"
                         )
                         self.marker_pub.publish(markers)
-
-                        img_msg = self.dynamics_engine.build_dashboard_image(
-                            dyn_res['tau'], qdd, self.get_clock().now().to_msg()
-                        )
-                        self.image_pub.publish(img_msg)
                     except Exception as e:
                         pass
 

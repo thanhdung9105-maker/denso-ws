@@ -83,20 +83,6 @@ Visualization Manager:
       Reliability Policy: Reliable
       Value: /denso/joint_dynamics_markers
     Value: true
-  - Class: rviz_default_plugins/Image
-    Enabled: true
-    Max Value: 1
-    Median window: 5
-    Min Value: 0
-    Name: Dynamics Dashboard HUD
-    Normalize Range: false
-    Topic:
-      Depth: 5
-      Durability Policy: Volatile
-      History Policy: Keep Last
-      Reliability Policy: Reliable
-      Value: /denso/dynamics_dashboard_image
-    Value: true
   - Class: moveit_rviz_plugin/MotionPlanning
     Enabled: true
     Move Group Namespace: ''
