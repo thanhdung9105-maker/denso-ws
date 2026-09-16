@@ -373,92 +373,16 @@ class DensoDynamicsEngine:
             marker_array.markers.append(del_old)
 
         # -------------------------------------------------------------
-        # 2. COMPACT 3D TELEMETRY TABLE WITH PEDESTAL STAND IN RVIZ2
+        # 2. CLEAN UP 3D SCENE (REMOVE FLOATING 3D TEXT TO AVOID CLUTTER)
+        # All telemetry is now hosted in the dedicated White-Background GUI Tab!
         # -------------------------------------------------------------
-        # Pedestal Base on floor
-        base_marker = Marker()
-        base_marker.header.frame_id = frame_id
-        base_marker.ns = "dynamics_dashboard"
-        base_marker.id = 198
-        base_marker.type = Marker.CYLINDER
-        base_marker.action = Marker.ADD
-        base_marker.pose.position.x = -0.40
-        base_marker.pose.position.y = 0.35
-        base_marker.pose.position.z = 0.01
-        base_marker.pose.orientation.w = 1.0
-        base_marker.scale.x = 0.16
-        base_marker.scale.y = 0.16
-        base_marker.scale.z = 0.02
-        base_marker.color = ColorRGBA(r=0.12, g=0.15, b=0.20, a=0.90)
-        marker_array.markers.append(base_marker)
-
-        # Pedestal Pole
-        pole_marker = Marker()
-        pole_marker.header.frame_id = frame_id
-        pole_marker.ns = "dynamics_dashboard"
-        pole_marker.id = 199
-        pole_marker.type = Marker.CYLINDER
-        pole_marker.action = Marker.ADD
-        pole_marker.pose.position.x = -0.40
-        pole_marker.pose.position.y = 0.35
-        pole_marker.pose.position.z = 0.13
-        pole_marker.pose.orientation.w = 1.0
-        pole_marker.scale.x = 0.02
-        pole_marker.scale.y = 0.02
-        pole_marker.scale.z = 0.24
-        pole_marker.color = ColorRGBA(r=0.25, g=0.30, b=0.38, a=0.90)
-        marker_array.markers.append(pole_marker)
-
-        # Compact 24-character card text
-        table_lines = [
-            "+------------------------+",
-            "|  DENSO JOINT DYNAMICS  |",
-            "+------------------------+",
-        ]
-
-        max_load = 0.0
-        for i in range(self.num_joints):
-            t_val = float(tau[i])
-            t_lim = float(TORQUE_LIMITS[i])
-            pct = min(150.0, abs(t_val) / t_lim * 100.0)
-            if pct > max_load:
-                max_load = pct
-
-            inner = f"J{i+1}: {t_val:+5.1f}/{t_lim:2.0f} Nm ({pct:2.0f}%)"
-            row = "| " + inner.ljust(22) + " |"
-            table_lines.append(row)
-
-        table_lines.append("+------------------------+")
-        if max_load < 50.0:
-            status_line = "| STATUS: NORMAL (<50%)  |"
-            table_color = ColorRGBA(r=0.0, g=1.0, b=0.88, a=1.0)   # Aqua Cyan
-        elif max_load < 80.0:
-            status_line = "| STATUS: MODERATE LOAD  |"
-            table_color = ColorRGBA(r=1.0, g=0.82, b=0.1, a=1.0)   # Amber
-        else:
-            status_line = "| STATUS: HIGH OVERLOAD  |"
-            table_color = ColorRGBA(r=1.0, g=0.22, b=0.25, a=1.0)  # Red Alert
-
-        table_lines.append(status_line)
-        table_lines.append("+------------------------+")
-
-        table_marker = Marker()
-        table_marker.header.frame_id = frame_id
-        table_marker.ns = "dynamics_dashboard"
-        table_marker.id = 200
-        table_marker.type = Marker.TEXT_VIEW_FACING
-        table_marker.action = Marker.ADD
-
-        table_marker.pose.position.x = -0.40
-        table_marker.pose.position.y = 0.35
-        table_marker.pose.position.z = 0.30
-        table_marker.pose.orientation.w = 1.0
-
-        table_marker.text = "\n".join(table_lines)
-        table_marker.scale.z = 0.015  # Compact sharp text height (15mm)
-        table_marker.color = table_color
-
-        marker_array.markers.append(table_marker)
+        for mid in [198, 199, 200]:
+            del_m = Marker()
+            del_m.header.frame_id = frame_id
+            del_m.ns = "dynamics_dashboard"
+            del_m.id = mid
+            del_m.action = Marker.DELETE
+            marker_array.markers.append(del_m)
 
         return marker_array
 
