@@ -168,12 +168,41 @@ class DensoController(Node):
         try:
             from visualization_msgs.msg import Marker
             del_array = MarkerArray()
-            del_marker = Marker()
-            del_marker.action = Marker.DELETEALL
-            del_array.markers.append(del_marker)
+            now = self.get_clock().now().to_msg()
+
+            # Safely delete torque arrows
+            for i in range(5):
+                m = Marker()
+                m.header.frame_id = "world"
+                m.header.stamp = now
+                m.ns = "joint_torques"
+                m.id = i
+                m.action = Marker.DELETE
+                del_array.markers.append(m)
+
+            # Safely delete dashboard table and stand
+            for mid in [198, 199, 200]:
+                m = Marker()
+                m.header.frame_id = "world"
+                m.header.stamp = now
+                m.ns = "dynamics_dashboard"
+                m.id = mid
+                m.action = Marker.DELETE
+                del_array.markers.append(m)
+
+            # Safely delete any legacy labels
+            for i in range(5):
+                m = Marker()
+                m.header.frame_id = "world"
+                m.header.stamp = now
+                m.ns = "joint_dynamics_labels"
+                m.id = 100 + i
+                m.action = Marker.DELETE
+                del_array.markers.append(m)
+
             self.marker_pub.publish(del_array)
         except Exception as e:
-            pass
+            self.get_logger().error(f'Loi clear_rviz_markers: {e}')
 
     def start_next_demo_step(self):
         step = DEMO_STEPS[self.demo_step_idx]
