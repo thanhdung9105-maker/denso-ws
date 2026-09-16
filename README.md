@@ -118,10 +118,11 @@ Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
   - Thanh trượt chỉnh mô-men xoắn $\tau_1 \dots \tau_5$ (N·m) cho từng khớp.
   - Xuất ma trận khối lượng đối xứng xác định dương $M(q)$ kích thước $5 \times 5$ và vector gia tốc góc $\ddot{q}$ ($rad/s^2$ & $deg/s^2$).
   - **Mô phỏng tương tác vật lý thời gian thực trên RViz2 (20Hz)**: Bấm *"▶️ Bắt đầu mô phỏng RViz2"*, người dùng kéo thanh trượt mô-men xoắn, cánh tay robot trong RViz2 sẽ chuyển động và gia tốc theo đúng quy luật lực Newton!
-* **5. Trực Quan Hóa Động Lực Học 3D Trên RViz2**:
-  - Tự động hiển thị tại 5 khớp của robot trong RViz2 qua topic `/denso/joint_dynamics_markers`:
-    + **Mũi tên vector mô-men xoắn 3D (Torque Arrows)**: Căn chỉnh đúng trục quay từng khớp, tự co giãn theo độ lớn và đổi màu cảnh báo tải trọng.
-    + **Nhãn chữ nổi 3D (3D Billboard Text Labels)**: Luôn hướng về phía camera, hiển thị chính xác tên khớp, giá trị Torque (N·m), % tải và gia tốc $\ddot{q}$.
+* **5. Trực Quan Hóa Động Lực Học Trên RViz2**:
+  - Tự động hiển thị qua topic `/denso/joint_dynamics_markers`:
+    + **Bảng Đo Lường Động Lực Học Tập Trung (Unified Telemetry Table)**: Đặt gọn gàng cố định bên cạnh robot, hiển thị bảng chữ nhật chuẩn monospace ASCII đầy đủ 5 khớp, Torque, Limit, Load %, Status, Accel, tự động xoay theo camera và đổi màu cảnh báo (🟢 Xanh, 🟡 Vàng, 🔴 Đỏ).
+    + **Mũi tên vector mô-men xoắn 3D (Torque Arrows)**: Căn chỉnh thanh mảnh trên 5 trục quay vật lý của robot, biểu diễn vector xoay của lực mà không gây vướng mắt.
+    + Không còn các dòng chữ rải rác trôi nổi lung tung trong không gian 3D.
 
 ---
 
