@@ -357,35 +357,77 @@ class DensoDynamicsEngine:
             p1 = Point(x=float(p_end[0]), y=float(p_end[1]), z=float(p_end[2]))
             arrow_marker.points = [p0, p1]
 
-            arrow_marker.scale.x = 0.022  # Shaft diameter
-            arrow_marker.scale.y = 0.045  # Head diameter
-            arrow_marker.scale.z = 0.05   # Head length
+            arrow_marker.scale.x = 0.016  # Shaft diameter
+            arrow_marker.scale.y = 0.035  # Head diameter
+            arrow_marker.scale.z = 0.04   # Head length
             arrow_marker.color = color
 
             marker_array.markers.append(arrow_marker)
 
-            # -------------------------------------------------------------
-            # 2. 3D Text Billboard Marker
-            # -------------------------------------------------------------
-            text_marker = Marker()
-            text_marker.header.frame_id = frame_id
-            text_marker.ns = "joint_dynamics_labels"
-            text_marker.id = 100 + i
-            text_marker.type = Marker.TEXT_VIEW_FACING
-            text_marker.action = Marker.ADD
+            # Explicitly delete old scattered per-joint text markers
+            del_old = Marker()
+            del_old.header.frame_id = frame_id
+            del_old.ns = "joint_dynamics_labels"
+            del_old.id = 100 + i
+            del_old.action = Marker.DELETE
+            marker_array.markers.append(del_old)
 
-            # Position slightly above joint center
-            text_marker.pose.position.x = float(pos[0])
-            text_marker.pose.position.y = float(pos[1])
-            text_marker.pose.position.z = float(pos[2] + 0.08)
+        # -------------------------------------------------------------
+        # 2. UNIFIED DYNAMICS TELEMETRY TABLE (ONE CLEAN TABLE IN RVIZ2)
+        # -------------------------------------------------------------
+        joint_labels = ["J1", "J2", "J3", "J4", "J5"]
+        table_lines = [
+            "+-------------------------------------------------------------+",
+            "|            DENSO VS-6556 JOINT DYNAMICS TELEMETRY           |",
+            "+-------+-------------+-------------+-------------+-----------+",
+            "| Joint | Torque (Nm) | Limit (Nm)  | Motor Load  | Accel     |",
+            "+-------+-------------+-------------+-------------+-----------+",
+        ]
 
-            qdd_str = f" | q̈={qdd[i]:+.1f}" if qdd is not None else ""
-            text_marker.text = f"{joint_names_display[i]}: {t_val:+.1f} N·m ({load_pct:.0f}%){qdd_str}"
+        max_load = 0.0
+        for i in range(self.num_joints):
+            t_val = float(tau[i])
+            t_lim = float(TORQUE_LIMITS[i])
+            pct = min(150.0, abs(t_val) / t_lim * 100.0)
+            if pct > max_load:
+                max_load = pct
 
-            text_marker.scale.z = 0.045  # Text height
-            text_marker.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=0.95)
+            tag = "[OK] " if pct < 50.0 else ("[WARN]" if pct < 80.0 else "[OVER]")
+            acc_str = f"{qdd[i]:+4.1f} r/s2" if qdd is not None else " +0.0 r/s2"
+            row = f"|  {joint_labels[i]}   |  {t_val:+6.1f} Nm |   {t_lim:5.1f} Nm   | {pct:4.1f}% {tag} | {acc_str:9s} |"
+            table_lines.append(row)
 
-            marker_array.markers.append(text_marker)
+        table_lines.append("+-------+-------------+-------------+-------------+-----------+")
+        if max_load < 50.0:
+            status_line = "| STATUS: NORMAL LOAD (<50% MOTOR CAPACITY)                   |"
+            table_color = ColorRGBA(r=0.0, g=0.92, b=1.0, a=0.98)  # Cyan
+        elif max_load < 80.0:
+            status_line = "| STATUS: MODERATE LOAD (50% - 80% MOTOR CAPACITY)            |"
+            table_color = ColorRGBA(r=1.0, g=0.82, b=0.15, a=0.98) # Yellow
+        else:
+            status_line = "| STATUS: ALERT - HIGH TORQUE (>80% MOTOR CAPACITY)           |"
+            table_color = ColorRGBA(r=1.0, g=0.25, b=0.30, a=1.0)  # Red
+
+        table_lines.append(status_line)
+        table_lines.append("+-------------------------------------------------------------+")
+
+        table_marker = Marker()
+        table_marker.header.frame_id = frame_id
+        table_marker.ns = "dynamics_dashboard"
+        table_marker.id = 200
+        table_marker.type = Marker.TEXT_VIEW_FACING
+        table_marker.action = Marker.ADD
+
+        # Position neatly beside the robot workspace in world coordinates
+        table_marker.pose.position.x = -0.35
+        table_marker.pose.position.y = 0.55
+        table_marker.pose.position.z = 0.45
+
+        table_marker.text = "\n".join(table_lines)
+        table_marker.scale.z = 0.024  # Monospace text height
+        table_marker.color = table_color
+
+        marker_array.markers.append(table_marker)
 
         return marker_array
 

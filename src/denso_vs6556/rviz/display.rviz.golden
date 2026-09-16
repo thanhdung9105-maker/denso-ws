@@ -73,6 +73,7 @@ Visualization Manager:
     Enabled: true
     Name: Joint Dynamics (Torque & Accel)
     Namespaces:
+      dynamics_dashboard: true
       joint_dynamics_labels: true
       joint_torques: true
     Topic:
