@@ -200,6 +200,7 @@ class DensoKinematicsGUI(QMainWindow):
         self.sim_q = np.zeros(5)
         self.sim_qd = np.zeros(5)
         self.sim_tau = np.zeros(5)
+        self.dynamics_visible = True
 
         self.setWindowTitle("DENSO VS-6556 - Bảng Động Học & Động Lực Học RViz2 (ROS 2)")
         self.resize(1200, 840)
@@ -247,6 +248,17 @@ class DensoKinematicsGUI(QMainWindow):
             "border-radius: 6px; padding: 6px 14px;"
         )
         header_layout.addWidget(self.status_badge)
+
+        self.btn_toggle_dynamics = QPushButton("👁️ ĐỘNG LỰC HỌC RVIZ2: ĐANG HIỆN")
+        self.btn_toggle_dynamics.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        self.btn_toggle_dynamics.setStyleSheet(
+            "background-color: #1b4332; color: #74c69d; border: 1px solid #40916c; "
+            "border-radius: 6px; padding: 6px 14px;"
+        )
+        self.btn_toggle_dynamics.setToolTip("Bấm để ẨN hoặc HIỆN các vector mô-men xoắn và nhãn chữ 3D tại các khớp trong RViz2")
+        self.btn_toggle_dynamics.clicked.connect(self.on_toggle_dynamics)
+        header_layout.addWidget(self.btn_toggle_dynamics)
+
         main_layout.addLayout(header_layout)
 
         # --- TABS CONTAINER ---
@@ -753,6 +765,34 @@ class DensoKinematicsGUI(QMainWindow):
     # ---------------------------------------------------------
     # DYNAMICS CALCULATION LOGIC
     # ---------------------------------------------------------
+    def on_toggle_dynamics(self):
+        """Toggles visibility of dynamics torque arrows and 3D labels in RViz2."""
+        self.dynamics_visible = not self.dynamics_visible
+        if self.dynamics_visible:
+            self.bridge.send_cmd("dynamics_on")
+            self.btn_toggle_dynamics.setText("👁️ ĐỘNG LỰC HỌC RVIZ2: ĐANG HIỆN")
+            self.btn_toggle_dynamics.setStyleSheet(
+                "background-color: #1b4332; color: #74c69d; border: 1px solid #40916c; "
+                "border-radius: 6px; padding: 6px 14px;"
+            )
+            self.log_label.setText("👁️ Đã HIỆN các vector mô-men xoắn và nhãn 3D động lực học trong RViz2.")
+        else:
+            self.bridge.send_cmd("dynamics_off")
+            # Clear markers immediately
+            from visualization_msgs.msg import Marker, MarkerArray
+            del_array = MarkerArray()
+            m = Marker()
+            m.action = Marker.DELETEALL
+            del_array.markers.append(m)
+            self.bridge.publish_markers(del_array)
+
+            self.btn_toggle_dynamics.setText("🙈 ĐỘNG LỰC HỌC RVIZ2: ĐÃ ẨN")
+            self.btn_toggle_dynamics.setStyleSheet(
+                "background-color: #3d1a24; color: #ff5555; border: 1px solid #ff5555; "
+                "border-radius: 6px; padding: 6px 14px;"
+            )
+            self.log_label.setText("🙈 Đã ẨN toàn bộ vector mô-men xoắn và nhãn 3D động lực học trong RViz2.")
+
     def on_id_sync_robot(self):
         """Copies real robot positions and velocities into ID input table."""
         for i in range(5):

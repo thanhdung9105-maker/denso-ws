@@ -71,6 +71,7 @@ class DensoController(Node):
         # Dynamics Engine and state tracking
         self.dynamics_engine = DensoDynamicsEngine()
         self.payload_mass = 0.0
+        self.dynamics_markers_visible = True
         self.prev_positions = list(self.current_positions)
         self.prev_velocities = [0.0] * 5
         self.prev_time = time.monotonic()
@@ -148,6 +149,29 @@ class DensoController(Node):
                         self.get_logger().info(f'Cap nhat tai trong payload: {self.payload_mass:.2f} kg')
                 except Exception as e:
                     self.get_logger().error(f'Loi parse payload: {e}')
+            elif cmd in ['dynamics_off', 'hide_dynamics', 'markers_off', 'dyn_off']:
+                self.dynamics_markers_visible = False
+                self.clear_rviz_markers()
+                self.get_logger().info('Da an thong so dong luc hoc trong RViz2.')
+            elif cmd in ['dynamics_on', 'show_dynamics', 'markers_on', 'dyn_on']:
+                self.dynamics_markers_visible = True
+                self.get_logger().info('Da hien thong so dong luc hoc trong RViz2.')
+            elif cmd in ['toggle_dynamics', 'dynamics_toggle', 'dyn_toggle']:
+                self.dynamics_markers_visible = not self.dynamics_markers_visible
+                if not self.dynamics_markers_visible:
+                    self.clear_rviz_markers()
+                self.get_logger().info(f'Trang thai hien thi dong luc hoc RViz2: {self.dynamics_markers_visible}')
+
+    def clear_rviz_markers(self):
+        try:
+            from visualization_msgs.msg import Marker
+            del_array = MarkerArray()
+            del_marker = Marker()
+            del_marker.action = Marker.DELETEALL
+            del_array.markers.append(del_marker)
+            self.marker_pub.publish(del_array)
+        except Exception as e:
+            pass
 
     def start_next_demo_step(self):
         step = DEMO_STEPS[self.demo_step_idx]
@@ -299,13 +323,14 @@ class DensoController(Node):
                 self.js_pub.publish(msg)
 
                 # Publish RViz2 Dynamics Visual Markers (Torque arrows & 3D text labels)
-                try:
-                    markers = self.dynamics_engine.build_marker_array(
-                        self.current_positions, dyn_res['tau'], qdd, frame_id="world"
-                    )
-                    self.marker_pub.publish(markers)
-                except Exception as e:
-                    pass
+                if self.dynamics_markers_visible:
+                    try:
+                        markers = self.dynamics_engine.build_marker_array(
+                            self.current_positions, dyn_res['tau'], qdd, frame_id="world"
+                        )
+                        self.marker_pub.publish(markers)
+                    except Exception as e:
+                        pass
 
             t_calc = time.monotonic() - t_start
             sleep_time = period - t_calc
