@@ -69,6 +69,19 @@ Visualization Manager:
     Tree: {}
     Update Interval: 0
     Value: true
+  - Class: rviz_default_plugins/MarkerArray
+    Enabled: true
+    Name: Joint Dynamics (Torque & Accel)
+    Namespaces:
+      joint_dynamics_labels: true
+      joint_torques: true
+    Topic:
+      Depth: 5
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /denso/joint_dynamics_markers
+    Value: true
   - Class: moveit_rviz_plugin/MotionPlanning
     Enabled: true
     Move Group Namespace: ''

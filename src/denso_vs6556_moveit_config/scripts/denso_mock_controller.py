@@ -21,7 +21,14 @@ from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory
 from control_msgs.action import FollowJointTrajectory
+from visualization_msgs.msg import MarkerArray
 from std_msgs.msg import String
+
+# Import Denso Dynamics Engine
+import os
+import sys
+sys.path.append(os.path.dirname(__file__))
+from denso_dynamics_engine import DensoDynamicsEngine, TORQUE_LIMITS
 
 # Pure 1-direction cumulative deployment:
 # Each link moves in 1 direction for 2.0s without any link reversing back and forth
@@ -60,6 +67,16 @@ class DensoController(Node):
         self.lock = threading.Lock()
         # Depth 1 keeps TF latency zero
         self.js_pub = self.create_publisher(JointState, '/joint_states', 1)
+
+        # Dynamics Engine and state tracking
+        self.dynamics_engine = DensoDynamicsEngine()
+        self.payload_mass = 0.0
+        self.prev_positions = list(self.current_positions)
+        self.prev_velocities = [0.0] * 5
+        self.prev_time = time.monotonic()
+
+        # Visual Marker publisher for RViz2 dynamics visualization
+        self.marker_pub = self.create_publisher(MarkerArray, '/denso/joint_dynamics_markers', 1)
 
         self.cmd_sub = self.create_subscription(
             String,
@@ -123,6 +140,14 @@ class DensoController(Node):
                         self.get_logger().info(f'Di chuyen toi vi tri khop: {parts}')
                 except Exception as e:
                     self.get_logger().error(f'Loi parse goto: {e}')
+            elif cmd.startswith('payload'):
+                try:
+                    parts = cmd.split()
+                    if len(parts) >= 2:
+                        self.payload_mass = max(0.0, float(parts[1]))
+                        self.get_logger().info(f'Cap nhat tai trong payload: {self.payload_mass:.2f} kg')
+                except Exception as e:
+                    self.get_logger().error(f'Loi parse payload: {e}')
 
     def start_next_demo_step(self):
         step = DEMO_STEPS[self.demo_step_idx]
@@ -251,12 +276,36 @@ class DensoController(Node):
                                 self.demo_step_idx = (self.demo_step_idx + 1) % len(DEMO_STEPS)
                                 self.start_next_demo_step()
 
+                # Calculate velocities and accelerations for dynamics
+                dt = max(1e-3, now - self.prev_time)
+                qd = [(curr - prev) / dt for curr, prev in zip(self.current_positions, self.prev_positions)]
+                qdd = [(v - pv) / dt for v, pv in zip(qd, self.prev_velocities)]
+
+                dyn_res = self.dynamics_engine.inverse_dynamics(
+                    self.current_positions, qd, qdd, payload_mass=self.payload_mass
+                )
+
+                self.prev_positions = list(self.current_positions)
+                self.prev_velocities = list(qd)
+                self.prev_time = now
+
                 # Publish JointState using ROS clock for strictly monotonic stamps
                 msg = JointState()
                 msg.header.stamp = self.get_clock().now().to_msg()
                 msg.name = self.joint_names
                 msg.position = list(self.current_positions)
+                msg.velocity = [float(x) for x in qd]
+                msg.effort = [float(x) for x in dyn_res['tau']]
                 self.js_pub.publish(msg)
+
+                # Publish RViz2 Dynamics Visual Markers (Torque arrows & 3D text labels)
+                try:
+                    markers = self.dynamics_engine.build_marker_array(
+                        self.current_positions, dyn_res['tau'], qdd, frame_id="world"
+                    )
+                    self.marker_pub.publish(markers)
+                except Exception as e:
+                    pass
 
             t_calc = time.monotonic() - t_start
             sleep_time = period - t_calc

@@ -13,6 +13,11 @@
 
   <!-- base_link (c001) -->
   <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0.09" rpy="0 0 0"/>
+      <mass value="8.0"/>
+      <inertia ixx="0.04" ixy="0.0" ixz="0.0" iyy="0.04" iyz="0.0" izz="0.05"/>
+    </inertial>
     <visual>
       <origin xyz="-0.11555 0.11564 0.0" rpy="1.570796 0 0"/>
       <geometry>
@@ -32,6 +37,11 @@
 
   <!-- link_1 (c002, shoulder) -->
   <link name="link_1">
+    <inertial>
+      <origin xyz="-0.04 0.0 0.08" rpy="0 0 0"/>
+      <mass value="4.5"/>
+      <inertia ixx="0.035" ixy="0.0" ixz="0.0" iyy="0.035" iyz="0.0" izz="0.025"/>
+    </inertial>
     <visual>
       <origin xyz="-0.160 0.110 0.0" rpy="1.570796 0 0"/>
       <geometry>
@@ -51,6 +61,11 @@
 
   <!-- link_2 (c003, upper arm) -->
   <link name="link_2">
+    <inertial>
+      <origin xyz="0.0 0.003 0.135" rpy="0 0 0"/>
+      <mass value="4.2"/>
+      <inertia ixx="0.045" ixy="0.0" ixz="0.0" iyy="0.040" iyz="0.0" izz="0.015"/>
+    </inertial>
     <visual>
       <origin xyz="-0.08719 0.0055 -0.08557" rpy="1.570796 0 0"/>
       <geometry>
@@ -70,6 +85,11 @@
 
   <!-- link_3 (c004, elbow) -->
   <link name="link_3">
+    <inertial>
+      <origin xyz="-0.04 0.02 0.04" rpy="0 0 0"/>
+      <mass value="3.1"/>
+      <inertia ixx="0.020" ixy="0.0" ixz="0.0" iyy="0.020" iyz="0.0" izz="0.010"/>
+    </inertial>
     <visual>
       <!-- Origin set exactly at elbow circular joint axis as per SolidWorks (-75mm, 605mm, 49mm) -->
       <origin xyz="-0.10802 0.13900 -0.07250" rpy="1.570796 0 0"/>
@@ -90,6 +110,11 @@
 
   <!-- link_4 (c005, forearm) -->
   <link name="link_4">
+    <inertial>
+      <origin xyz="-0.10 0.0 0.0" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.005" ixy="0.0" ixz="0.0" iyy="0.015" iyz="0.0" izz="0.015"/>
+    </inertial>
     <visual>
       <!-- Aligned with elbow at link_3 and wrist fork at tip, matching SolidWorks reference -->
       <origin xyz="-0.2545 0.0670 -0.0566" rpy="1.570796 0 0"/>
@@ -110,6 +135,11 @@
 
   <!-- link_5 (c006, tool flange) -->
   <link name="link_5">
+    <inertial>
+      <origin xyz="-0.03 0.0 0.0" rpy="0 0 0"/>
+      <mass value="1.2"/>
+      <inertia ixx="0.003" ixy="0.0" ixz="0.0" iyy="0.003" iyz="0.0" izz="0.003"/>
+    </inertial>
     <visual>
       <!-- Origin set at wrist pivot axis matching SolidWorks: (-370mm, 695mm, 0mm) -->
       <origin xyz="-0.08304 0.03242 -0.04093" rpy="1.570796 0 0"/>

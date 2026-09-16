@@ -13,6 +13,8 @@ install(
     scripts/denso_mock_controller.py
     scripts/denso_animation_demo.py
     scripts/denso_joint_by_joint_demo.py
+    scripts/denso_kinematics_gui.py
+    scripts/denso_dynamics_engine.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

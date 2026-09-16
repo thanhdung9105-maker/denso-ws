@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-DENSO VS-6556 KINEMATICS DASHBOARD (ROS 2)
-Bảng hiển thị Động học thuận (FK) và Động học nghịch (IK) thời gian thực.
+DENSO VS-6556 KINEMATICS & DYNAMICS DASHBOARD (ROS 2)
+Bảng điều khiển & Giám sát toàn diện:
+- Động học thuận (FK) & Động học nghịch (IK)
+- Động lực học nghịch (Inverse Dynamics - ID): Tính toán mô-men xoắn torque tau, phân tích thành phần M*qdd, C*qd, g(q), ma sát, tải trọng
+- Động lực học thuận (Forward Dynamics - FD): Tính toán gia tốc góc qdd từ torque tau, mô phỏng phản ứng vật lý thời gian thực
+- Trực quan hóa 3D trực tiếp trong RViz2 tại các khớp (Torque Arrow Markers & 3D Text Labels)
 """
 
 import sys
@@ -16,28 +20,28 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
+from visualization_msgs.msg import MarkerArray
 
 # PyQt5 imports
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QSlider, QDoubleSpinBox,
     QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
-    QProgressBar, QFrame, QSplitter
+    QProgressBar, QFrame, QSplitter, QTabWidget, QCheckBox
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt5.QtGui import QFont, QColor, QPalette, QIcon
+from PyQt5.QtGui import QFont, QColor, QPalette
+
+# Import Dynamics Engine
+sys.path.append(os.path.dirname(__file__))
+from denso_dynamics_engine import (
+    DensoDynamicsEngine, TORQUE_LIMITS, JOINT_LIMITS, AXES
+)
 
 # -------------------------------------------------------------
 # KINEMATICS ENGINE FOR DENSO VS-6556
 # -------------------------------------------------------------
 JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5']
-JOINT_LIMITS = [
-    (-2.96, 2.96),  # Joint 1: Base Z [-170°, +170°]
-    (-1.74, 1.74),  # Joint 2: Shoulder Y [-100°, +100°]
-    (-2.18, 2.18),  # Joint 3: Elbow Y [-125°, +125°]
-    (-3.31, 3.31),  # Joint 4: Forearm X [-190°, +190°]
-    (-2.09, 2.09),  # Joint 5: Wrist Y [-120°, +120°]
-]
 
 def rot_x(th):
     c, s = np.cos(th), np.sin(th)
@@ -86,9 +90,7 @@ def get_cartesian_pose(q):
     }
 
 def solve_inverse_kinematics(target_pos, q_init=None, max_iter=70, tol=1e-3):
-    """
-    Damped Least Squares (Levenberg-Marquardt) IK solver for target position [x, y, z].
-    """
+    """Damped Least Squares IK solver for target position [x, y, z]."""
     if q_init is None:
         q = np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
     else:
@@ -100,7 +102,6 @@ def solve_inverse_kinematics(target_pos, q_init=None, max_iter=70, tol=1e-3):
     q_min = np.array([lim[0] for lim in JOINT_LIMITS])
     q_max = np.array([lim[1] for lim in JOINT_LIMITS])
 
-    err = np.zeros(3)
     for _ in range(max_iter):
         T = forward_kinematics(q)
         curr_pos = T[:3, 3]
@@ -109,7 +110,6 @@ def solve_inverse_kinematics(target_pos, q_init=None, max_iter=70, tol=1e-3):
         if err_norm < tol:
             return q, True, err_norm
 
-        # Numerical Jacobian 3x5
         J = np.zeros((3, 5))
         for j in range(5):
             q_p = q.copy()
@@ -117,7 +117,6 @@ def solve_inverse_kinematics(target_pos, q_init=None, max_iter=70, tol=1e-3):
             p_p = forward_kinematics(q_p)[:3, 3]
             J[:, j] = (p_p - curr_pos) / eps
 
-        # DLS pseudo-inverse
         JJt = J @ J.T + (damping**2) * np.eye(3)
         dq = J.T @ np.linalg.solve(JJt, err)
         q = q + step_size * dq
@@ -132,19 +131,23 @@ def solve_inverse_kinematics(target_pos, q_init=None, max_iter=70, tol=1e-3):
 # ROS 2 THREAD & BRIDGE
 # -------------------------------------------------------------
 class RosBridge(QObject):
-    joint_states_received = pyqtSignal(list)
+    joint_states_received = pyqtSignal(list, list, list)
 
     def __init__(self):
         super().__init__()
         self.node = None
         self.cmd_pub = None
+        self.marker_pub = None
         self.latest_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self.latest_velocities = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self.latest_efforts = [0.0, 0.0, 0.0, 0.0, 0.0]
 
     def start_ros(self):
         rclpy.init(args=None)
         self.node = Node('denso_kinematics_gui')
         self.node.create_subscription(JointState, '/joint_states', self._js_cb, 10)
         self.cmd_pub = self.node.create_publisher(String, '/denso/cmd', 10)
+        self.marker_pub = self.node.create_publisher(MarkerArray, '/denso/joint_dynamics_markers', 10)
 
         threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True).start()
 
@@ -155,15 +158,27 @@ class RosBridge(QObject):
             if name in name_map and i < len(msg.position):
                 idx = name_map[name]
                 self.latest_joints[idx] = float(msg.position[i])
+                if len(msg.velocity) > i:
+                    self.latest_velocities[idx] = float(msg.velocity[i])
+                if len(msg.effort) > i:
+                    self.latest_efforts[idx] = float(msg.effort[i])
                 updated = True
         if updated:
-            self.joint_states_received.emit(list(self.latest_joints))
+            self.joint_states_received.emit(
+                list(self.latest_joints),
+                list(self.latest_velocities),
+                list(self.latest_efforts)
+            )
 
     def send_cmd(self, cmd_str: str):
         if self.cmd_pub:
             msg = String()
             msg.data = cmd_str
             self.cmd_pub.publish(msg)
+
+    def publish_markers(self, marker_array):
+        if self.marker_pub and marker_array is not None:
+            self.marker_pub.publish(marker_array)
 
 
 # -------------------------------------------------------------
@@ -173,11 +188,21 @@ class DensoKinematicsGUI(QMainWindow):
     def __init__(self, bridge: RosBridge):
         super().__init__()
         self.bridge = bridge
+        self.dynamics_engine = DensoDynamicsEngine()
+
         self.current_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self.current_velocities = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self.current_efforts = [0.0, 0.0, 0.0, 0.0, 0.0]
         self.solved_ik_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
 
-        self.setWindowTitle("DENSO VS-6556 - Bảng Động Học Thuận & Nghịch (ROS 2)")
-        self.resize(1150, 780)
+        # Forward dynamics real-time simulation state
+        self.sim_active = False
+        self.sim_q = np.zeros(5)
+        self.sim_qd = np.zeros(5)
+        self.sim_tau = np.zeros(5)
+
+        self.setWindowTitle("DENSO VS-6556 - Bảng Động Học & Động Lực Học RViz2 (ROS 2)")
+        self.resize(1200, 840)
         self.init_ui()
         self.apply_dark_theme()
 
@@ -186,23 +211,27 @@ class DensoKinematicsGUI(QMainWindow):
 
         # Refresh timer (10Hz)
         self.timer = QTimer()
-        self.timer.timeout.connect(self.update_fk_display)
+        self.timer.timeout.connect(self.on_timer_tick)
         self.timer.start(100)
+
+        # Simulation loop timer (20Hz)
+        self.sim_timer = QTimer()
+        self.sim_timer.timeout.connect(self.on_sim_tick)
 
     def init_ui(self):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(15, 12, 15, 12)
+        main_layout.setSpacing(10)
 
         # --- HEADER ---
         header_layout = QHBoxLayout()
         title_box = QVBoxLayout()
-        title_label = QLabel("DENSO VS-6556 KINEMATICS DASHBOARD")
+        title_label = QLabel("DENSO VS-6556 KINEMATICS & DYNAMICS DASHBOARD")
         title_label.setFont(QFont("Segoe UI", 16, QFont.Bold))
         title_label.setStyleSheet("color: #00e5ff; letter-spacing: 1px;")
-        sub_label = QLabel("Mô phỏng & Giám sát: Động Học Thuận (FK) & Động Học Nghịch (IK) trong ROS 2")
+        sub_label = QLabel("Tính toán Động Học (FK/IK) & Động Lực Học Thuận/Nghịch tại 5 khớp với Visual Marker 3D trên RViz2")
         sub_label.setFont(QFont("Segoe UI", 10))
         sub_label.setStyleSheet("color: #a0a0b0;")
         title_box.addWidget(title_label)
@@ -220,27 +249,45 @@ class DensoKinematicsGUI(QMainWindow):
         header_layout.addWidget(self.status_badge)
         main_layout.addLayout(header_layout)
 
-        # --- DIVIDER ---
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("color: #3d3d52;")
-        main_layout.addWidget(line)
+        # --- TABS CONTAINER ---
+        self.tabs = QTabWidget()
+        self.tabs.setFont(QFont("Segoe UI", 10, QFont.Bold))
 
-        # --- TWO PANELS (FK & IK) ---
+        # Tab 1: Động học (FK & IK)
+        tab_kinematics = QWidget()
+        kin_layout = QVBoxLayout(tab_kinematics)
+        kin_layout.setContentsMargins(5, 10, 5, 5)
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.create_fk_panel())
         splitter.addWidget(self.create_ik_panel())
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)
-        main_layout.addWidget(splitter, 1)
+        kin_layout.addWidget(splitter)
+        self.tabs.addTab(tab_kinematics, "📍 1. ĐỘNG HỌC (FK & IK)")
+
+        # Tab 2: Động lực học nghịch (Inverse Dynamics)
+        tab_id = QWidget()
+        id_layout = QVBoxLayout(tab_id)
+        id_layout.setContentsMargins(5, 10, 5, 5)
+        id_layout.addWidget(self.create_id_panel())
+        self.tabs.addTab(tab_id, "⚡ 2. ĐỘNG LỰC HỌC NGHỊCH (INVERSE DYNAMICS)")
+
+        # Tab 3: Động lực học thuận (Forward Dynamics)
+        tab_fd = QWidget()
+        fd_layout = QVBoxLayout(tab_fd)
+        fd_layout.setContentsMargins(5, 10, 5, 5)
+        fd_layout.addWidget(self.create_fd_panel())
+        self.tabs.addTab(tab_fd, "🚀 3. ĐỘNG LỰC HỌC THUẬN (FORWARD DYNAMICS)")
+
+        main_layout.addWidget(self.tabs, 1)
 
         # --- FOOTER / LOG BAR ---
-        self.log_label = QLabel("Trạng thái: Đang kết nối tới topic /joint_states và /denso/cmd...")
+        self.log_label = QLabel("Trạng thái: Đang kết nối tới topic /joint_states và /denso/joint_dynamics_markers...")
         self.log_label.setStyleSheet("color: #00e676; font-size: 11px; padding: 4px;")
         main_layout.addWidget(self.log_label)
 
     # ---------------------------------------------------------
-    # LEFT PANEL: FORWARD KINEMATICS (FK)
+    # TAB 1: FORWARD KINEMATICS (FK)
     # ---------------------------------------------------------
     def create_fk_panel(self):
         panel = QGroupBox("📍 ĐỘNG HỌC THUẬN (FORWARD KINEMATICS)")
@@ -248,7 +295,6 @@ class DensoKinematicsGUI(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setSpacing(10)
 
-        # 1. Joints Table
         lbl_joints = QLabel("Bảng Góc Khớp Hiện Tại (Joint States):")
         lbl_joints.setStyleSheet("color: #ffb86c; font-weight: bold;")
         layout.addWidget(lbl_joints)
@@ -270,7 +316,6 @@ class DensoKinematicsGUI(QMainWindow):
                 self.fk_table.item(row, col).setTextAlignment(Qt.AlignCenter)
         layout.addWidget(self.fk_table)
 
-        # 2. Cartesian Pose Box
         lbl_cart = QLabel("Tọa Độ & Hướng Đầu Gắp (End-Effector / Flange):")
         lbl_cart.setStyleSheet("color: #50fa7b; font-weight: bold;")
         layout.addWidget(lbl_cart)
@@ -282,7 +327,6 @@ class DensoKinematicsGUI(QMainWindow):
         grid.setHorizontalSpacing(15)
         grid.setVerticalSpacing(8)
 
-        # Labels for X, Y, Z
         self.val_x = QLabel("-370.0 mm (-0.370 m)")
         self.val_y = QLabel("0.0 mm (0.000 m)")
         self.val_z = QLabel("695.0 mm (0.695 m)")
@@ -312,13 +356,12 @@ class DensoKinematicsGUI(QMainWindow):
         row += 1
         grid.addWidget(QLabel("Bán kính gốc R:"), row, 0)
         grid.addWidget(self.val_dist, row, 1)
-        
+
         for w in [self.val_x, self.val_y, self.val_z, self.val_r, self.val_p, self.val_yaw, self.val_dist]:
             w.setStyleSheet("color: #00e5ff; font-weight: bold; font-family: monospace; font-size: 12px;")
 
         layout.addWidget(cart_box)
 
-        # 3. Quick Joint Joggers
         lbl_jog = QLabel("Kéo thử góc khớp (FK Jogging Preview):")
         lbl_jog.setStyleSheet("color: #bd93f9; font-weight: bold;")
         layout.addWidget(lbl_jog)
@@ -345,7 +388,7 @@ class DensoKinematicsGUI(QMainWindow):
         return panel
 
     # ---------------------------------------------------------
-    # RIGHT PANEL: INVERSE KINEMATICS (IK)
+    # TAB 1: INVERSE KINEMATICS (IK)
     # ---------------------------------------------------------
     def create_ik_panel(self):
         panel = QGroupBox("🎯 ĐỘNG HỌC NGHỊCH (INVERSE KINEMATICS)")
@@ -353,7 +396,6 @@ class DensoKinematicsGUI(QMainWindow):
         layout = QVBoxLayout(panel)
         layout.setSpacing(10)
 
-        # 1. Target Cartesian Inputs
         lbl_target = QLabel("Nhập Tọa Độ Mục Tiêu Đầu Gắp (Target Pose):")
         lbl_target.setStyleSheet("color: #ff79c6; font-weight: bold;")
         layout.addWidget(lbl_target)
@@ -364,7 +406,6 @@ class DensoKinematicsGUI(QMainWindow):
         grid.setContentsMargins(12, 10, 12, 10)
         grid.setHorizontalSpacing(15)
 
-        # Spinboxes for X, Y, Z (mm)
         grid.addWidget(QLabel("Target X (mm):"), 0, 0)
         self.sp_x = QDoubleSpinBox()
         self.sp_x.setRange(-700.0, 700.0)
@@ -393,7 +434,6 @@ class DensoKinematicsGUI(QMainWindow):
 
         layout.addWidget(inp_box)
 
-        # 2. Solve IK Button
         self.btn_solve = QPushButton("⚙️ GIẢI ĐỘNG HỌC NGHỊCH (SOLVE IK)")
         self.btn_solve.setFont(QFont("Segoe UI", 11, QFont.Bold))
         self.btn_solve.setStyleSheet(
@@ -402,9 +442,8 @@ class DensoKinematicsGUI(QMainWindow):
         self.btn_solve.clicked.connect(self.on_solve_ik)
         layout.addWidget(self.btn_solve)
 
-        # 3. IK Solution Table
-        lbl_res = QLabel("Nghiệm Góc Khớp Tính Toán (IK Solution):")
-        lbl_res.setStyleSheet("color: #8be9fd; font-weight: bold;")
+        lbl_res = QLabel("Nghiệm Góc Khớp Động Học Nghịch (IK Solution):")
+        lbl_res.setStyleSheet("color: #ffb86c; font-weight: bold;")
         layout.addWidget(lbl_res)
 
         self.ik_table = QTableWidget(5, 3)
@@ -416,107 +455,530 @@ class DensoKinematicsGUI(QMainWindow):
 
         for row in range(5):
             self.ik_table.setItem(row, 0, QTableWidgetItem(f"Joint {row+1}"))
-            self.ik_table.setItem(row, 1, QTableWidgetItem("0.0000"))
-            self.ik_table.setItem(row, 2, QTableWidgetItem("0.00°"))
+            self.ik_table.setItem(row, 1, QTableWidgetItem("-"))
+            self.ik_table.setItem(row, 2, QTableWidgetItem("-"))
             for col in range(3):
                 self.ik_table.item(row, col).setTextAlignment(Qt.AlignCenter)
         layout.addWidget(self.ik_table)
 
-        # Accuracy & Status Badge
-        self.lbl_ik_status = QLabel("Trạng thái: Chưa giải | Sai số: 0.0 mm")
-        self.lbl_ik_status.setStyleSheet("color: #f1fa8c; font-weight: bold;")
-        layout.addWidget(self.lbl_ik_status)
+        self.ik_status_lbl = QLabel("Sai số hội tụ: Chưa giải")
+        self.ik_status_lbl.setStyleSheet("color: #8be9fd; font-style: italic;")
+        layout.addWidget(self.ik_status_lbl)
 
-        # 4. Action Buttons
-        self.btn_execute = QPushButton("🚀 GỬI TỚI ROBOT TRONG RVIZ2")
-        self.btn_execute.setFont(QFont("Segoe UI", 11, QFont.Bold))
-        self.btn_execute.setStyleSheet(
-            "background-color: #06d6a0; color: #073b4c; padding: 11px; border-radius: 6px; font-weight: bold;"
+        self.btn_send = QPushButton("🚀 GỬI TỚI ROBOT TRONG RVIZ2")
+        self.btn_send.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        self.btn_send.setStyleSheet(
+            "background-color: #50fa7b; color: #1e1e24; padding: 10px; border-radius: 6px; font-weight: bold;"
         )
-        self.btn_execute.clicked.connect(self.on_send_to_robot)
-        layout.addWidget(self.btn_execute)
-
-        # Quick Presets
-        lbl_preset = QLabel("Vị trí mẫu nhanh (Presets):")
-        lbl_preset.setStyleSheet("color: #a0a0b0;")
-        layout.addWidget(lbl_preset)
-
-        preset_layout = QHBoxLayout()
-        presets = [
-            ("🏠 Home 0°", [-370.0, 0.0, 695.0]),
-            ("📦 Vị trí Gắp 1", [-250.0, 150.0, 550.0]),
-            ("📍 Vị trí Gắp 2", [-280.0, -180.0, 520.0]),
-            ("🔝 Nâng Cao", [-350.0, 0.0, 750.0]),
-        ]
-        for name, coords in presets:
-            btn = QPushButton(name)
-            btn.setStyleSheet("background-color: #383a59; color: #f8f8f2; padding: 5px;")
-            btn.clicked.connect(lambda _, c=coords: self.load_preset(c))
-            preset_layout.addWidget(btn)
-        layout.addLayout(preset_layout)
+        self.btn_send.setEnabled(False)
+        self.btn_send.clicked.connect(self.on_send_to_robot)
+        layout.addWidget(self.btn_send)
 
         layout.addStretch()
         return panel
 
     # ---------------------------------------------------------
-    # SLOTS & LOGIC
+    # TAB 2: INVERSE DYNAMICS (ID)
     # ---------------------------------------------------------
-    def on_joint_states(self, joints):
-        self.current_joints = list(joints)
+    def create_id_panel(self):
+        panel = QWidget()
+        layout = QHBoxLayout(panel)
+        layout.setSpacing(15)
+
+        # Left Column: Inputs & Commands
+        left_box = QGroupBox("📥 THÔNG SỐ ĐẦU VÀO ĐỘNG LỰC HỌC NGHỊCH")
+        left_layout = QVBoxLayout(left_box)
+
+        # Joint Inputs Table (q, qd, qdd)
+        lbl_q = QLabel("Vị trí (q), Vận tốc (q̇) và Gia tốc (q̈) tại 5 khớp:")
+        lbl_q.setStyleSheet("color: #ffb86c; font-weight: bold;")
+        left_layout.addWidget(lbl_q)
+
+        self.id_input_table = QTableWidget(5, 4)
+        self.id_input_table.setHorizontalHeaderLabels(["Khớp", "q (độ)", "q̇ (rad/s)", "q̈ (rad/s²)"])
+        self.id_input_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.id_input_table.verticalHeader().setVisible(False)
+        self.id_input_table.setFixedHeight(175)
+
+        for i in range(5):
+            self.id_input_table.setItem(i, 0, QTableWidgetItem(f"Joint {i+1}"))
+            self.id_input_table.item(i, 0).setFlags(Qt.ItemIsEnabled)
+            self.id_input_table.setItem(i, 1, QTableWidgetItem("0.0"))
+            self.id_input_table.setItem(i, 2, QTableWidgetItem("0.0"))
+            self.id_input_table.setItem(i, 3, QTableWidgetItem("0.0"))
+            for c in range(4):
+                self.id_input_table.item(i, c).setTextAlignment(Qt.AlignCenter)
+        left_layout.addWidget(self.id_input_table)
+
+        # Payload & External Force Box
+        load_box = QGroupBox("Tải Trọng Đầu Gắp (Payload) & Ngoại Lực:")
+        load_grid = QGridLayout(load_box)
+        load_grid.addWidget(QLabel("Khối lượng tải (kg):"), 0, 0)
+        self.sp_payload = QDoubleSpinBox()
+        self.sp_payload.setRange(0.0, 7.0)
+        self.sp_payload.setValue(0.0)
+        self.sp_payload.setSingleStep(0.5)
+        load_grid.addWidget(self.sp_payload, 0, 1)
+
+        load_grid.addWidget(QLabel("Lực Fz (N):"), 0, 2)
+        self.sp_fz = QDoubleSpinBox()
+        self.sp_fz.setRange(-100.0, 100.0)
+        self.sp_fz.setValue(0.0)
+        load_grid.addWidget(self.sp_fz, 0, 3)
+        left_layout.addWidget(load_box)
+
+        # Quick Actions
+        btn_sync = QPushButton("📌 Lấy góc & vận tốc hiện tại từ Robot")
+        btn_sync.setStyleSheet("background-color: #44475a; color: white; padding: 6px;")
+        btn_sync.clicked.connect(self.on_id_sync_robot)
+        left_layout.addWidget(btn_sync)
+
+        btn_grav_comp = QPushButton("⚖️ Cân Bằng Trọng Lực Tĩnh (q̇=0, q̈=0)")
+        btn_grav_comp.setStyleSheet("background-color: #6272a4; color: white; padding: 6px;")
+        btn_grav_comp.clicked.connect(self.on_id_gravity_comp)
+        left_layout.addWidget(btn_grav_comp)
+
+        self.btn_calc_id = QPushButton("⚡ TÍNH TOÁN MÔ-MEN XOẮN (INVERSE DYNAMICS)")
+        self.btn_calc_id.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        self.btn_calc_id.setStyleSheet("background-color: #ff79c6; color: #1e1e24; padding: 10px; border-radius: 6px;")
+        self.btn_calc_id.clicked.connect(self.on_compute_id)
+        left_layout.addWidget(self.btn_calc_id)
+
+        self.chk_auto_marker = QCheckBox("🔴 Phát Visual Marker 3D liên tục lên RViz2")
+        self.chk_auto_marker.setChecked(True)
+        self.chk_auto_marker.setStyleSheet("color: #50fa7b; font-weight: bold; margin-top: 5px;")
+        left_layout.addWidget(self.chk_auto_marker)
+
+        left_layout.addStretch()
+        layout.addWidget(left_box, 1)
+
+        # Right Column: Torque Outputs & Breakdown
+        right_box = QGroupBox("📊 KẾT QUẢ PHÂN RÃ MÔ-MEN XOẮN (TORQUE BREAKDOWN)")
+        right_layout = QVBoxLayout(right_box)
+
+        self.id_res_table = QTableWidget(5, 7)
+        self.id_res_table.setHorizontalHeaderLabels([
+            "Khớp", "Quán tính (M·q̈)", "Coriolis (C·q̇)", "Trọng lực (g)", "Tải trọng", "Tổng τ (N·m)", "% Tải"
+        ])
+        self.id_res_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.id_res_table.verticalHeader().setVisible(False)
+        self.id_res_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.id_res_table.setFixedHeight(180)
+
+        for i in range(5):
+            for c in range(7):
+                item = QTableWidgetItem("-" if c > 0 else f"Joint {i+1}")
+                item.setTextAlignment(Qt.AlignCenter)
+                self.id_res_table.setItem(i, c, item)
+        right_layout.addWidget(self.id_res_table)
+
+        # Progress bars for torque load
+        lbl_bars = QLabel("Mức Độ Tải Trọng Động Cơ So Với Giới Hạn Tối Đa (Motor Load %):")
+        lbl_bars.setStyleSheet("color: #8be9fd; font-weight: bold; margin-top: 5px;")
+        right_layout.addWidget(lbl_bars)
+
+        self.load_bars = []
+        bar_box = QGroupBox()
+        bar_grid = QGridLayout(bar_box)
+        for i in range(5):
+            bar_grid.addWidget(QLabel(f"J{i+1} (Max {TORQUE_LIMITS[i]:.0f}Nm):"), i, 0)
+            pb = QProgressBar()
+            pb.setRange(0, 100)
+            pb.setValue(0)
+            pb.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #44475a;
+                    border-radius: 4px;
+                    text-align: center;
+                    background-color: #282a36;
+                    color: white;
+                    font-weight: bold;
+                }
+                QProgressBar::chunk {
+                    background-color: #50fa7b;
+                    border-radius: 3px;
+                }
+            """)
+            bar_grid.addWidget(pb, i, 1)
+            self.load_bars.append(pb)
+        right_layout.addWidget(bar_box)
+
+        self.id_status_msg = QLabel("Trạng thái tải: An toàn (Tất cả các khớp hoạt động bình thường)")
+        self.id_status_msg.setStyleSheet("color: #50fa7b; font-weight: bold; font-size: 12px;")
+        right_layout.addWidget(self.id_status_msg)
+
+        right_layout.addStretch()
+        layout.addWidget(right_box, 1)
+
+        return panel
+
+    # ---------------------------------------------------------
+    # TAB 3: FORWARD DYNAMICS (FD)
+    # ---------------------------------------------------------
+    def create_fd_panel(self):
+        panel = QWidget()
+        layout = QHBoxLayout(panel)
+        layout.setSpacing(15)
+
+        # Left Column: Input Joint Torques
+        left_box = QGroupBox("📥 NHẬP MÔ-MEN XOẮN ĐỘNG LỰC HỌC THUẬN (TORQUE INPUT)")
+        left_layout = QVBoxLayout(left_box)
+
+        lbl_desc = QLabel("Điều chỉnh mô-men xoắn τ (N·m) áp vào từng trục động cơ:")
+        lbl_desc.setStyleSheet("color: #bd93f9; font-weight: bold;")
+        left_layout.addWidget(lbl_desc)
+
+        self.fd_sliders = []
+        self.fd_spinboxes = []
+        for i in range(5):
+            h = QHBoxLayout()
+            h.addWidget(QLabel(f"τ{i+1}:"))
+            sl = QSlider(Qt.Horizontal)
+            t_max = int(TORQUE_LIMITS[i])
+            sl.setRange(-t_max, t_max)
+            sl.setValue(0)
+
+            sp = QDoubleSpinBox()
+            sp.setRange(-float(t_max), float(t_max))
+            sp.setValue(0.0)
+            sp.setSingleStep(1.0)
+            sp.setFixedWidth(80)
+
+            # Link slider and spinbox
+            sl.valueChanged.connect(lambda v, s=sp: s.setValue(float(v)))
+            sp.valueChanged.connect(lambda v, s=sl: s.setValue(int(v)))
+
+            h.addWidget(sl)
+            h.addWidget(sp)
+            self.fd_sliders.append(sl)
+            self.fd_spinboxes.append(sp)
+            left_layout.addLayout(h)
+
+        h_btns = QHBoxLayout()
+        btn_zero = QPushButton("🔄 Đặt về 0 N·m")
+        btn_zero.setStyleSheet("background-color: #44475a; color: white; padding: 6px;")
+        btn_zero.clicked.connect(self.on_fd_zero_torques)
+        h_btns.addWidget(btn_zero)
+
+        btn_hold_g = QPushButton("⚖️ Đặt Mô-men Cân Bằng Trọng Lực")
+        btn_hold_g.setStyleSheet("background-color: #6272a4; color: white; padding: 6px;")
+        btn_hold_g.clicked.connect(self.on_fd_set_gravity_torques)
+        h_btns.addWidget(btn_hold_g)
+        left_layout.addLayout(h_btns)
+
+        self.btn_calc_fd = QPushButton("⚙️ TÍNH TOÁN GIA TỐC GÓC (FORWARD DYNAMICS)")
+        self.btn_calc_fd.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        self.btn_calc_fd.setStyleSheet("background-color: #00e5ff; color: #1e1e24; padding: 10px; border-radius: 6px;")
+        self.btn_calc_fd.clicked.connect(self.on_compute_fd)
+        left_layout.addWidget(self.btn_calc_fd)
+
+        # Real-time Physics Simulation Control Box
+        sim_box = QGroupBox("🎮 Mô Phỏng Vật Lý Tương Tác Thời Gian Thực Trên RViz2:")
+        sim_box.setStyleSheet("background-color: #21222c; border: 1px solid #ff79c6; border-radius: 8px;")
+        sim_vbox = QVBoxLayout(sim_box)
+
+        lbl_sim_desc = QLabel(
+            "Khi bật mô phỏng, cánh tay robot trong RViz2 sẽ chuyển động tự do theo đúng lực mô men xoắn áp vào từ thanh trượt!"
+        )
+        lbl_sim_desc.setStyleSheet("color: #f1fa8c; font-size: 11px;")
+        lbl_sim_desc.setWordWrap(True)
+        sim_vbox.addWidget(lbl_sim_desc)
+
+        h_sim_btns = QHBoxLayout()
+        self.btn_start_sim = QPushButton("▶️ BẮT ĐẦU MÔ PHỎNG VẬT LÝ RVIZ2")
+        self.btn_start_sim.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        self.btn_start_sim.setStyleSheet("background-color: #50fa7b; color: #1e1e24; padding: 8px; border-radius: 4px;")
+        self.btn_start_sim.clicked.connect(self.on_start_simulation)
+        h_sim_btns.addWidget(self.btn_start_sim)
+
+        self.btn_stop_sim = QPushButton("⏹ DỪNG MÔ PHỎNG")
+        self.btn_stop_sim.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        self.btn_stop_sim.setStyleSheet("background-color: #ff5555; color: white; padding: 8px; border-radius: 4px;")
+        self.btn_stop_sim.setEnabled(False)
+        self.btn_stop_sim.clicked.connect(self.on_stop_simulation)
+        h_sim_btns.addWidget(self.btn_stop_sim)
+        sim_vbox.addLayout(h_sim_btns)
+
+        left_layout.addWidget(sim_box)
+        left_layout.addStretch()
+        layout.addWidget(left_box, 1)
+
+        # Right Column: Output Acceleration & Mass Matrix
+        right_box = QGroupBox("📊 GIA TỐC KHỚP VÀ MA TRẬN QUÁN TÍNH M(q)")
+        right_layout = QVBoxLayout(right_box)
+
+        lbl_acc = QLabel("Gia Tốc Góc Khớp Thu Được (q̈ = M⁻¹(τ - C·q̇ - g)):")
+        lbl_acc.setStyleSheet("color: #50fa7b; font-weight: bold;")
+        right_layout.addWidget(lbl_acc)
+
+        self.fd_res_table = QTableWidget(5, 4)
+        self.fd_res_table.setHorizontalHeaderLabels(["Khớp", "Gia tốc q̈ (rad/s²)", "Gia tốc q̈ (độ/s²)", "Hướng gia tốc"])
+        self.fd_res_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.fd_res_table.verticalHeader().setVisible(False)
+        self.fd_res_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.fd_res_table.setFixedHeight(175)
+
+        for i in range(5):
+            self.fd_res_table.setItem(i, 0, QTableWidgetItem(f"Joint {i+1}"))
+            self.fd_res_table.setItem(i, 1, QTableWidgetItem("0.000"))
+            self.fd_res_table.setItem(i, 2, QTableWidgetItem("0.00°/s²"))
+            self.fd_res_table.setItem(i, 3, QTableWidgetItem("Đứng yên"))
+            for c in range(4):
+                self.fd_res_table.item(i, c).setTextAlignment(Qt.AlignCenter)
+        right_layout.addWidget(self.fd_res_table)
+
+        lbl_mat = QLabel("Ma Trận Khối Lượng Quán Tính Đối Xứng M(q) (5x5 kg·m²):")
+        lbl_mat.setStyleSheet("color: #8be9fd; font-weight: bold; margin-top: 8px;")
+        right_layout.addWidget(lbl_mat)
+
+        self.mass_table = QTableWidget(5, 5)
+        self.mass_table.setHorizontalHeaderLabels(["J1", "J2", "J3", "J4", "J5"])
+        self.mass_table.setVerticalHeaderLabels(["J1", "J2", "J3", "J4", "J5"])
+        self.mass_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.mass_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.mass_table.setFixedHeight(160)
+
+        for r in range(5):
+            for c in range(5):
+                item = QTableWidgetItem("0.000")
+                item.setTextAlignment(Qt.AlignCenter)
+                self.mass_table.setItem(r, c, item)
+        right_layout.addWidget(self.mass_table)
+
+        right_layout.addStretch()
+        layout.addWidget(right_box, 1)
+
+        return panel
+
+    # ---------------------------------------------------------
+    # DYNAMICS CALCULATION LOGIC
+    # ---------------------------------------------------------
+    def on_id_sync_robot(self):
+        """Copies real robot positions and velocities into ID input table."""
+        for i in range(5):
+            self.id_input_table.item(i, 1).setText(f"{np.rad2deg(self.current_joints[i]):.2f}")
+            self.id_input_table.item(i, 2).setText(f"{self.current_velocities[i]:.3f}")
+            self.id_input_table.item(i, 3).setText("0.00")
+        self.log_label.setText("📌 Đã đồng bộ vị trí và vận tốc hiện tại từ Robot vào Động Lực Học Nghịch.")
+
+    def on_id_gravity_comp(self):
+        """Sets qd=0, qdd=0 to calculate pure gravity holding torques."""
+        for i in range(5):
+            self.id_input_table.item(i, 2).setText("0.00")
+            self.id_input_table.item(i, 3).setText("0.00")
+        self.on_compute_id()
+        self.log_label.setText("⚖️ Đã tính toán mô-men bù trọng lực tĩnh (Gravity Compensation).")
+
+    def on_compute_id(self):
+        """Calculates Inverse Dynamics and updates results table and RViz2 markers."""
+        try:
+            q = np.array([np.deg2rad(float(self.id_input_table.item(i, 1).text())) for i in range(5)])
+            qd = np.array([float(self.id_input_table.item(i, 2).text()) for i in range(5)])
+            qdd = np.array([float(self.id_input_table.item(i, 3).text()) for i in range(5)])
+        except ValueError:
+            self.log_label.setText("❌ Lỗi định dạng số trong bảng nhập thông số khớp!")
+            return
+
+        payload = self.sp_payload.value()
+        fz = self.sp_fz.value()
+        f_ext = np.array([0.0, 0.0, fz]) if abs(fz) > 1e-3 else None
+
+        res = self.dynamics_engine.inverse_dynamics(q, qd, qdd, payload_mass=payload, f_ext=f_ext)
+
+        for i in range(5):
+            self.id_res_table.item(i, 1).setText(f"{res['M_qdd'][i]:+.2f}")
+            self.id_res_table.item(i, 2).setText(f"{res['C_qd'][i]:+.2f}")
+            self.id_res_table.item(i, 3).setText(f"{res['g'][i]:+.2f}")
+            self.id_res_table.item(i, 4).setText(f"{res['payload'][i]:+.2f}")
+            self.id_res_table.item(i, 5).setText(f"{res['tau'][i]:+.2f}")
+            pct = res['percent_load'][i]
+            self.id_res_table.item(i, 6).setText(f"{pct:.1f}%")
+
+            # Update progress bar
+            pb = self.load_bars[i]
+            val = int(min(100, pct))
+            pb.setValue(val)
+            if pct < 50:
+                pb_color = "#50fa7b"  # Green
+            elif pct < 80:
+                pb_color = "#ffb86c"  # Yellow
+            else:
+                pb_color = "#ff5555"  # Red
+            pb.setStyleSheet(f"""
+                QProgressBar {{
+                    border: 1px solid #44475a; border-radius: 4px; text-align: center;
+                    background-color: #282a36; color: white; font-weight: bold;
+                }}
+                QProgressBar::chunk {{ background-color: {pb_color}; border-radius: 3px; }}
+            """)
+
+        if res['is_overload']:
+            self.id_status_msg.setText("⚠️ CẢNH BÁO QUÁ TẢI: Có khớp vượt quá 100% mô-men xoắn định mức!")
+            self.id_status_msg.setStyleSheet("color: #ff5555; font-weight: bold; font-size: 12px;")
+        else:
+            self.id_status_msg.setText("✅ Trạng thái an toàn: Tất cả các khớp hoạt động trong ngưỡng cho phép.")
+            self.id_status_msg.setStyleSheet("color: #50fa7b; font-weight: bold; font-size: 12px;")
+
+        # Publish visual markers to RViz2 if checked
+        if self.chk_auto_marker.isChecked():
+            markers = self.dynamics_engine.build_marker_array(q, res['tau'], qdd, frame_id="world")
+            self.bridge.publish_markers(markers)
+
+        self.log_label.setText(f"⚡ Đã tính xong Động Lực Học Nghịch. Tổng Torque = {np.round(res['tau'], 2)} N·m")
+
+    def on_fd_zero_torques(self):
+        for sp in self.fd_spinboxes:
+            sp.setValue(0.0)
+
+    def on_fd_set_gravity_torques(self):
+        """Computes holding torques and populates FD torque spinboxes."""
+        g_tau = self.dynamics_engine.gravity_compensation(self.current_joints)
+        for i in range(5):
+            val = float(g_tau[i])
+            limit = float(TORQUE_LIMITS[i])
+            val_clipped = max(-limit, min(limit, val))
+            self.fd_spinboxes[i].setValue(val_clipped)
+        self.log_label.setText("⚖️ Đã thiết lập các thanh trượt mô-men xoắn bằng đúng giá trị bù trọng lực.")
+
+    def on_compute_fd(self):
+        """Calculates Forward Dynamics: computes qdd from current q, qd and input tau."""
+        tau = np.array([sp.value() for sp in self.fd_spinboxes])
+        q = np.array(self.current_joints)
+        qd = np.array(self.current_velocities)
+
+        M = self.dynamics_engine.compute_mass_matrix(q)
+        qdd = self.dynamics_engine.forward_dynamics(q, qd, tau)
+
+        # Update Acceleration Table
+        for i in range(5):
+            rad_s2 = qdd[i]
+            deg_s2 = np.rad2deg(rad_s2)
+            self.fd_res_table.item(i, 1).setText(f"{rad_s2:+.3f}")
+            self.fd_res_table.item(i, 2).setText(f"{deg_s2:+.2f}°/s²")
+            if abs(rad_s2) < 0.05:
+                direction = "Cân bằng"
+            elif rad_s2 > 0:
+                direction = "Gia tốc dương (+)"
+            else:
+                direction = "Gia tốc âm (-)"
+            self.fd_res_table.item(i, 3).setText(direction)
+
+        # Update Mass Matrix Table
+        for r in range(5):
+            for c in range(5):
+                self.mass_table.item(r, c).setText(f"{M[r, c]:.4f}")
+
+        # Update RViz2 Markers
+        markers = self.dynamics_engine.build_marker_array(q, tau, qdd, frame_id="world")
+        self.bridge.publish_markers(markers)
+
+        self.log_label.setText(f"⚙️ Đã giải xong Động Lực Học Thuận: q̈ = {np.round(qdd, 3)} rad/s²")
+
+    # ---------------------------------------------------------
+    # REAL-TIME PHYSICS SIMULATION IN RVIZ2
+    # ---------------------------------------------------------
+    def on_start_simulation(self):
+        self.sim_active = True
+        self.sim_q = np.array(self.current_joints, dtype=float)
+        self.sim_qd = np.zeros(5)
+        self.btn_start_sim.setEnabled(False)
+        self.btn_stop_sim.setEnabled(True)
+        self.sim_timer.start(50)  # 20Hz
+        self.log_label.setText("▶️ Bắt đầu mô phỏng tương tác thời gian thực: Hãy kéo thanh trượt mô-men xoắn!")
+
+    def on_stop_simulation(self):
+        self.sim_active = False
+        self.sim_timer.stop()
+        self.btn_start_sim.setEnabled(True)
+        self.btn_stop_sim.setEnabled(False)
+        self.log_label.setText("⏹ Đã dừng mô phỏng tương tác thời gian thực.")
+
+    def on_sim_tick(self):
+        if not self.sim_active:
+            return
+
+        dt = 0.05
+        tau = np.array([sp.value() for sp in self.fd_spinboxes])
+
+        self.sim_q, self.sim_qd, qdd = self.dynamics_engine.integrate_step(
+            self.sim_q, self.sim_qd, tau, dt=dt
+        )
+
+        # Send target positions to controller so robot moves in RViz2
+        cmd = f"goto {self.sim_q[0]:.4f} {self.sim_q[1]:.4f} {self.sim_q[2]:.4f} {self.sim_q[3]:.4f} {self.sim_q[4]:.4f}"
+        self.bridge.send_cmd(cmd)
+
+        # Update acceleration table
+        for i in range(5):
+            self.fd_res_table.item(i, 1).setText(f"{qdd[i]:+.3f}")
+            self.fd_res_table.item(i, 2).setText(f"{np.rad2deg(qdd[i]):+.2f}°/s²")
+
+        # Publish visual markers to RViz2
+        markers = self.dynamics_engine.build_marker_array(self.sim_q, tau, qdd, frame_id="world")
+        self.bridge.publish_markers(markers)
+
+    # ---------------------------------------------------------
+    # TIMER & CALLBACKS
+    # ---------------------------------------------------------
+    def on_joint_states(self, positions, velocities, efforts):
+        self.current_joints = list(positions)
+        self.current_velocities = list(velocities)
+        self.current_efforts = list(efforts)
+
+    def on_timer_tick(self):
+        self.update_fk_display()
+
+        # If on ID tab and auto-sync is enabled, update live
+        if self.tabs.currentIndex() == 1 and not self.sim_active:
+            pass
 
     def update_fk_display(self):
-        # Update Table
-        for row in range(5):
-            rad = self.current_joints[row]
-            deg = np.rad2deg(rad)
-            self.fk_table.item(row, 2).setText(f"{rad:+.4f}")
-            self.fk_table.item(row, 3).setText(f"{deg:+.1f}°")
+        q = self.current_joints
+        for i in range(5):
+            self.fk_table.item(i, 2).setText(f"{q[i]:.4f}")
+            self.fk_table.item(i, 3).setText(f"{np.rad2deg(q[i]):.1f}°")
 
-        # Update Cartesian Pose
-        pose = get_cartesian_pose(self.current_joints)
+        pose = get_cartesian_pose(q)
         x_mm = pose['x'] * 1000.0
         y_mm = pose['y'] * 1000.0
         z_mm = pose['z'] * 1000.0
-        r_mm = math.sqrt(x_mm**2 + y_mm**2 + z_mm**2)
+        dist_mm = np.sqrt(x_mm**2 + y_mm**2 + z_mm**2)
 
-        self.val_x.setText(f"{x_mm:+.1f} mm ({pose['x']:+.3f} m)")
-        self.val_y.setText(f"{y_mm:+.1f} mm ({pose['y']:+.3f} m)")
-        self.val_z.setText(f"{z_mm:+.1f} mm ({pose['z']:+.3f} m)")
-        self.val_r.setText(f"{pose['roll']:+.1f}°")
-        self.val_p.setText(f"{pose['pitch']:+.1f}°")
-        self.val_yaw.setText(f"{pose['yaw']:+.1f}°")
-        self.val_dist.setText(f"{r_mm:.1f} mm")
+        self.val_x.setText(f"{x_mm:.1f} mm ({pose['x']:.3f} m)")
+        self.val_y.setText(f"{y_mm:.1f} mm ({pose['y']:.3f} m)")
+        self.val_z.setText(f"{z_mm:.1f} mm ({pose['z']:.3f} m)")
+        self.val_r.setText(f"{pose['roll']:.1f}°")
+        self.val_p.setText(f"{pose['pitch']:.1f}°")
+        self.val_yaw.setText(f"{pose['yaw']:.1f}°")
+        self.val_dist.setText(f"{dist_mm:.1f} mm")
 
     def on_jog_slider_changed(self):
-        jog_q = []
-        for i in range(5):
-            sl, lbl = self.jog_sliders[i]
-            val = sl.value()
-            lbl.setText(f"{val:+d}°")
-            jog_q.append(np.deg2rad(val))
-        
-        # Calculate FK for jogged joints
-        pose = get_cartesian_pose(jog_q)
+        q_jog = []
+        for i, (sl, lbl) in enumerate(self.jog_sliders):
+            deg = sl.value()
+            lbl.setText(f"{deg}°")
+            q_jog.append(np.deg2rad(deg))
+
+        pose = get_cartesian_pose(q_jog)
         x_mm = pose['x'] * 1000.0
         y_mm = pose['y'] * 1000.0
         z_mm = pose['z'] * 1000.0
-        self.log_label.setText(
-            f"💡 Xem thử FK góc kéo: J=[{','.join([f'{sl.value()}°' for sl, _ in self.jog_sliders])}] "
-            f"-> End-Effector: X={x_mm:.1f}mm, Y={y_mm:.1f}mm, Z={z_mm:.1f}mm"
-        )
+        dist_mm = np.sqrt(x_mm**2 + y_mm**2 + z_mm**2)
+
+        self.val_x.setText(f"{x_mm:.1f} mm [JOG]")
+        self.val_y.setText(f"{y_mm:.1f} mm [JOG]")
+        self.val_z.setText(f"{z_mm:.1f} mm [JOG]")
+        self.val_r.setText(f"{pose['roll']:.1f}°")
+        self.val_p.setText(f"{pose['pitch']:.1f}°")
+        self.val_yaw.setText(f"{pose['yaw']:.1f}°")
+        self.val_dist.setText(f"{dist_mm:.1f} mm")
 
     def copy_current_to_target(self):
         pose = get_cartesian_pose(self.current_joints)
-        self.sp_x.setValue(round(pose['x'] * 1000.0, 1))
-        self.sp_y.setValue(round(pose['y'] * 1000.0, 1))
-        self.sp_z.setValue(round(pose['z'] * 1000.0, 1))
-        self.log_label.setText("📌 Đã sao chép tọa độ hiện tại của robot vào ô mục tiêu IK.")
-
-    def load_preset(self, coords):
-        self.sp_x.setValue(coords[0])
-        self.sp_y.setValue(coords[1])
-        self.sp_z.setValue(coords[2])
-        self.on_solve_ik()
+        self.sp_x.setValue(pose['x'] * 1000.0)
+        self.sp_y.setValue(pose['y'] * 1000.0)
+        self.sp_z.setValue(pose['z'] * 1000.0)
+        self.log_label.setText("📌 Đã lấy tọa độ hiện tại làm mục tiêu giải IK.")
 
     def on_solve_ik(self):
         target_pos = np.array([
@@ -526,30 +988,27 @@ class DensoKinematicsGUI(QMainWindow):
         ])
 
         t0 = time.perf_counter()
-        q_sol, success, err_norm = solve_inverse_kinematics(target_pos, q_init=self.current_joints)
-        calc_ms = (time.perf_counter() - t0) * 1000.0
-
-        self.solved_ik_joints = list(q_sol)
-        err_mm = err_norm * 1000.0
-
-        # Update IK Table
-        for row in range(5):
-            rad = q_sol[row]
-            deg = np.rad2deg(rad)
-            self.ik_table.item(row, 1).setText(f"{rad:+.4f}")
-            self.ik_table.item(row, 2).setText(f"{deg:+.2f}°")
+        q_sol, success, err = solve_inverse_kinematics(target_pos, q_init=self.current_joints)
+        calc_time = (time.perf_counter() - t0) * 1000.0
 
         if success:
-            self.lbl_ik_status.setText(f"✅ GIẢI THÀNH CÔNG! Thời gian: {calc_ms:.1f}ms | Sai số: {err_mm:.2f} mm")
-            self.lbl_ik_status.setStyleSheet("color: #50fa7b; font-weight: bold;")
-            self.log_label.setText(f"✅ Đã tìm thấy nghiệm IK tối ưu cho tọa độ [{target_pos[0]:.3f}, {target_pos[1]:.3f}, {target_pos[2]:.3f}] m")
+            self.solved_ik_joints = list(q_sol)
+            for i in range(5):
+                self.ik_table.item(i, 1).setText(f"{q_sol[i]:.4f}")
+                self.ik_table.item(i, 2).setText(f"{np.rad2deg(q_sol[i]):.1f}°")
+
+            err_mm = err * 1000.0
+            self.ik_status_lbl.setText(f"✅ Hội tụ thành công trong {calc_time:.2f}ms! Sai số vị trí: {err_mm:.2f} mm")
+            self.ik_status_lbl.setStyleSheet("color: #50fa7b; font-weight: bold;")
+            self.btn_send.setEnabled(True)
+            self.log_label.setText(f"✅ Giải IK thành công cho tọa độ {np.round(target_pos*1000, 1)} mm.")
         else:
-            self.lbl_ik_status.setText(f"⚠️ NGOÀI TẦM VỚI HOẶC GẦN ĐIỂM KỲ DỊ! Sai số: {err_mm:.2f} mm")
-            self.lbl_ik_status.setStyleSheet("color: #ff5555; font-weight: bold;")
-            self.log_label.setText("⚠️ Vị trí mục tiêu có thể vượt quá không gian làm việc hoặc gần điểm kỳ dị của cánh tay.")
+            self.ik_status_lbl.setText(f"❌ Không hội tụ tới sai số mong muốn ({err*1000.0:.1f} mm). Ngoài tầm với!")
+            self.ik_status_lbl.setStyleSheet("color: #ff5555; font-weight: bold;")
+            self.btn_send.setEnabled(False)
+            self.log_label.setText("❌ Không tìm thấy nghiệm IK phù hợp.")
 
     def on_send_to_robot(self):
-        # Format: goto q1 q2 q3 q4 q5
         q = self.solved_ik_joints
         cmd = f"goto {q[0]:.4f} {q[1]:.4f} {q[2]:.4f} {q[3]:.4f} {q[4]:.4f}"
         self.bridge.send_cmd(cmd)
@@ -572,6 +1031,27 @@ class DensoKinematicsGUI(QMainWindow):
         self.setPalette(palette)
 
         self.setStyleSheet("""
+            QTabBar::tab {
+                background: #282a36;
+                color: #a0a0b0;
+                padding: 8px 18px;
+                border: 1px solid #44475a;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                margin-right: 3px;
+            }
+            QTabBar::tab:selected {
+                background: #44475a;
+                color: #00e5ff;
+                font-weight: bold;
+                border-bottom: 2px solid #00e5ff;
+            }
+            QTabWidget::pane {
+                border: 1px solid #44475a;
+                border-radius: 6px;
+                top: -1px;
+                background-color: #1e1e24;
+            }
             QGroupBox {
                 border: 1px solid #44475a;
                 border-radius: 8px;
