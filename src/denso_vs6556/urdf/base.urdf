@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<robot name="denso_vs6556">
+
+  <!-- Link goc co dinh the gioi tai (0, 0, 0) -->
+  <link name="world"/>
+
+  <!-- Khop co dinh gan base_link vao world tai goc (0, 0, 0) -->
+  <joint name="world_to_base" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Khoi de robot -->
+  <link name="base_link">
+    <visual>
+      <!-- Can chinh tam de ve (0, 0) va day de sat mat san Z = 0 -->
+      <origin xyz="-0.14664 -0.10616 -0.00819" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://denso_vs6556/meshes/BASE.STL"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="denso_white">
+        <color rgba="0.9 0.9 0.9 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <origin xyz="-0.14664 -0.10616 -0.00819" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://denso_vs6556/meshes/BASE.STL"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+</robot>
