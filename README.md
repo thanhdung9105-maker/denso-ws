@@ -1,69 +1,168 @@
 # Denso VS-6556 Industrial Robot Arm - ROS 2 Jazzy & MoveIt 2
 
-Hệ thống điều khiển, mô phỏng và tính toán động học cho cánh tay robot công nghiệp **Denso VS-6556** (5 bậc tự do / 5-DOF) chạy trên nền tảng **ROS 2 Jazzy** và **MoveIt 2**, hỗ trợ chạy Native trong WSL2 (Ubuntu 24.04) hoặc cô lập hoàn toàn qua **Docker container** kèm đồ họa WSLg.
+Hệ thống điều khiển, mô phỏng 3D và tính toán động học cho cánh tay robot công nghiệp **Denso VS-6556** (5 bậc tự do / 5-DOF) chạy trên nền tảng **ROS 2 Jazzy** và **MoveIt 2**, hỗ trợ chạy Native trong WSL2 (Ubuntu 24.04) hoặc cô lập qua **Docker container** kèm đồ họa WSLg.
+
+Repository này được liên kết chính thức với GitHub:  
+👉 **[https://github.com/thanhdung9105-maker/denso-ws](https://github.com/thanhdung9105-maker/denso-ws)**
 
 ---
 
-## 🌟 Tính Năng Nổi Bật
+## 🏗️ 1. Kiến Trúc Lưu Trữ & Hiệu Năng: Ổ D: vs WSL2
 
-- **Mô hình hóa Robot chuẩn xác (URDF)**: Hiệu chỉnh chính xác gốc tọa độ và khớp xoay theo bản vẽ đo đạc thực tế từ SolidWorks.
-- **Tích hợp MoveIt 2**: Cấu hình quy hoạch quỹ đạo OMPL và Pilz Industrial Motion Planner với thuật toán KDL Kinematics.
-- **Bảng Điều Khiển Động Học Thời Gian Thực (Kinematics Dashboard)**:
-  - **Động học thuận (FK)**: Hiển thị bảng góc 5 khớp (Rad/Độ) và vị trí/hướng 3D của đầu gắp ($X, Y, Z$, Roll, Pitch, Yaw) cập nhật tức thời từ `/joint_states`.
-  - **Động học nghịch (IK)**: Bộ giải Damped Least Squares (Levenberg-Marquardt) tốc độ cao ($<2\text{ms}$, sai số $<0.5\text{mm}$), hỗ trợ gửi lệnh trực tiếp cho robot di chuyển trong RViz2.
-- **Khởi động an toàn**: Mặc định cố định toàn bộ 5 khớp tại vị trí gốc $0^\circ$, chống rung lắc hoặc chạy mất kiểm soát khi vừa khởi động.
-- **Đóng gói Docker trọn gói**: Chạy độc lập với `docker compose`, chuyển tiếp đồ họa X11/Wayland mượt mà lên Windows.
+### ❓ Câu hỏi thường gặp: "Nên clone code vào WSL hay clone vào ổ D: để chạy?"
+
+| Tiêu chí | Lưu tại ổ `D:/ROS2/denso-ws` (Windows NTFS) | Lưu tại `/home/dung/denso_ws` (WSL2 ext4) |
+|---|---|---|
+| **Mục đích sử dụng** | Quản lý file, chỉnh sửa code bằng VS Code Windows, commit/push Git qua Git GUI. | Build mã nguồn (`colcon build`), chạy node ROS 2, RViz2, MoveIt 2. |
+| **Tốc độ đọc/ghi I/O** | Chậm hơn (do đi qua cầu nối ảo 9P giữa Linux và Windows NTFS). | **Nhanh gấp 5 – 10 lần** (chạy trực tiếp trên hệ thống file ext4 gốc của Linux). |
+| **Phân quyền Linux & Symlink** | Hạn chế (NTFS không hỗ trợ chuẩn `chmod +x` và symlink của ROS 2). | **Hỗ trợ 100%** chuẩn POSIX Linux, không bao giờ bị lỗi permission. |
+
+### 💡 Quy Trình Làm Việc Chuẩn (Recommended Dual-Workflow):
+1. **Chỉnh sửa & Quản lý Git trên Windows (`D:/ROS2/denso-ws`)**:
+   - Mở thư mục `D:\ROS2\denso-ws` trong VS Code hoặc Antigravity IDE trên Windows để viết code, xem tài liệu, quản lý commit.
+   - Dùng Git trên Windows để push code lên GitHub cực kỳ dễ dàng (tự động nhận Git Credential Manager của Windows, không bị hỏi mật khẩu).
+2. **Chạy & Build trong WSL2 (`/home/dung/denso_ws`)**:
+   - Thư mục `/home/dung/denso_ws` trong WSL đóng vai trò là "Runtime Engine" để biên dịch và chạy robot ở tốc độ tối đa.
+3. **Đồng bộ giữa D: và WSL2**:
+   - Khi sửa code trên ổ D: và muốn đồng bộ sang WSL:
+     ```bash
+     # Trong terminal WSL:
+     cd /home/dung/denso_ws
+     git pull /mnt/d/ROS2/denso-ws main
+     colcon build --symlink-install
+     ```
+   - Hoặc đơn giản là push từ D: lên GitHub, rồi trong WSL gõ `git pull origin main`.
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt & Khởi Chạy
+## 🚀 2. Hướng Dẫn Khởi Chạy Hệ Thống
 
-### 1. Khởi chạy trên máy chủ (Native ROS 2)
+### Cách 1: Khởi chạy bằng Docker (Không lo xung đột môi trường)
 
-```bash
-# Bật cánh tay robot và giao diện RViz2 + MoveIt 2
-denso
-
-# Mở Bảng Điều Khiển Động Học Thuận & Nghịch (FK & IK)
-denso_gui
-
-# Điều khiển chuyển động tuần tự các khớp
-denso_joints  # Chạy tuần hoàn Link 1 -> Link 5 (2.0s / link)
-denso_once    # Chạy 1 lượt rồi giữ nguyên tư thế
-denso_home    # Trở về tư thế thẳng đứng 0°
-denso_stop    # Dừng khẩn cấp / Giữ vị trí
-```
-
-### 2. Khởi chạy trong Docker
+Docker image `denso_ros2_jazzy:latest` đã được build sẵn, tích hợp đầy đủ ROS 2 Jazzy, MoveIt 2, CycloneDDS và thư viện đồ họa tối ưu cho WSLg:
 
 ```bash
-# Khởi chạy robot và RViz2 trong Docker container
+# Khởi chạy robot và RViz2 trong Docker container (tự mở cửa sổ trên Windows)
 denso_docker
 
-# Mở bash terminal bên trong container ROS 2
+# Mở một terminal Bash tương tác bên trong container ROS 2
 ros_docker
 ```
 
 ---
 
-## 📁 Cấu Trúc Workspace
+### Cách 2: Khởi chạy Native trong WSL2 (Hiệu năng cao nhất)
+
+#### Bước 1: Build workspace (nếu có thay đổi code)
+```bash
+cd /home/dung/denso_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
+#### Bước 2: Khởi chạy mô phỏng Robot
+Mở Terminal và gõ:
+```bash
+denso
+```
+*(Cửa sổ RViz2 sẽ hiện lên. Cánh tay robot mặc định đứng yên cố định ở vị trí gốc $0^\circ$ an toàn).*
+
+#### Bước 3: Mở Bảng Điều Khiển Động Học Thuận & Nghịch (Kinematics Dashboard)
+Mở một Terminal khác và gõ:
+```bash
+denso_gui
+```
+*(Cửa sổ GUI sẽ mở lên, cho phép xem trực tiếp tọa độ $X, Y, Z$, Roll, Pitch, Yaw của đầu gắp, nhập tọa độ gắp vật để giải IK và bấm gửi lệnh cho robot di chuyển).*
+
+---
+
+## 🎮 3. Danh Sách Lệnh Điều Khiển Nhanh (Aliases)
+
+Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
+
+| Lệnh | Chức năng |
+|---|---|
+| `denso` | Bật toàn bộ hệ thống Robot + MoveIt 2 + RViz2 trên máy thật. |
+| `denso_docker` | Bật toàn bộ hệ thống Robot bên trong Docker container độc lập. |
+| `denso_gui` | Mở Bảng Điều Khiển Động Học Thuận (FK) & Nghịch (IK). |
+| `denso_joints` | Kích hoạt robot chạy chu trình khớp 1 chiều liên tục (Link 1 $\to$ Link 5). |
+| `denso_once` | Chạy đúng 1 lượt từ Link 1 $\to$ Link 5 (2.0s/link) rồi dừng hẳn ở vị trí đích. |
+| `denso_home` | Đưa cánh tay robot trở về tư thế đứng thẳng $0^\circ$. |
+| `denso_stop` | Tạm dừng chuyển động ngay lập tức tại vị trí hiện tại. |
+| `ros_docker` | Mở terminal bash bên trong Docker container ROS 2 Jazzy. |
+
+---
+
+## 📊 4. Tính Năng Bảng Động Học (Kinematics Dashboard)
+
+* **Động Học Thuận (Forward Kinematics - FK)**:
+  - Lắng nghe real-time topic `/joint_states`.
+  - Hiển thị góc của 5 trục: $J_1$ (Base Z), $J_2$ (Shoulder Y), $J_3$ (Elbow Y), $J_4$ (Forearm X), $J_5$ (Wrist Y) theo cả **Radian** và **Độ ($^\circ$)**.
+  - Tính toán ma trận biến đổi thuần nhất $T_{0}^{5}$ để xuất tọa độ đầu gắp: $X, Y, Z$ (mm & m), Roll, Pitch, Yaw ($^\circ$), bán kính với gốc $R$.
+  - Thanh trượt Jogging cho phép kéo thử từng góc khớp để xem tọa độ thay đổi tức thời.
+* **Động Học Nghịch (Inverse Kinematics - IK)**:
+  - Ô nhập tọa độ mục tiêu $X, Y, Z$ (mm).
+  - Nút *"📌 Lấy tọa độ hiện tại"* giúp lấy nhanh vị trí làm mốc.
+  - Bộ giải Jacobian Damped Least Squares (Levenberg-Marquardt) tốc độ $<2\text{ms}$, sai số $<0.5\text{mm}$.
+  - Nút *"🚀 Gửi tới Robot trong RViz2"* để điều khiển cánh tay xoay mượt mà theo đường cong S-curve tới tọa độ mục tiêu.
+
+---
+
+## 📁 5. Cấu Trúc Thư Mục Repository
 
 ```
 denso_ws/
 ├── src/
-│   ├── denso_vs6556/                # Gói mô tả robot (URDF, STL Meshes, RViz config)
-│   └── denso_vs6556_moveit_config/  # Cấu hình MoveIt 2, controller, GUI động học
-├── docker/                          # Dockerfile, docker-compose.yml, run scripts
-├── launch_denso.sh                  # Script khởi chạy nhanh hệ thống
-├── denso_joints.sh                  # Script gửi lệnh demo khớp
-├── denso_gui.sh                     # Script mở Bảng Động Học (GUI)
-├── .gitignore
-└── README.md
+│   ├── denso_vs6556/                # Gói mô tả robot
+│   │   ├── urdf/                    # denso_vs6556.urdf (đã căn chỉnh chuẩn SolidWorks)
+│   │   ├── meshes/                  # File 3D CAD STL của các link
+│   │   ├── launch/                  # display.launch.py
+│   │   └── rviz/                    # display.rviz (cấu hình giao diện RViz)
+│   │
+│   └── denso_vs6556_moveit_config/  # Gói cấu hình MoveIt 2 & điều khiển
+│       ├── config/                  # kinematics.yaml, joint_limits.yaml, srdf
+│       ├── scripts/
+│       │   ├── denso_kinematics_gui.py  # Mã nguồn Bảng điều khiển Động học FK/IK
+│       │   └── denso_mock_controller.py # Bộ điều khiển nội suy khớp S-curve 10Hz
+│       └── launch/
+│           └── demo.launch.py
+│
+├── docker/                          # Môi trường container hóa
+│   ├── Dockerfile                   # Base image ros:jazzy + MoveIt 2 + CycloneDDS
+│   ├── docker-compose.yml           # Cấu hình map volume và GUI WSLg
+│   ├── entrypoint.sh                # Auto source ROS 2
+│   └── run_denso_docker.sh          # Script chạy container 1 chạm
+│
+├── launch_denso.sh                  # Script chạy nhanh hệ thống
+├── denso_joints.sh                  # Script demo chu trình khớp
+├── denso_gui.sh                     # Script bật Bảng Động Học
+├── .gitignore                       # Bỏ qua build, install, log
+└── README.md                        # Tài liệu hướng dẫn
 ```
 
 ---
 
-## 👤 Tác Giả
+## 🔄 6. Hướng Dẫn Push Lên GitHub
+
+Vì thư mục `D:\ROS2\denso-ws` nằm trực tiếp trên Windows, bạn có thể đẩy code lên GitHub theo một trong các cách cực kỳ tiện lợi sau:
+
+### Cách 1: Sử dụng Terminal Windows (PowerShell / CMD)
+Mở PowerShell tại thư mục `D:\ROS2\denso-ws`:
+```powershell
+cd D:\ROS2\denso-ws
+git push -u origin main
+```
+*(Windows sẽ tự động mở hộp thoại đăng nhập GitHub thông qua Git Credential Manager mà không cần tạo token thủ công!)*
+
+### Cách 2: Sử dụng VS Code trên Windows
+1. Mở thư mục `D:\ROS2\denso-ws` bằng VS Code.
+2. Vào tab **Source Control** (`Ctrl + Shift + G`).
+3. Bấm **Sync Changes** hoặc **Push** $\to$ VS Code sẽ tự động đồng bộ lên GitHub.
+
+---
+
+## 👤 Tác Giả & Bản Quyền
 - **Tác giả**: thanhdung88 (thanhdung9105@gmail.com)
-- **Hệ điều hành**: Ubuntu 24.04 LTS (WSL2) / Windows 11
-- **Phiên bản ROS**: ROS 2 Jazzy Jalisco
+- **GitHub**: [thanhdung9105-maker](https://github.com/thanhdung9105-maker)
+- **Robot**: Denso VS-6556 Articulated Industrial Robot
