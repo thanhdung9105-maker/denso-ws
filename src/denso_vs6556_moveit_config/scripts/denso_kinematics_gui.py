@@ -271,33 +271,38 @@ class DensoKinematicsGUI(QMainWindow):
                 background-color: #ffffff;
                 border: 1px solid #cbd5e1;
                 border-radius: 8px;
-                margin-top: 6px;
-                padding: 10px;
+                margin-top: 16px;
+                padding: 14px 10px 10px 10px;
                 color: #0f172a;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
+                left: 12px;
                 padding: 0 8px;
                 color: #0284c7;
                 font-weight: bold;
+                background-color: #ffffff;
             }
         """)
         tbl_layout = QVBoxLayout(table_container)
-        tbl_layout.setContentsMargins(8, 12, 8, 8)
+        tbl_layout.setContentsMargins(6, 12, 6, 6)
 
         self.telemetry_table = QTableWidget(5, 9)
         self.telemetry_table.setHorizontalHeaderLabels([
-            "Khớp", "Tên Trục & Vai Trò", "Vị Trí Góc q", "Vận Tốc q̇", "Gia Tốc q̈",
+            "Khớp", "Trục & Vai Trò", "Vị Trí Góc q", "Vận Tốc q̇", "Gia Tốc q̈",
             "Mô-Men τ (N·m)", "Giới Hạn τ_max", "Tải Động Cơ (%)", "Trạng Thái"
         ])
-        self.telemetry_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.telemetry_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.telemetry_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.telemetry_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)
-        self.telemetry_table.setColumnWidth(7, 180)
-        self.telemetry_table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Fixed)
-        self.telemetry_table.setColumnWidth(8, 140)
+        h_header = self.telemetry_table.horizontalHeader()
+        h_header.setSectionResizeMode(QHeaderView.Stretch)
+        h_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        h_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        h_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        h_header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        h_header.setSectionResizeMode(7, QHeaderView.Fixed)
+        self.telemetry_table.setColumnWidth(7, 165)
+        h_header.setSectionResizeMode(8, QHeaderView.Fixed)
+        self.telemetry_table.setColumnWidth(8, 135)
         self.telemetry_table.verticalHeader().setVisible(False)
         self.telemetry_table.verticalHeader().setDefaultSectionSize(48)
         self.telemetry_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -944,17 +949,17 @@ class DensoKinematicsGUI(QMainWindow):
             self.card_load_val.setStyleSheet("color: #10b981; font-size: 20px; font-weight: bold;")
             self.card_status_val.setText("● AN TOÀN")
             self.card_status_val.setStyleSheet("color: #059669; font-size: 20px; font-weight: bold;")
-            self.card_status_sub.setText("Tất cả động cơ hoạt động dưới 50% công suất")
+            self.card_status_sub.setText("Tất cả khớp hoạt động <50% định mức")
         elif max_load_pct < 80.0:
             self.card_load_val.setStyleSheet("color: #f59e0b; font-size: 20px; font-weight: bold;")
             self.card_status_val.setText("▲ TẢI TRUNG BÌNH")
             self.card_status_val.setStyleSheet("color: #d97706; font-size: 20px; font-weight: bold;")
-            self.card_status_sub.setText("Mô-men nằm trong ngưỡng an toàn (50-80%)")
+            self.card_status_sub.setText("Mô-men trong ngưỡng an toàn (50-80%)")
         else:
             self.card_load_val.setStyleSheet("color: #ef4444; font-size: 20px; font-weight: bold;")
             self.card_status_val.setText("■ CẢNH BÁO QUÁ TẢI")
             self.card_status_val.setStyleSheet("color: #dc2626; font-size: 20px; font-weight: bold;")
-            self.card_status_sub.setText("Khớp vượt quá 80% mô-men xoắn định mức!")
+            self.card_status_sub.setText("Có khớp vượt 80% mô-men định mức!")
 
     # ---------------------------------------------------------
     # TAB 2 & 3 CALLBACKS
