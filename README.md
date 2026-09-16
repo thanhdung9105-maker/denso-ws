@@ -85,8 +85,8 @@ Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
 |---|---|
 | `denso` | Bật toàn bộ hệ thống Robot + MoveIt 2 + RViz2 trên máy thật. |
 | `denso_docker` | Bật toàn bộ hệ thống Robot bên trong Docker container độc lập. |
-| `denso_gui` | Mở Bảng Điều Khiển Động Học Thuận (FK) & Nghịch (IK). |
-| `denso_dynamics` | Bật / Tắt (Ẩn / Hiện) tức thì các vector mô-men xoắn và nhãn 3D trong RViz2. |
+| `denso_table` / `denso_gui` | Mở **Bảng Thông Số Động Lực Học (Nền Trắng)** và Giám Sát Thời Gian Thực. |
+| `denso_dynamics` | Bật / Tắt (Ẩn / Hiện) tức thì các vector mô-men xoắn trong RViz2. |
 | `denso_joints` | Kích hoạt robot chạy chu trình khớp 1 chiều liên tục (Link 1 $\to$ Link 5). |
 | `denso_once` | Chạy đúng 1 lượt từ Link 1 $\to$ Link 5 (2.0s/link) rồi dừng hẳn ở vị trí đích. |
 | `denso_home` | Đưa cánh tay robot trở về tư thế đứng thẳng $0^\circ$. |
@@ -95,29 +95,34 @@ Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
 
 ---
 
-## 📊 4. Tính Năng Bảng Động Học & Động Lực Học (Kinematics & Dynamics Dashboard)
+## 📊 4. Tính Năng Bảng Giám Sát Động Lực Học (Dynamics Dashboard)
 
-* **1. Động Học Thuận (Forward Kinematics - FK)**:
-  - Lắng nghe real-time topic `/joint_states`.
-  - Hiển thị góc của 5 trục: $J_1$ (Base Z), $J_2$ (Shoulder Y), $J_3$ (Elbow Y), $J_4$ (Forearm X), $J_5$ (Wrist Y) theo cả **Radian** và **Độ ($^\circ$)**.
-  - Tính toán ma trận biến đổi thuần nhất $T_{0}^{5}$ để xuất tọa độ đầu gắp: $X, Y, Z$ (mm & m), Roll, Pitch, Yaw ($^\circ$), bán kính với gốc $R$.
-  - Thanh trượt Jogging cho phép kéo thử từng góc khớp để xem tọa độ thay đổi tức thời.
-* **2. Động Học Nghịch (Inverse Kinematics - IK)**:
-  - Ô nhập tọa độ mục tiêu $X, Y, Z$ (mm).
-  - Nút *"📌 Lấy tọa độ hiện tại"* giúp lấy nhanh vị trí làm mốc.
-  - Bộ giải Jacobian Damped Least Squares (Levenberg-Marquardt) tốc độ $<2\text{ms}$, sai số $<0.5\text{mm}$.
-  - Nút *"🚀 Gửi tới Robot trong RViz2"* để điều khiển cánh tay xoay mượt mà theo đường cong S-curve tới tọa độ mục tiêu.
-* **3. Động Lực Học Nghịch (Inverse Dynamics - ID)**:
+Hệ thống được thiết kế tối ưu, tách biệt thành các tab chuyên sâu, loại bỏ hoàn toàn các chức năng động học cũ để tránh rối mắt, tập trung 100% vào phân tích và giám sát lực:
+
+* **Tab 1: Bảng Thông Số Động Lực Học (Nền Trắng - Real-time Telemetry)**:
+  - **Giao diện Nền Trắng Siêu Rõ Nét (`#ffffff`)**: Phông chữ đen đậm, viền chuẩn, tương phản cao, dễ quan sát từ xa như màn hình giám sát công nghiệp tiêu chuẩn.
+  - **4 Thẻ Chỉ Số KPI Trực Quan**: Mô-men lớn nhất hiện tại ($\tau_{max}$), Tải motor cao nhất (%), Tải trọng đầu gắp ($m_{payload}$), và Trạng thái an toàn hệ thống.
+  - **Bảng 9 Cột Chi Tiết Từng Khớp**:
+    - Tên khớp ($J_1 \dots J_5$) và vai trò trục.
+    - Vị trí góc khớp $q$ (rad & độ $^\circ$).
+    - Vận tốc góc $\dot{q}$ (rad/s & độ/s).
+    - Gia tốc góc $\ddot{q}$ (rad/s²).
+    - Mô-men xoắn tức thời $\tau$ (N·m) tính toán trực tiếp từ thuật toán RNEA.
+    - Giới hạn mô-men định mức $\tau_{max}$ của từng động cơ.
+    - Thanh đo % tải trọng động cơ kèm mã màu trực quan: 🟢 Xanh ($<50\%$), 🟡 Vàng ($50-80\%$), 🔴 Đỏ ($>80\%$).
+    - Huy hiệu trạng thái: `AN TOÀN`, `CẢNH BÁO`, `QUÁ TẢI`.
+  - **Thanh Thao Tác Nhanh**:
+    - Nhập tải gắp (Payload) $0 - 5.0\text{ kg}$ (thay đổi sẽ lập tức cập nhật lại mô-men xoắn bù tải).
+    - Các nút lệnh: `Chạy Vòng Lặp`, `Chạy 1 Chiều`, `Dừng Robot`, `Về Home 0°`.
+* **Tab 2: Phân Tích Động Lực Học Nghịch (Inverse Dynamics - ID)**:
   - Thuật toán đệ quy **RNEA (Recursive Newton-Euler Algorithm)** tính toán mô-men xoắn yêu cầu $\tau = M(q)\ddot{q} + C(q, \dot{q})\dot{q} + g(q) + \tau_f + J^T F_{ext}$.
-  - Phân tích chi tiết từng thành phần: Lực quán tính $M\ddot{q}$, Lực Coriolis & ly tâm $C\dot{q}$, Trọng lực $g(q)$, Lực do tải trọng $J^TF$, Ma sát $\tau_f$.
+  - Phân tích chi tiết từng thành phần trên bảng **Nền Trắng**: Lực quán tính $M\ddot{q}$, Lực Coriolis & ly tâm $C\dot{q}$, Trọng lực $g(q)$, Lực do tải trọng $J^TF$, Ma sát $\tau_f$.
   - Nút *"⚖️ Cân bằng trọng lực tĩnh"* để tính nhanh mô-men giữ cánh tay chống rơi tự do.
-  - Hỗ trợ nhập tải trọng đầu gắp $m_{payload}$ (0 - 5kg) và ngoại lực $F_z$ (N).
-  - Thanh đo % tải trọng động cơ kèm mã màu cảnh báo (Xanh an toàn, Vàng cảnh báo, Đỏ quá tải).
-* **4. Động Lực Học Thuận (Forward Dynamics - FD)**:
+* **Tab 3: Mô Phỏng Động Lực Học Thuận (Forward Dynamics - FD)**:
   - Giải bài toán gia tốc góc khớp: $\ddot{q} = M(q)^{-1} (\tau - C(q, \dot{q})\dot{q} - g(q) - \tau_f - J^T F_{ext})$.
   - Thanh trượt chỉnh mô-men xoắn $\tau_1 \dots \tau_5$ (N·m) cho từng khớp.
-  - Xuất ma trận khối lượng đối xứng xác định dương $M(q)$ kích thước $5 \times 5$ và vector gia tốc góc $\ddot{q}$ ($rad/s^2$ & $deg/s^2$).
-  - **Mô phỏng tương tác vật lý thời gian thực trên RViz2 (20Hz)**: Bấm *"▶️ Bắt đầu mô phỏng RViz2"*, người dùng kéo thanh trượt mô-men xoắn, cánh tay robot trong RViz2 sẽ chuyển động và gia tốc theo đúng quy luật lực Newton!
+  - Bảng kết quả gia tốc $\ddot{q}$ và ma trận khối lượng đối xứng xác định dương $M(q)$ $5 \times 5$ đều hiển thị trên **Nền Trắng**.
+  - **Mô phỏng tương tác vật lý thời gian thực trên RViz2 (20Hz)**: Kéo thanh trượt mô-men xoắn, cánh tay robot trong RViz2 chuyển động theo đúng quy luật động lực học Newton!
 * **5. Trực Quan Hóa Động Lực Học Trên RViz2**:
   - Tự động hiển thị qua topic `/denso/joint_dynamics_markers`:
     + **Bảng Đo Lường Động Lực Học Tập Trung (Unified Telemetry Table)**: Đặt gọn gàng cố định bên cạnh robot, hiển thị bảng chữ nhật chuẩn monospace ASCII đầy đủ 5 khớp, Torque, Limit, Load %, Status, Accel, tự động xoay theo camera và đổi màu cảnh báo (🟢 Xanh, 🟡 Vàng, 🔴 Đỏ).
