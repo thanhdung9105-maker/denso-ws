@@ -164,7 +164,7 @@ class DensoKinematicsGUI(QMainWindow):
 
         header_layout.addStretch()
 
-        self.status_badge = QLabel("🟢 ROS 2 CONNECTED")
+        self.status_badge = QLabel("● ROS 2 CONNECTED")
         self.status_badge.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.status_badge.setStyleSheet(
             "background-color: #1b4332; color: #74c69d; border: 1px solid #40916c; "
@@ -172,7 +172,7 @@ class DensoKinematicsGUI(QMainWindow):
         )
         header_layout.addWidget(self.status_badge)
 
-        self.btn_toggle_dynamics = QPushButton("👁️ VECTOR LỰC RVIZ2: ĐANG HIỆN")
+        self.btn_toggle_dynamics = QPushButton("VECTOR LỰC RVIZ2: ĐANG HIỆN")
         self.btn_toggle_dynamics.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.btn_toggle_dynamics.setStyleSheet(
             "background-color: #1b4332; color: #74c69d; border: 1px solid #40916c; "
@@ -190,15 +190,15 @@ class DensoKinematicsGUI(QMainWindow):
 
         # Tab 1: Bảng thông số động lực học (Nền trắng, chạy tab riêng)
         tab_telemetry = self.create_telemetry_tab()
-        self.tabs.addTab(tab_telemetry, "📊 1. BẢNG THÔNG SỐ ĐỘNG LỰC HỌC")
+        self.tabs.addTab(tab_telemetry, "1. BẢNG THÔNG SỐ ĐỘNG LỰC HỌC")
 
         # Tab 2: Động lực học nghịch (Inverse Dynamics)
         tab_id = self.create_id_panel()
-        self.tabs.addTab(tab_id, "⚡ 2. PHÂN TÍCH ĐỘNG LỰC HỌC NGHỊCH")
+        self.tabs.addTab(tab_id, "2. PHÂN TÍCH ĐỘNG LỰC HỌC NGHỊCH")
 
         # Tab 3: Động lực học thuận (Forward Dynamics)
         tab_fd = self.create_fd_panel()
-        self.tabs.addTab(tab_fd, "🚀 3. MÔ PHỎNG ĐỘNG LỰC HỌC THUẬN")
+        self.tabs.addTab(tab_fd, "3. MÔ PHỎNG ĐỘNG LỰC HỌC THUẬN")
 
         main_layout.addWidget(self.tabs, 1)
 
@@ -245,16 +245,16 @@ class DensoKinematicsGUI(QMainWindow):
             return box, lbl_v, lbl_s
 
         self.card_tau_box, self.card_tau_val, self.card_tau_sub = make_card(
-            "⚡ Mô-men lớn nhất (Max Torque)", "0.0 N·m", "Khớp J2 định mức 100 N·m", "#0284c7"
+            "⚡ MÔ-MEN LỚN NHẤT (MAX TORQUE)", "0.0 N·m", "Khớp J2 định mức 100 N·m", "#0284c7"
         )
         self.card_load_box, self.card_load_val, self.card_load_sub = make_card(
-            "📊 Tải motor cao nhất (% Load)", "0.0%", "Ngưỡng an toàn < 80%", "#10b981"
+            "TẢI MOTOR CAO NHẤT (% LOAD)", "0.0%", "Ngưỡng an toàn < 80%", "#10b981"
         )
         self.card_payload_box, self.card_payload_val, self.card_payload_sub = make_card(
-            "⚖️ Tải trọng đầu gắp (Payload)", "0.0 kg", "Khả năng chịu tải tối đa 6.5 kg", "#8b5cf6"
+            "TẢI TRỌNG ĐẦU GẮP (PAYLOAD)", "0.0 kg", "Khả năng chịu tải tối đa 6.5 kg", "#8b5cf6"
         )
         self.card_status_box, self.card_status_val, self.card_status_sub = make_card(
-            "🛡️ Trạng thái hệ thống (Status)", "AN TOÀN", "Tất cả các khớp hoạt động bình thường", "#059669"
+            "TRẠNG THÁI HỆ THỐNG (STATUS)", "● AN TOÀN", "Tất cả các khớp hoạt động bình thường", "#059669"
         )
 
         cards_layout.addWidget(self.card_tau_box)
@@ -264,7 +264,7 @@ class DensoKinematicsGUI(QMainWindow):
         layout.addLayout(cards_layout)
 
         # 2. Main Telemetry Table (White Background)
-        table_container = QGroupBox("📋 BẢNG THEO DÕI ĐỘNG LỰC HỌC 5 KHỚP THỜI GIAN THỰC")
+        table_container = QGroupBox("BẢNG THEO DÕI ĐỘNG LỰC HỌC 5 KHỚP THỜI GIAN THỰC")
         table_container.setFont(QFont("Segoe UI", 11, QFont.Bold))
         table_container.setStyleSheet("""
             QGroupBox {
@@ -294,10 +294,18 @@ class DensoKinematicsGUI(QMainWindow):
         self.telemetry_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.telemetry_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.telemetry_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.telemetry_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)
+        self.telemetry_table.setColumnWidth(7, 180)
+        self.telemetry_table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Fixed)
+        self.telemetry_table.setColumnWidth(8, 140)
         self.telemetry_table.verticalHeader().setVisible(False)
+        self.telemetry_table.verticalHeader().setDefaultSectionSize(48)
         self.telemetry_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.telemetry_table.setFixedHeight(235)
+        self.telemetry_table.setFixedHeight(290)
         self.telemetry_table.setAlternatingRowColors(True)
+
+        for row in range(5):
+            self.telemetry_table.setRowHeight(row, 48)
 
         self.telemetry_table.setStyleSheet("""
             QTableWidget {
@@ -306,7 +314,7 @@ class DensoKinematicsGUI(QMainWindow):
                 gridline-color: #e2e8f0;
                 border: 1px solid #cbd5e1;
                 border-radius: 6px;
-                font-family: 'Segoe UI', sans-serif;
+                font-family: 'Segoe UI', 'DejaVu Sans', 'Ubuntu', sans-serif;
                 font-size: 13px;
                 selection-background-color: #f1f5f9;
             }
@@ -315,13 +323,13 @@ class DensoKinematicsGUI(QMainWindow):
                 color: #0f172a;
                 font-weight: bold;
                 font-size: 13px;
-                padding: 9px 6px;
+                padding: 10px 6px;
                 border: 1px solid #e2e8f0;
                 border-top: none;
                 border-left: none;
             }
             QTableWidget::item {
-                padding: 6px;
+                padding: 6px 8px;
                 color: #0f172a;
             }
             QTableWidget::item:alternate {
@@ -345,17 +353,17 @@ class DensoKinematicsGUI(QMainWindow):
             self.telemetry_table.setItem(row, 1, it_axis)
 
             # 2: Position q
-            it_q = QTableWidgetItem("0.000 rad (0.0°)")
+            it_q = QTableWidgetItem("0.0° (0.000 rad)")
             it_q.setTextAlignment(Qt.AlignCenter)
             self.telemetry_table.setItem(row, 2, it_q)
 
             # 3: Velocity qd
-            it_qd = QTableWidgetItem("0.000 rad/s")
+            it_qd = QTableWidgetItem("0.0°/s (0.000 rad/s)")
             it_qd.setTextAlignment(Qt.AlignCenter)
             self.telemetry_table.setItem(row, 3, it_qd)
 
             # 4: Acceleration qdd
-            it_qdd = QTableWidgetItem("0.000 rad/s²")
+            it_qdd = QTableWidgetItem("0.0°/s² (0.00 rad/s²)")
             it_qdd.setTextAlignment(Qt.AlignCenter)
             self.telemetry_table.setItem(row, 4, it_qdd)
 
@@ -371,34 +379,36 @@ class DensoKinematicsGUI(QMainWindow):
             it_lim.setForeground(QColor("#64748b"))
             self.telemetry_table.setItem(row, 6, it_lim)
 
-            # 7: Motor Load Gauge Widget
+            # 7: Motor Load Gauge Widget (with ample vertical space)
             pb_container = QWidget()
             pb_container.setStyleSheet("background-color: transparent;")
             pb_box = QHBoxLayout(pb_container)
-            pb_box.setContentsMargins(6, 2, 6, 2)
-            pb_box.setSpacing(8)
+            pb_box.setContentsMargins(8, 0, 8, 0)
+            pb_box.setSpacing(10)
+            pb_box.setAlignment(Qt.AlignVCenter)
 
             pb = QProgressBar()
             pb.setRange(0, 100)
             pb.setValue(0)
-            pb.setFixedHeight(16)
+            pb.setFixedHeight(18)
             pb.setTextVisible(False)
             pb.setStyleSheet("""
                 QProgressBar {
                     background-color: #f1f5f9;
-                    border: 1px solid #e2e8f0;
-                    border-radius: 4px;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 5px;
                 }
                 QProgressBar::chunk {
                     background-color: #10b981;
-                    border-radius: 3px;
+                    border-radius: 4px;
                 }
             """)
 
             lbl_pct = QLabel("0.0%")
-            lbl_pct.setFixedWidth(46)
+            lbl_pct.setFixedWidth(54)
+            lbl_pct.setFixedHeight(26)
             lbl_pct.setFont(QFont("Segoe UI", 11, QFont.Bold))
-            lbl_pct.setStyleSheet("color: #0f172a;")
+            lbl_pct.setStyleSheet("color: #0f172a; font-size: 13px; font-weight: bold;")
             lbl_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
             pb_box.addWidget(pb)
@@ -406,21 +416,26 @@ class DensoKinematicsGUI(QMainWindow):
             self.telemetry_table.setCellWidget(row, 7, pb_container)
             self.telemetry_progress_bars.append((pb, lbl_pct))
 
-            # 8: Status Badge
-            badge = QLabel("🟢 AN TOÀN")
+            # 8: Status Badge (Crisp, centered pill badge with ample row height)
+            badge = QLabel("● AN TOÀN")
             badge.setAlignment(Qt.AlignCenter)
             badge.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            badge.setFixedHeight(28)
+            badge.setMinimumWidth(115)
             badge.setStyleSheet("""
                 background-color: #ecfdf5;
                 color: #065f46;
-                border: 1px solid #a7f3d0;
-                border-radius: 12px;
-                padding: 4px 10px;
+                border: 1.5px solid #10b981;
+                border-radius: 14px;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 0px 8px;
             """)
             badge_container = QWidget()
             badge_container.setStyleSheet("background-color: transparent;")
             badge_box = QHBoxLayout(badge_container)
-            badge_box.setContentsMargins(6, 2, 6, 2)
+            badge_box.setContentsMargins(6, 0, 6, 0)
+            badge_box.setAlignment(Qt.AlignCenter)
             badge_box.addWidget(badge)
             self.telemetry_table.setCellWidget(row, 8, badge_container)
             self.telemetry_status_badges.append(badge)
@@ -429,7 +444,7 @@ class DensoKinematicsGUI(QMainWindow):
         layout.addWidget(table_container)
 
         # 3. Control & Quick Actions Bar
-        ctrl_box = QGroupBox("🎮 ĐIỀU KHIỂN & VẬN HÀNH ROBOT THỜI GIAN THỰC")
+        ctrl_box = QGroupBox("ĐIỀU KHIỂN & VẬN HÀNH ROBOT THỜI GIAN THỰC")
         ctrl_box.setFont(QFont("Segoe UI", 11, QFont.Bold))
         ctrl_box.setStyleSheet("""
             QGroupBox {
@@ -472,7 +487,7 @@ class DensoKinematicsGUI(QMainWindow):
 
         ctrl_layout.addSpacing(10)
 
-        btn_demo = QPushButton("▶️ Chạy Demo Vòng Lặp")
+        btn_demo = QPushButton("▶ Chạy Demo Vòng Lặp")
         btn_demo.setStyleSheet("background-color: #0284c7; color: white; padding: 7px 14px; border-radius: 6px; font-weight: bold;")
         btn_demo.clicked.connect(lambda: self.bridge.send_cmd("demo"))
         ctrl_layout.addWidget(btn_demo)
@@ -482,12 +497,12 @@ class DensoKinematicsGUI(QMainWindow):
         btn_once.clicked.connect(lambda: self.bridge.send_cmd("once"))
         ctrl_layout.addWidget(btn_once)
 
-        btn_stop = QPushButton("⏹️ Dừng Robot")
+        btn_stop = QPushButton("■ Dừng Robot")
         btn_stop.setStyleSheet("background-color: #dc2626; color: white; padding: 7px 14px; border-radius: 6px; font-weight: bold;")
         btn_stop.clicked.connect(lambda: self.bridge.send_cmd("stop"))
         ctrl_layout.addWidget(btn_stop)
 
-        btn_home = QPushButton("🏠 Về Gốc (Home 0°)")
+        btn_home = QPushButton("⌂ Về Gốc (Home 0°)")
         btn_home.setStyleSheet("background-color: #059669; color: white; padding: 7px 14px; border-radius: 6px; font-weight: bold;")
         btn_home.clicked.connect(lambda: self.bridge.send_cmd("home"))
         ctrl_layout.addWidget(btn_home)
@@ -833,20 +848,34 @@ class DensoKinematicsGUI(QMainWindow):
             if pct > max_load_pct:
                 max_load_pct = pct
 
-            # Col 2: Position q
+            # Col 2: Position q (Degrees first, then radians)
             q_deg = np.rad2deg(q[i])
-            self.telemetry_table.item(i, 2).setText(f"{q[i]:+.3f} rad ({q_deg:+.1f}°)")
+            if abs(q_deg) < 0.05:
+                q_deg = 0.0
+            q_val = 0.0 if abs(q[i]) < 0.0005 else q[i]
+            self.telemetry_table.item(i, 2).setText(f"{q_deg:+.1f}° ({q_val:+.3f} rad)")
 
             # Col 3: Velocity qd
             qd_deg = np.rad2deg(qd[i])
-            self.telemetry_table.item(i, 3).setText(f"{qd[i]:+.3f} rad/s ({qd_deg:+.1f}°/s)")
+            if abs(qd_deg) < 0.05:
+                qd_deg = 0.0
+            qd_val = 0.0 if abs(qd[i]) < 0.0005 else qd[i]
+            self.telemetry_table.item(i, 3).setText(f"{qd_deg:+.1f}°/s ({qd_val:+.3f} rad/s)")
 
             # Col 4: Acceleration qdd
-            self.telemetry_table.item(i, 4).setText(f"{qdd[i]:+.3f} rad/s²")
+            qdd_deg = np.rad2deg(qdd[i])
+            if abs(qdd_deg) < 0.05:
+                qdd_deg = 0.0
+            qdd_val = 0.0 if abs(qdd[i]) < 0.0005 else qdd[i]
+            self.telemetry_table.item(i, 4).setText(f"{qdd_deg:+.1f}°/s² ({qdd_val:+.2f} rad/s²)")
 
-            # Col 5: Torque tau
+            # Col 5: Torque tau (Prevent -0.00 N·m glitch!)
+            if abs(t_val) < 0.005:
+                tau_str = "0.00 N·m"
+            else:
+                tau_str = f"{t_val:+.2f} N·m"
             tau_item = self.telemetry_table.item(i, 5)
-            tau_item.setText(f"{t_val:+.2f} N·m")
+            tau_item.setText(tau_str)
             if pct < 50.0:
                 tau_item.setForeground(QColor("#047857"))  # Dark emerald
             elif pct < 80.0:
@@ -862,45 +891,48 @@ class DensoKinematicsGUI(QMainWindow):
 
             if pct < 50.0:
                 chunk_col = "#10b981"
-                lbl_pct.setStyleSheet("color: #047857; font-weight: bold;")
+                lbl_pct.setStyleSheet("color: #047857; font-weight: bold; font-size: 13px;")
             elif pct < 80.0:
                 chunk_col = "#f59e0b"
-                lbl_pct.setStyleSheet("color: #b45309; font-weight: bold;")
+                lbl_pct.setStyleSheet("color: #b45309; font-weight: bold; font-size: 13px;")
             else:
                 chunk_col = "#ef4444"
-                lbl_pct.setStyleSheet("color: #b91c1c; font-weight: bold;")
+                lbl_pct.setStyleSheet("color: #b91c1c; font-weight: bold; font-size: 13px;")
 
             pb.setStyleSheet(f"""
                 QProgressBar {{
                     background-color: #f1f5f9;
-                    border: 1px solid #e2e8f0;
-                    border-radius: 4px;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 5px;
                 }}
                 QProgressBar::chunk {{
                     background-color: {chunk_col};
-                    border-radius: 3px;
+                    border-radius: 4px;
                 }}
             """)
 
-            # Col 8: Status Badge
+            # Col 8: Status Badge (Crisp, fully legible, no emoji squishing)
             badge = self.telemetry_status_badges[i]
             if pct < 50.0:
-                badge.setText("🟢 AN TOÀN")
+                badge.setText("● AN TOÀN")
                 badge.setStyleSheet("""
                     background-color: #ecfdf5; color: #065f46;
-                    border: 1px solid #a7f3d0; border-radius: 12px; padding: 4px 10px; font-weight: bold;
+                    border: 1.5px solid #10b981; border-radius: 14px;
+                    font-weight: bold; font-size: 12px; padding: 0px 8px;
                 """)
             elif pct < 80.0:
-                badge.setText("🟡 CẢNH BÁO")
+                badge.setText("▲ CẢNH BÁO")
                 badge.setStyleSheet("""
                     background-color: #fffbeb; color: #92400e;
-                    border: 1px solid #fde68a; border-radius: 12px; padding: 4px 10px; font-weight: bold;
+                    border: 1.5px solid #f59e0b; border-radius: 14px;
+                    font-weight: bold; font-size: 12px; padding: 0px 8px;
                 """)
             else:
-                badge.setText("🔴 QUÁ TẢI")
+                badge.setText("■ QUÁ TẢI")
                 badge.setStyleSheet("""
                     background-color: #fef2f2; color: #991b1b;
-                    border: 1px solid #fecaca; border-radius: 12px; padding: 4px 10px; font-weight: bold;
+                    border: 1.5px solid #ef4444; border-radius: 14px;
+                    font-weight: bold; font-size: 12px; padding: 0px 8px;
                 """)
 
         # Update Top KPI Cards
@@ -910,17 +942,17 @@ class DensoKinematicsGUI(QMainWindow):
 
         if max_load_pct < 50.0:
             self.card_load_val.setStyleSheet("color: #10b981; font-size: 20px; font-weight: bold;")
-            self.card_status_val.setText("AN TOÀN")
+            self.card_status_val.setText("● AN TOÀN")
             self.card_status_val.setStyleSheet("color: #059669; font-size: 20px; font-weight: bold;")
             self.card_status_sub.setText("Tất cả động cơ hoạt động dưới 50% công suất")
         elif max_load_pct < 80.0:
             self.card_load_val.setStyleSheet("color: #f59e0b; font-size: 20px; font-weight: bold;")
-            self.card_status_val.setText("TẢI TRUNG BÌNH")
+            self.card_status_val.setText("▲ TẢI TRUNG BÌNH")
             self.card_status_val.setStyleSheet("color: #d97706; font-size: 20px; font-weight: bold;")
             self.card_status_sub.setText("Mô-men nằm trong ngưỡng an toàn (50-80%)")
         else:
             self.card_load_val.setStyleSheet("color: #ef4444; font-size: 20px; font-weight: bold;")
-            self.card_status_val.setText("CẢNH BÁO QUÁ TẢI")
+            self.card_status_val.setText("■ CẢNH BÁO QUÁ TẢI")
             self.card_status_val.setStyleSheet("color: #dc2626; font-size: 20px; font-weight: bold;")
             self.card_status_sub.setText("Khớp vượt quá 80% mô-men xoắn định mức!")
 
@@ -1090,21 +1122,21 @@ class DensoKinematicsGUI(QMainWindow):
     def on_toggle_dynamics(self):
         self.dynamics_visible = not self.dynamics_visible
         if self.dynamics_visible:
-            self.btn_toggle_dynamics.setText("👁️ VECTOR LỰC RVIZ2: ĐANG HIỆN")
+            self.btn_toggle_dynamics.setText("VECTOR LỰC RVIZ2: ĐANG HIỆN")
             self.btn_toggle_dynamics.setStyleSheet(
                 "background-color: #1b4332; color: #74c69d; border: 1px solid #40916c; "
                 "border-radius: 6px; padding: 6px 14px;"
             )
             self.bridge.send_cmd("dynamics_on")
-            self.log_label.setText("👁️ Đã hiển thị các vector mô-men xoắn trong RViz2.")
+            self.log_label.setText("Đã hiển thị các vector mô-men xoắn trong RViz2.")
         else:
-            self.btn_toggle_dynamics.setText("🙈 VECTOR LỰC RVIZ2: ĐÃ ẨN")
+            self.btn_toggle_dynamics.setText("VECTOR LỰC RVIZ2: ĐÃ ẨN")
             self.btn_toggle_dynamics.setStyleSheet(
                 "background-color: #495057; color: #adb5bd; border: 1px solid #6c757d; "
                 "border-radius: 6px; padding: 6px 14px;"
             )
             self.bridge.send_cmd("dynamics_off")
-            self.log_label.setText("🙈 Đã ẩn các vector mô-men xoắn trong RViz2.")
+            self.log_label.setText("Đã ẩn các vector mô-men xoắn trong RViz2.")
 
     def apply_dark_theme(self):
         palette = QPalette()

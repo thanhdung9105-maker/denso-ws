@@ -66,6 +66,9 @@ P_ORIGINS = [
     np.array([-0.207, 0.0, 0.0]),         # Link 4 -> Joint 5
 ]
 
+# Tool flange & gripper TCP offset (m) from Joint 5 wrist axis along tool link
+TOOL_TCP_OFFSET = np.array([-0.10, 0.0, 0.0])
+
 def rot_x(th):
     c, s = np.cos(th), np.sin(th)
     return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
@@ -126,6 +129,14 @@ class DensoDynamicsEngine:
         wd_prev = np.zeros(3)
         vd_prev = -grav  # Base upward acceleration naturally accounts for gravity
 
+        # Dynamically compute CoMs and masses with payload attached at TCP
+        coms = [np.array(c, dtype=float) for c in COMS]
+        masses = np.array(LINK_MASSES, dtype=float)
+        if payload_mass > 0.0:
+            m_tot = masses[4] + payload_mass
+            coms[4] = (masses[4] * coms[4] + payload_mass * TOOL_TCP_OFFSET) / m_tot
+            masses[4] = m_tot
+
         # Forward recursion: Kinematics and inertial forces
         for i in range(n):
             R_i = R_rel[i]
@@ -136,7 +147,7 @@ class DensoDynamicsEngine:
             wd[i] = R_i.T @ wd_prev + z_i * qdd[i] + np.cross(w[i], z_i * qd[i])
             acc_origin_prev = vd_prev + np.cross(wd_prev, p_i) + np.cross(w_prev, np.cross(w_prev, p_i))
             vd[i] = R_i.T @ acc_origin_prev
-            a_c[i] = vd[i] + np.cross(wd[i], COMS[i]) + np.cross(w[i], np.cross(w[i], COMS[i]))
+            a_c[i] = vd[i] + np.cross(wd[i], coms[i]) + np.cross(w[i], np.cross(w[i], coms[i]))
 
             w_prev = w[i]
             wd_prev = wd[i]
@@ -151,24 +162,23 @@ class DensoDynamicsEngine:
         n_next = np.zeros(3) if n_ext is None else np.array(n_ext, dtype=float)
 
         for i in range(n - 1, -1, -1):
-            m_i = LINK_MASSES[i]
+            m_i = masses[i]
             I_i = INERTIAS[i]
-            if i == n - 1 and payload_mass > 0.0:
-                m_i += payload_mass
+            com_i = coms[i]
 
             F_i = m_i * a_c[i]
             N_i = I_i @ wd[i] + np.cross(w[i], I_i @ w[i])
 
             if i == n - 1:
                 f[i] = F_i + f_next
-                n_mom[i] = N_i + n_next + np.cross(COMS[i], F_i)
+                n_mom[i] = N_i + n_next + np.cross(com_i, F_i)
             else:
                 R_child = R_rel[i + 1]
                 p_child = P_ORIGINS[i + 1]
                 f_from_child = R_child @ f[i + 1]
                 n_from_child = R_child @ n_mom[i + 1]
                 f[i] = F_i + f_from_child
-                n_mom[i] = N_i + n_from_child + np.cross(COMS[i], F_i) + np.cross(p_child, f_from_child)
+                n_mom[i] = N_i + n_from_child + np.cross(com_i, F_i) + np.cross(p_child, f_from_child)
 
             tau[i] = float(np.dot(n_mom[i], AXES[i]))
 
