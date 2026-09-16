@@ -373,15 +373,45 @@ class DensoDynamicsEngine:
             marker_array.markers.append(del_old)
 
         # -------------------------------------------------------------
-        # 2. UNIFIED DYNAMICS TELEMETRY TABLE (ONE CLEAN TABLE IN RVIZ2)
+        # 2. COMPACT 3D TELEMETRY TABLE WITH PEDESTAL STAND IN RVIZ2
         # -------------------------------------------------------------
-        joint_labels = ["J1", "J2", "J3", "J4", "J5"]
+        # Pedestal Base on floor
+        base_marker = Marker()
+        base_marker.header.frame_id = frame_id
+        base_marker.ns = "dynamics_dashboard"
+        base_marker.id = 198
+        base_marker.type = Marker.CYLINDER
+        base_marker.action = Marker.ADD
+        base_marker.pose.position.x = -0.40
+        base_marker.pose.position.y = 0.35
+        base_marker.pose.position.z = 0.01
+        base_marker.scale.x = 0.16
+        base_marker.scale.y = 0.16
+        base_marker.scale.z = 0.02
+        base_marker.color = ColorRGBA(r=0.12, g=0.15, b=0.20, a=0.90)
+        marker_array.markers.append(base_marker)
+
+        # Pedestal Pole
+        pole_marker = Marker()
+        pole_marker.header.frame_id = frame_id
+        pole_marker.ns = "dynamics_dashboard"
+        pole_marker.id = 199
+        pole_marker.type = Marker.CYLINDER
+        pole_marker.action = Marker.ADD
+        pole_marker.pose.position.x = -0.40
+        pole_marker.pose.position.y = 0.35
+        pole_marker.pose.position.z = 0.13
+        pole_marker.scale.x = 0.02
+        pole_marker.scale.y = 0.02
+        pole_marker.scale.z = 0.24
+        pole_marker.color = ColorRGBA(r=0.25, g=0.30, b=0.38, a=0.90)
+        marker_array.markers.append(pole_marker)
+
+        # Compact 24-character card text
         table_lines = [
-            "+-------------------------------------------------------------+",
-            "|            DENSO VS-6556 JOINT DYNAMICS TELEMETRY           |",
-            "+-------+-------------+-------------+-------------+-----------+",
-            "| Joint | Torque (Nm) | Limit (Nm)  | Motor Load  | Accel     |",
-            "+-------+-------------+-------------+-------------+-----------+",
+            "+------------------------+",
+            "|  DENSO JOINT DYNAMICS  |",
+            "+------------------------+",
         ]
 
         max_load = 0.0
@@ -392,24 +422,23 @@ class DensoDynamicsEngine:
             if pct > max_load:
                 max_load = pct
 
-            tag = "[OK] " if pct < 50.0 else ("[WARN]" if pct < 80.0 else "[OVER]")
-            acc_str = f"{qdd[i]:+4.1f} r/s2" if qdd is not None else " +0.0 r/s2"
-            row = f"|  {joint_labels[i]}   |  {t_val:+6.1f} Nm |   {t_lim:5.1f} Nm   | {pct:4.1f}% {tag} | {acc_str:9s} |"
+            inner = f"J{i+1}: {t_val:+5.1f}/{t_lim:2.0f} Nm ({pct:2.0f}%)"
+            row = "| " + inner.ljust(22) + " |"
             table_lines.append(row)
 
-        table_lines.append("+-------+-------------+-------------+-------------+-----------+")
+        table_lines.append("+------------------------+")
         if max_load < 50.0:
-            status_line = "| STATUS: NORMAL LOAD (<50% MOTOR CAPACITY)                   |"
-            table_color = ColorRGBA(r=0.0, g=0.92, b=1.0, a=0.98)  # Cyan
+            status_line = "| STATUS: NORMAL (<50%)  |"
+            table_color = ColorRGBA(r=0.0, g=1.0, b=0.88, a=1.0)   # Aqua Cyan
         elif max_load < 80.0:
-            status_line = "| STATUS: MODERATE LOAD (50% - 80% MOTOR CAPACITY)            |"
-            table_color = ColorRGBA(r=1.0, g=0.82, b=0.15, a=0.98) # Yellow
+            status_line = "| STATUS: MODERATE LOAD  |"
+            table_color = ColorRGBA(r=1.0, g=0.82, b=0.1, a=1.0)   # Amber
         else:
-            status_line = "| STATUS: ALERT - HIGH TORQUE (>80% MOTOR CAPACITY)           |"
-            table_color = ColorRGBA(r=1.0, g=0.25, b=0.30, a=1.0)  # Red
+            status_line = "| STATUS: HIGH OVERLOAD  |"
+            table_color = ColorRGBA(r=1.0, g=0.22, b=0.25, a=1.0)  # Red Alert
 
         table_lines.append(status_line)
-        table_lines.append("+-------------------------------------------------------------+")
+        table_lines.append("+------------------------+")
 
         table_marker = Marker()
         table_marker.header.frame_id = frame_id
@@ -418,18 +447,110 @@ class DensoDynamicsEngine:
         table_marker.type = Marker.TEXT_VIEW_FACING
         table_marker.action = Marker.ADD
 
-        # Position neatly beside the robot workspace in world coordinates
-        table_marker.pose.position.x = -0.35
-        table_marker.pose.position.y = 0.55
-        table_marker.pose.position.z = 0.45
+        table_marker.pose.position.x = -0.40
+        table_marker.pose.position.y = 0.35
+        table_marker.pose.position.z = 0.30
 
         table_marker.text = "\n".join(table_lines)
-        table_marker.scale.z = 0.024  # Monospace text height
+        table_marker.scale.z = 0.015  # Compact sharp text height (15mm)
         table_marker.color = table_color
 
         marker_array.markers.append(table_marker)
 
         return marker_array
+
+    def build_dashboard_image(self, tau, qdd=None, stamp=None):
+        """
+        Generates a high-definition 2D sensor_msgs/msg/Image HUD card displaying:
+        - Robot model banner
+        - Color-coded joint torque gauges with limits and percentages
+        - Joint accelerations
+        - Real-time status indicator
+        """
+        import cv2
+        import numpy as np
+        from sensor_msgs.msg import Image
+
+        w, h = 460, 260
+        img = np.full((h, w, 3), (22, 25, 30), dtype=np.uint8)
+
+        # Card border (Cyan / Amber / Red depending on max load)
+        max_pct = max(min(150.0, abs(float(tau[i])) / float(TORQUE_LIMITS[i]) * 100.0) for i in range(self.num_joints))
+        if max_pct < 50.0:
+            border_col = (70, 150, 220)
+            status_text = "NORMAL LOAD (<50%)"
+            dot_col = (70, 220, 110)
+        elif max_pct < 80.0:
+            border_col = (30, 180, 240)
+            status_text = "MODERATE LOAD (50-80%)"
+            dot_col = (30, 190, 255)
+        else:
+            border_col = (60, 60, 240)
+            status_text = "ALERT: HIGH TORQUE (>80%)"
+            dot_col = (70, 70, 255)
+
+        cv2.rectangle(img, (2, 2), (w - 3, h - 3), border_col, 2)
+
+        # Title bar
+        cv2.rectangle(img, (2, 2), (w - 3, 34), (35, 45, 60), -1)
+        cv2.putText(img, "DENSO VS-6556 DYNAMICS", (15, 24),
+                    cv2.FONT_HERSHEY_DUPLEX, 0.60, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Sub-header
+        cv2.putText(img, "Joint", (15, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 160, 175), 1, cv2.LINE_AA)
+        cv2.putText(img, "Torque / Max", (75, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 160, 175), 1, cv2.LINE_AA)
+        cv2.putText(img, "Motor Capacity", (235, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 160, 175), 1, cv2.LINE_AA)
+        cv2.putText(img, "Accel", (395, 54), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 160, 175), 1, cv2.LINE_AA)
+        cv2.line(img, (10, 60), (w - 10, 60), (55, 65, 80), 1)
+
+        y0 = 84
+        row_step = 30
+        for i in range(self.num_joints):
+            y = y0 + i * row_step
+            t = float(tau[i])
+            lim = float(TORQUE_LIMITS[i])
+            pct = min(150.0, abs(t) / lim * 100.0)
+
+            if pct < 50.0:
+                b_col = (70, 220, 110)
+            elif pct < 80.0:
+                b_col = (30, 190, 255)
+            else:
+                b_col = (70, 70, 255)
+
+            cv2.putText(img, f"J{i+1}", (15, y), cv2.FONT_HERSHEY_DUPLEX, 0.50, (220, 225, 230), 1, cv2.LINE_AA)
+
+            t_str = f"{t:+5.1f} / {lim:2.0f} Nm"
+            cv2.putText(img, t_str, (70, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (210, 235, 255), 1, cv2.LINE_AA)
+
+            bx, by, bw, bh = 225, y - 12, 105, 14
+            cv2.rectangle(img, (bx, by), (bx + bw, by + bh), (35, 42, 52), -1)
+            cv2.rectangle(img, (bx, by), (bx + bw, by + bh), (75, 85, 100), 1)
+            fill_w = int(bw * min(1.0, pct / 100.0))
+            if fill_w > 0:
+                cv2.rectangle(img, (bx, by), (bx + fill_w, by + bh), b_col, -1)
+
+            pct_str = f"{pct:3.0f}%"
+            cv2.putText(img, pct_str, (bx + bw + 8, y), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (200, 210, 220), 1, cv2.LINE_AA)
+
+            acc_val = float(qdd[i]) if qdd is not None else 0.0
+            cv2.putText(img, f"{acc_val:+4.1f}", (395, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 210, 220), 1, cv2.LINE_AA)
+
+        # Footer
+        cv2.line(img, (10, h - 30), (w - 10, h - 30), (55, 65, 80), 1)
+        cv2.circle(img, (22, h - 16), 5, dot_col, -1)
+        cv2.putText(img, f"STATUS: {status_text}", (35, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (200, 220, 210), 1, cv2.LINE_AA)
+
+        msg = Image()
+        if stamp is not None:
+            msg.header.stamp = stamp
+        msg.header.frame_id = "world"
+        msg.height = h
+        msg.width = w
+        msg.encoding = "bgr8"
+        msg.step = w * 3
+        msg.data = img.tobytes()
+        return msg
 
 
 # -------------------------------------------------------------
