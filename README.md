@@ -86,6 +86,7 @@ Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
 | `denso` | Bật toàn bộ hệ thống Robot + MoveIt 2 + RViz2 trên máy thật. |
 | `denso_docker` | Bật toàn bộ hệ thống Robot bên trong Docker container độc lập. |
 | `denso_gui` | Mở Bảng Điều Khiển Động Học Thuận (FK) & Nghịch (IK). |
+| `denso_dynamics` | Bật / Tắt (Ẩn / Hiện) tức thì các vector mô-men xoắn và nhãn 3D trong RViz2. |
 | `denso_joints` | Kích hoạt robot chạy chu trình khớp 1 chiều liên tục (Link 1 $\to$ Link 5). |
 | `denso_once` | Chạy đúng 1 lượt từ Link 1 $\to$ Link 5 (2.0s/link) rồi dừng hẳn ở vị trí đích. |
 | `denso_home` | Đưa cánh tay robot trở về tư thế đứng thẳng $0^\circ$. |
