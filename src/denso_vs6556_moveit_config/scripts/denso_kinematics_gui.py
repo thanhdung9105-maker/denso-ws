@@ -43,7 +43,7 @@ JOINT_DESCS = [
     "Base (Xoay trục Z)",
     "Vai (Gập nghiêng Y)",
     "Khuỷu tay (Gập Y)",
-    "Cẳng tay (Xoay trục X)",
+    "Cẳng tay (Xoay trục dọc / Roll)",
     "Cổ tay (Gập ngửa Y)"
 ]
 

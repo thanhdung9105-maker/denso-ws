@@ -180,16 +180,16 @@
   <joint name="joint_3" type="revolute">
     <parent link="link_2"/>
     <child link="link_3"/>
-    <origin xyz="0 0.0055 0.270" rpy="0 0 0"/>
+    <origin xyz="0 0.0055 0.270" rpy="0 1.5707963 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-2.076942" upper="2.897247" effort="100" velocity="3.14"/>
   </joint>
 
-  <!-- joint_4: link_3 -> link_4 (forearm roll, along X axis) -->
+  <!-- joint_4: link_3 -> link_4 (forearm roll) -->
   <joint name="joint_4" type="revolute">
     <parent link="link_3"/>
     <child link="link_4"/>
-    <origin xyz="-0.088 0.049 0.090" rpy="0 0 0"/>
+    <origin xyz="-0.088 0.049 0.090" rpy="3.1415926 0 0"/>
     <axis xyz="1 0 0"/>
     <limit lower="-3.316126" upper="3.316126" effort="100" velocity="3.14"/>
   </joint>
@@ -198,7 +198,7 @@
   <joint name="joint_5" type="revolute">
     <parent link="link_4"/>
     <child link="link_5"/>
-    <origin xyz="-0.207 0 0" rpy="0 0 0"/>
+    <origin xyz="-0.207 0 0" rpy="3.1415926 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-2.094395" upper="2.094395" effort="100" velocity="3.14"/>
   </joint>

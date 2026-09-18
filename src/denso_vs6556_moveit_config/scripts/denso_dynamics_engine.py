@@ -83,6 +83,15 @@ def rot_z(th):
 
 ROT_FUNCS = [rot_z, rot_y, rot_y, rot_x, rot_y]
 
+# Fixed rotation of joint origins matching calibrated URDF
+R_ORIGINS = [
+    np.eye(3),                         # Base -> Joint 1 (rpy=0 0 0)
+    np.eye(3),                         # Link 1 -> Joint 2 (rpy=0 0 0)
+    rot_y(1.5707963),                  # Link 2 -> Joint 3 (rpy=0 1.5707963 0, candlestick alignment)
+    rot_x(3.1415926),                  # Link 3 -> Joint 4 (rpy=3.1415926 0 0, front cover / rear motor)
+    rot_x(3.1415926),                  # Link 4 -> Joint 5 (rpy=3.1415926 0 0, upright tool flange)
+]
+
 
 class DensoDynamicsEngine:
     """High-performance RNEA and Forward Dynamics Engine for Denso VS-6556."""
@@ -103,7 +112,7 @@ class DensoDynamicsEngine:
             R_rot = ROT_FUNCS[i](q[i])
             T_step = np.eye(4)
             T_step[:3, 3] = P_ORIGINS[i]
-            T_step[:3, :3] = R_rot
+            T_step[:3, :3] = R_ORIGINS[i] @ R_rot
             T = T @ T_step
             transforms.append(T.copy())
 
@@ -118,7 +127,7 @@ class DensoDynamicsEngine:
             grav = self.gravity
 
         n = self.num_joints
-        R_rel = [ROT_FUNCS[i](q[i]) for i in range(n)]
+        R_rel = [R_ORIGINS[i] @ ROT_FUNCS[i](q[i]) for i in range(n)]
 
         w = [np.zeros(3) for _ in range(n)]
         wd = [np.zeros(3) for _ in range(n)]
