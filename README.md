@@ -95,14 +95,15 @@ Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
 
 ---
 
-## 📊 4. Tính Năng Bảng Giám Sát Động Lực Học (Dynamics Dashboard)
+## 📊 4. Tính Năng Bảng Giám Sát Động Học & Động Lực Học (Dashboard)
 
-Hệ thống được thiết kế tối ưu, tách biệt thành các tab chuyên sâu, loại bỏ hoàn toàn các chức năng động học cũ để tránh rối mắt, tập trung 100% vào phân tích và giám sát lực:
+Hệ thống được thiết kế tối ưu, tách biệt thành các tab chuyên sâu, kết hợp toàn diện cả **Động Lực Học (Dynamics)** lẫn **Động Học D-H (Kinematics)** và tọa độ không gian làm việc của đầu gắp:
 
 * **Tab 1: Bảng Thông Số Động Lực Học (Nền Trắng - Real-time Telemetry)**:
   - **Giao diện Nền Trắng Siêu Rõ Nét (`#ffffff`)**: Phông chữ đen đậm, viền chuẩn, tương phản cao, dễ quan sát từ xa như màn hình giám sát công nghiệp tiêu chuẩn.
-  - **4 Thẻ Chỉ Số KPI Trực Quan**: Mô-men lớn nhất hiện tại ($\tau_{max}$), Tải motor cao nhất (%), Tải trọng đầu gắp ($m_{payload}$), và Trạng thái an toàn hệ thống.
-  - **Bảng 9 Cột Chi Tiết Từng Khớp**:
+  - **5 Thẻ Chỉ Số KPI Trực Quan**: Mô-men lớn nhất ($\tau_{max}$), Tải motor cao nhất (%), Tải trọng đầu gắp ($m_{payload}$), **Tổng công suất tiêu thụ ($P_{total}$)**, và Trạng thái an toàn hệ thống.
+  - **Mini Cartesian HUD Tọa Độ Đầu Gắp (TCP)**: Hiển thị ngay trên đầu Tab 1 tọa độ vị trí $X, Y, Z$ (mm), tầm vươn $R$, bán kính làm việc $r_{xy}$, và góc xoay Roll, Pitch, Yaw.
+  - **Bảng 10 Cột Chi Tiết Từng Khớp**:
     - Tên khớp ($J_1 \dots J_5$) và vai trò trục.
     - Vị trí góc khớp $q$ (rad & độ $^\circ$).
     - Vận tốc góc $\dot{q}$ (rad/s & độ/s).
@@ -110,24 +111,31 @@ Hệ thống được thiết kế tối ưu, tách biệt thành các tab chuy�
     - Mô-men xoắn tức thời $\tau$ (N·m) tính toán trực tiếp từ thuật toán RNEA.
     - Giới hạn mô-men định mức $\tau_{max}$ của từng động cơ.
     - Thanh đo % tải trọng động cơ kèm mã màu trực quan: 🟢 Xanh ($<50\%$), 🟡 Vàng ($50-80\%$), 🔴 Đỏ ($>80\%$).
+    - **Công suất cơ/điện tức thời $P_i = |\tau_i \cdot \dot{q}_i|$ (Watts)**.
     - Huy hiệu trạng thái: `AN TOÀN`, `CẢNH BÁO`, `QUÁ TẢI`.
   - **Thanh Thao Tác Nhanh**:
-    - Nhập tải gắp (Payload) $0 - 5.0\text{ kg}$ (thay đổi sẽ lập tức cập nhật lại mô-men xoắn bù tải).
+    - Nhập tải gắp (Payload) $0 - 7.0\text{ kg}$ (thay đổi sẽ lập tức cập nhật lại mô-men xoắn bù tải).
     - Các nút lệnh: `Chạy Vòng Lặp`, `Chạy 1 Chiều`, `Dừng Robot`, `Về Home 0°`.
+    - **Nút "📸 Xuất Báo Cáo CSV (Snapshot)"**: Xuất toàn bộ dữ liệu 5 khớp và tọa độ TCP ra file CSV kèm lưu trực tiếp vào Clipboard.
 * **Tab 2: Phân Tích Động Lực Học Nghịch (Inverse Dynamics - ID)**:
   - Thuật toán đệ quy **RNEA (Recursive Newton-Euler Algorithm)** tính toán mô-men xoắn yêu cầu $\tau = M(q)\ddot{q} + C(q, \dot{q})\dot{q} + g(q) + \tau_f + J^T F_{ext}$.
   - Phân tích chi tiết từng thành phần trên bảng **Nền Trắng**: Lực quán tính $M\ddot{q}$, Lực Coriolis & ly tâm $C\dot{q}$, Trọng lực $g(q)$, Lực do tải trọng $J^TF$, Ma sát $\tau_f$.
+  - **Bộ Nút Tư Thế Mẫu (Pose Presets)**: `Home 0°`, `Vươn Ngang 90°`, `Gập Khuỷu 90°`, `Sẵn Sàng` (Ready Pose) để kiểm thử nhanh mô-men với 1 cú click.
   - Nút *"⚖️ Cân bằng trọng lực tĩnh"* để tính nhanh mô-men giữ cánh tay chống rơi tự do.
 * **Tab 3: Mô Phỏng Động Lực Học Thuận (Forward Dynamics - FD)**:
   - Giải bài toán gia tốc góc khớp: $\ddot{q} = M(q)^{-1} (\tau - C(q, \dot{q})\dot{q} - g(q) - \tau_f - J^T F_{ext})$.
   - Thanh trượt chỉnh mô-men xoắn $\tau_1 \dots \tau_5$ (N·m) cho từng khớp.
-  - Bảng kết quả gia tốc $\ddot{q}$ và ma trận khối lượng đối xứng xác định dương $M(q)$ $5 \times 5$ đều hiển thị trên **Nền Trắng**.
+  - Bảng kết quả gia tốc $\ddot{q}$ và ma trận khối lượng đối xứng xác định dương $M(q)$ $5 \times 5$.
+  - **Hiển thị Động năng toàn robot $E_k = \frac{1}{2}\dot{q}^T M(q)\dot{q}$ (Joules)**.
   - **Mô phỏng tương tác vật lý thời gian thực trên RViz2 (20Hz)**: Kéo thanh trượt mô-men xoắn, cánh tay robot trong RViz2 chuyển động theo đúng quy luật động lực học Newton!
+* **Tab 4: Động Học D-H & Tọa Độ Điểm Cuối (Kinematics & D-H Matrix)**:
+  - **4 Thẻ Chỉ Số Không Gian**: Tọa độ TCP $(X, Y, Z)$, Tầm vươn $R$ ($r_{xy}$), Góc Euler Roll-Pitch-Yaw ($^\circ$), Trạng thái vùng làm việc Workspace Envelope.
+  - **Bảng Tham Số D-H Chuẩn (Standard DH Table)**: Hiển thị và cập nhật thời gian thực các tham số $\theta_i$ (độ & rad), $d_i$ (m), $a_i$ (m), $\alpha_i$ ($^\circ$), vector trục quay $Z_i$.
+  - **Ma Trận Biến Đổi Đồng Nhất $4 \times 4$ (Homogeneous Transform)**: Bảng ma trận $4 \times 4$ trực quan, cho phép chuyển đổi xem ma trận tổng thể $T_0^5$ (Base $\to$ TCP) hoặc từng ma trận mắt xích $A_1 \dots A_5$.
 * **5. Trực Quan Hóa Động Lực Học Trên RViz2**:
   - Tự động hiển thị qua topic `/denso/joint_dynamics_markers`:
     + **Bảng Đo Lường Động Lực Học Tập Trung (Unified Telemetry Table)**: Đặt gọn gàng cố định bên cạnh robot, hiển thị bảng chữ nhật chuẩn monospace ASCII đầy đủ 5 khớp, Torque, Limit, Load %, Status, Accel, tự động xoay theo camera và đổi màu cảnh báo (🟢 Xanh, 🟡 Vàng, 🔴 Đỏ).
     + **Mũi tên vector mô-men xoắn 3D (Torque Arrows)**: Căn chỉnh thanh mảnh trên 5 trục quay vật lý của robot, biểu diễn vector xoay của lực mà không gây vướng mắt.
-    + Không còn các dòng chữ rải rác trôi nổi lung tung trong không gian 3D.
 
 ---
 

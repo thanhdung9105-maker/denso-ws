@@ -92,9 +92,45 @@ R_ORIGINS = [
     rot_x(3.1415926),                  # Link 4 -> Joint 5 (rpy=3.1415926 0 0, upright tool flange)
 ]
 
+# Standard DH parameters: (theta_offset_rad, d_m, a_m, alpha_rad, axis_description)
+DH_CONFIG = [
+    (0.0,          0.335, 0.0,   -math.pi / 2, "Z1 ⊥ Z0 (Xoay Z)"),
+    (-math.pi / 2, 0.0,   0.270,  0.0,         "Z2 // Z1 (Gập vai Y)"),
+    (math.pi / 2,  0.0,   0.0,   +math.pi / 2, "Z3 ⊥ Z2 (Gập khuỷu Y)"),
+    (0.0,          0.295, 0.0,   -math.pi / 2, "Z4 ⊥ Z3 (Xoay cẳng tay X)"),
+    (-math.pi / 2, 0.0,   0.100,  0.0,         "X5 dọc thân Tool Flange"),
+]
+
+def std_dh_matrix(theta, d, a, alpha):
+    """Generates standard Denavit-Hartenberg 4x4 transformation matrix."""
+    ct = math.cos(theta)
+    st = math.sin(theta)
+    ca = math.cos(alpha)
+    sa = math.sin(alpha)
+    return np.array([
+        [ct, -st * ca,  st * sa, a * ct],
+        [st,  ct * ca, -ct * sa, a * st],
+        [0.0,     sa,       ca,      d],
+        [0.0,    0.0,      0.0,    1.0]
+    ], dtype=float)
+
+def rot_to_rpy(R):
+    """Converts 3x3 rotation matrix to Roll, Pitch, Yaw (in degrees)."""
+    sy = math.sqrt(R[0, 0]**2 + R[1, 0]**2)
+    singular = sy < 1e-6
+    if not singular:
+        roll = math.atan2(R[2, 1], R[2, 2])
+        pitch = math.atan2(-R[2, 0], sy)
+        yaw = math.atan2(R[1, 0], R[0, 0])
+    else:
+        roll = math.atan2(-R[1, 2], R[1, 1])
+        pitch = math.atan2(-R[2, 0], sy)
+        yaw = 0.0
+    return np.degrees([roll, pitch, yaw])
+
 
 class DensoDynamicsEngine:
-    """High-performance RNEA and Forward Dynamics Engine for Denso VS-6556."""
+    """High-performance RNEA, Forward Dynamics and DH Kinematics Engine for Denso VS-6556."""
 
     def __init__(self):
         self.gravity = np.array([0.0, 0.0, -9.81])
@@ -117,6 +153,67 @@ class DensoDynamicsEngine:
             transforms.append(T.copy())
 
         return transforms
+
+    def compute_fk_dh(self, q):
+        """
+        Computes Standard DH Forward Kinematics for Denso VS-6556.
+        Returns dictionary with:
+        - 'A_matrices': list of 5 individual 4x4 link matrices [A1..A5]
+        - 'T_matrices': list of 6 cumulative 4x4 matrices from base [T0..T5]
+        - 'dh_table': list of dicts with (joint, theta_deg, theta_rad, q_deg, d, a, alpha_deg, desc)
+        - 'tcp_pos': [x, y, z] in meters
+        - 'tcp_rpy': [roll, pitch, yaw] in degrees
+        - 'reach_R': total distance from base (m)
+        - 'reach_xy': horizontal radius (m)
+        - 'T_total': final 4x4 homogenous matrix T_0^5
+        """
+        q = np.array(q, dtype=float)
+        T = np.eye(4)
+        T_matrices = [T.copy()]
+        A_matrices = []
+        dh_rows = []
+
+        for i in range(self.num_joints):
+            th_offset, d, a, alpha, desc = DH_CONFIG[i]
+            theta = q[i] + th_offset
+            A_i = std_dh_matrix(theta, d, a, alpha)
+            A_matrices.append(A_i)
+            T = T @ A_i
+            T_matrices.append(T.copy())
+
+            dh_rows.append({
+                'joint': f"Joint {i + 1}",
+                'theta_deg': float(np.degrees(theta)),
+                'theta_rad': float(theta),
+                'q_deg': float(np.degrees(q[i])),
+                'd': float(d),
+                'a': float(a),
+                'alpha_deg': float(np.degrees(alpha)),
+                'desc': desc
+            })
+
+        tcp_pos = T[:3, 3]
+        tcp_rpy = rot_to_rpy(T[:3, :3])
+        reach_R = float(np.linalg.norm(tcp_pos))
+        reach_xy = float(math.sqrt(tcp_pos[0]**2 + tcp_pos[1]**2))
+
+        return {
+            'A_matrices': A_matrices,
+            'T_matrices': T_matrices,
+            'dh_table': dh_rows,
+            'tcp_pos': tcp_pos,
+            'tcp_rpy': tcp_rpy,
+            'reach_R': reach_R,
+            'reach_xy': reach_xy,
+            'T_total': T
+        }
+
+    def compute_kinetic_energy(self, q, qd):
+        """Calculates total kinetic energy Ek = 0.5 * qd^T * M(q) * qd (Joules)."""
+        q = np.array(q, dtype=float)
+        qd = np.array(qd, dtype=float)
+        M = self.compute_mass_matrix(q)
+        return float(0.5 * qd @ M @ qd)
 
     def rnea(self, q, qd, qdd, grav=None, payload_mass=0.0, f_ext=None, n_ext=None):
         """
