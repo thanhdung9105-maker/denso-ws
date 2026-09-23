@@ -40,7 +40,6 @@ Theo tài liệu tiêu chuẩn từ nhà sản xuất **Denso Robotics (VS-6556 
 
 ---
 
-<<<<<<< Updated upstream
 ## 3. Bảng Thông Số Động Cơ AC Servo & Hộp Số Giảm Tốc (Datasheet No. 410590-0080)
 
 Toàn bộ 5 khớp của Denso VS-6556 đều được dẫn động bằng động cơ **AC Servomotor đồng bộ nam châm vĩnh cửu** kết hợp với **Hộp số giảm tốc sóng Harmonic Drive / RV Reducer** và cảm biến góc quay **Encoder tuyệt đối (Absolute Encoder)**:
@@ -61,9 +60,6 @@ Toàn bộ 5 khớp của Denso VS-6556 đều được dẫn động bằng đ�
 ---
 
 ## 4. Bảng Tham Số Động Lực Học Khớp (Joint Dynamics)
-=======
-## 3. Bảng Tham Số Động Lực Học Khớp (Joint Dynamics)
->>>>>>> Stashed changes
 
 Các giá trị ma sát, giảm chấn và giới hạn mô-men xoắn được đồng bộ chính xác giữa Gazebo Harmonic và thuật toán Recursive Newton-Euler trong `denso_dynamics_engine.py`:
 
@@ -77,11 +73,7 @@ Các giá trị ma sát, giảm chấn và giới hạn mô-men xoắn được 
 
 ---
 
-<<<<<<< Updated upstream
 ## 5. Cải Tiến Cấu Hình Gazebo Harmonic
-=======
-## 4. Cải Tiến Cấu Hình Gazebo Harmonic
->>>>>>> Stashed changes
 
 1. **Đồng bộ tần số điều khiển (500 Hz):**
    - Physics timestep trong `denso_world.sdf`: $0.002\text{ s}$ ($500\text{ Hz}$).

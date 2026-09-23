@@ -40,11 +40,14 @@ def generate_launch_description():
         value=resource_path_str
     )
 
+<<<<<<< Updated upstream
     gz_plugin_env = AppendEnvironmentVariable(
         name='GZ_SIM_SYSTEM_PLUGIN_PATH',
         value='/opt/ros/jazzy/lib'
     )
 
+=======
+>>>>>>> Stashed changes
     # Launch Arguments
     headless_arg = DeclareLaunchArgument(
         'headless',
@@ -158,7 +161,10 @@ def generate_launch_description():
 
     return LaunchDescription([
         gz_resource_env,
+<<<<<<< Updated upstream
         gz_plugin_env,
+=======
+>>>>>>> Stashed changes
         headless_arg,
         control_gui_arg,
         gazebo_gui,

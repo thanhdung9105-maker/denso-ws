@@ -164,7 +164,11 @@
     <child link="link_1"/>
     <origin xyz="0 0 0.185" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
+<<<<<<< Updated upstream
     <limit lower="-2.96706" upper="2.96706" effort="80" velocity="4.5815"/>
+=======
+    <limit lower="-2.96706" upper="2.96706" effort="80" velocity="3.14"/>
+>>>>>>> Stashed changes
     <dynamics damping="0.8" friction="0.5"/>
   </joint>
 
@@ -174,7 +178,11 @@
     <child link="link_2"/>
     <origin xyz="-0.075 -0.0545 0.150" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
+<<<<<<< Updated upstream
     <limit lower="-2.094395" upper="2.356194" effort="100" velocity="4.1888"/>
+=======
+    <limit lower="-2.094395" upper="2.356194" effort="100" velocity="3.14"/>
+>>>>>>> Stashed changes
     <dynamics damping="1.2" friction="0.8"/>
   </joint>
 
@@ -184,7 +192,11 @@
     <child link="link_3"/>
     <origin xyz="0 0.0055 0.270" rpy="0 1.5707963 0"/>
     <axis xyz="0 1 0"/>
+<<<<<<< Updated upstream
     <limit lower="-2.076942" upper="2.897247" effort="60" velocity="5.2360"/>
+=======
+    <limit lower="-2.076942" upper="2.897247" effort="60" velocity="3.14"/>
+>>>>>>> Stashed changes
     <dynamics damping="0.9" friction="0.6"/>
   </joint>
 
@@ -194,7 +206,11 @@
     <child link="link_4"/>
     <origin xyz="-0.088 0.049 0.090" rpy="3.1415926 0 0"/>
     <axis xyz="1 0 0"/>
+<<<<<<< Updated upstream
     <limit lower="-3.316126" upper="3.316126" effort="25" velocity="5.2360"/>
+=======
+    <limit lower="-3.316126" upper="3.316126" effort="25" velocity="3.14"/>
+>>>>>>> Stashed changes
     <dynamics damping="0.3" friction="0.2"/>
   </joint>
 
@@ -204,7 +220,11 @@
     <child link="link_5"/>
     <origin xyz="-0.207 0 0" rpy="3.1415926 0 0"/>
     <axis xyz="0 1 0"/>
+<<<<<<< Updated upstream
     <limit lower="-2.094395" upper="2.094395" effort="20" velocity="5.2360"/>
+=======
+    <limit lower="-2.094395" upper="2.094395" effort="20" velocity="3.14"/>
+>>>>>>> Stashed changes
     <dynamics damping="0.2" friction="0.15"/>
   </joint>
 
