@@ -1,5 +1,8 @@
 <?xml version="1.0"?>
-<robot name="denso_vs6556">
+<robot name="denso_vs6556" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Arguments -->
+  <xacro:arg name="controllers_file" default="$(find denso_gazebo)/config/denso_controllers.yaml"/>
 
   <!-- World link -->
   <link name="world"/>
@@ -91,7 +94,6 @@
       <inertia ixx="0.020" ixy="0.0" ixz="0.0" iyy="0.020" iyz="0.0" izz="0.010"/>
     </inertial>
     <visual>
-      <!-- Origin set exactly at elbow circular joint axis as per SolidWorks (-75mm, 605mm, 49mm) -->
       <origin xyz="-0.10802 0.13900 -0.07250" rpy="1.570796 0 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c004.STL" scale="0.001 0.001 0.001"/>
@@ -116,7 +118,6 @@
       <inertia ixx="0.005" ixy="0.0" ixz="0.0" iyy="0.015" iyz="0.0" izz="0.015"/>
     </inertial>
     <visual>
-      <!-- Aligned with elbow at link_3 and wrist fork at tip, matching SolidWorks reference -->
       <origin xyz="-0.2545 0.0670 -0.0566" rpy="1.570796 0 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c005.STL" scale="0.001 0.001 0.001"/>
@@ -141,7 +142,6 @@
       <inertia ixx="0.003" ixy="0.0" ixz="0.0" iyy="0.003" iyz="0.0" izz="0.003"/>
     </inertial>
     <visual>
-      <!-- Origin set at wrist pivot axis matching SolidWorks: (-370mm, 695mm, 0mm) -->
       <origin xyz="-0.08304 0.03242 -0.04093" rpy="1.570796 0 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c006.STL" scale="0.001 0.001 0.001"/>
@@ -207,5 +207,137 @@
     <limit lower="-2.094395" upper="2.094395" effort="20" velocity="5.2360"/>
     <dynamics damping="0.2" friction="0.15"/>
   </joint>
+
+  <!-- Gazebo Visual Materials -->
+  <gazebo reference="base_link">
+    <visual>
+      <material>
+        <ambient>0.5 0.5 0.5 1.0</ambient>
+        <diffuse>0.5 0.5 0.5 1.0</diffuse>
+        <specular>0.2 0.2 0.2 1.0</specular>
+      </material>
+    </visual>
+  </gazebo>
+
+  <gazebo reference="link_1">
+    <visual>
+      <material>
+        <ambient>0.15 0.25 0.55 1.0</ambient>
+        <diffuse>0.15 0.25 0.55 1.0</diffuse>
+        <specular>0.3 0.3 0.3 1.0</specular>
+      </material>
+    </visual>
+  </gazebo>
+
+  <gazebo reference="link_2">
+    <visual>
+      <material>
+        <ambient>0.85 0.85 0.85 1.0</ambient>
+        <diffuse>0.85 0.85 0.85 1.0</diffuse>
+        <specular>0.3 0.3 0.3 1.0</specular>
+      </material>
+    </visual>
+  </gazebo>
+
+  <gazebo reference="link_3">
+    <visual>
+      <material>
+        <ambient>0.85 0.85 0.85 1.0</ambient>
+        <diffuse>0.85 0.85 0.85 1.0</diffuse>
+        <specular>0.3 0.3 0.3 1.0</specular>
+      </material>
+    </visual>
+  </gazebo>
+
+  <gazebo reference="link_4">
+    <visual>
+      <material>
+        <ambient>0.5 0.5 0.5 1.0</ambient>
+        <diffuse>0.5 0.5 0.5 1.0</diffuse>
+        <specular>0.2 0.2 0.2 1.0</specular>
+      </material>
+    </visual>
+  </gazebo>
+
+  <gazebo reference="link_5">
+    <visual>
+      <material>
+        <ambient>0.3 0.3 0.3 1.0</ambient>
+        <diffuse>0.3 0.3 0.3 1.0</diffuse>
+        <specular>0.2 0.2 0.2 1.0</specular>
+      </material>
+    </visual>
+  </gazebo>
+
+  <!-- ros2_control Hardware Interface -->
+  <ros2_control name="GazeboSimSystem" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      <param name="hold_joints">true</param>
+    </hardware>
+    <joint name="joint_1">
+      <command_interface name="position">
+        <param name="min">-2.96706</param>
+        <param name="max">2.96706</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="joint_2">
+      <command_interface name="position">
+        <param name="min">-2.094395</param>
+        <param name="max">2.356194</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="joint_3">
+      <command_interface name="position">
+        <param name="min">-2.076942</param>
+        <param name="max">2.897247</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="joint_4">
+      <command_interface name="position">
+        <param name="min">-3.316126</param>
+        <param name="max">3.316126</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="joint_5">
+      <command_interface name="position">
+        <param name="min">-2.094395</param>
+        <param name="max">2.094395</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </ros2_control>
+
+  <!-- Gazebo ROS 2 Control Plugin -->
+  <gazebo>
+    <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(arg controllers_file)</parameters>
+      <position_proportional_gain>0.5</position_proportional_gain>
+    </plugin>
+  </gazebo>
 
 </robot>

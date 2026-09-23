@@ -1,28 +1,40 @@
+# Joint limits for Denso VS-6556 Industrial Robot Arm (5-DOF)
+# Grounded in Denso Robotics Technical Manual No. 410590-0080
 joint_limits:
-  default_velocity_scaling_factor: 0.1
-  default_acceleration_scaling_factor: 0.1
+  default_velocity_scaling_factor: 0.5
+  default_acceleration_scaling_factor: 0.5
   joint_1:
     has_velocity_limits: true
-    max_velocity: 3.14
+    max_velocity: 4.5815       # 262.5 deg/s (AC Servo 400W, Ratio 80:1)
     has_acceleration_limits: true
-    max_acceleration: 5.0
+    max_acceleration: 15.0     # rad/s^2 (Standard 0.49s cycle time)
+    has_effort_limits: true
+    max_effort: 80.0           # Nm
   joint_2:
     has_velocity_limits: true
-    max_velocity: 3.14
+    max_velocity: 4.1888       # 240.0 deg/s (AC Servo 750W, Ratio 100:1)
     has_acceleration_limits: true
-    max_acceleration: 5.0
+    max_acceleration: 12.0     # rad/s^2
+    has_effort_limits: true
+    max_effort: 100.0          # Nm
   joint_3:
     has_velocity_limits: true
-    max_velocity: 3.14
+    max_velocity: 5.2360       # 300.0 deg/s (AC Servo 400W, Ratio 80:1)
     has_acceleration_limits: true
-    max_acceleration: 5.0
+    max_acceleration: 15.0     # rad/s^2
+    has_effort_limits: true
+    max_effort: 60.0           # Nm
   joint_4:
     has_velocity_limits: true
-    max_velocity: 3.14
+    max_velocity: 5.2360       # 300.0 deg/s (AC Servo 100W, Ratio 50:1)
     has_acceleration_limits: true
-    max_acceleration: 5.0
+    max_acceleration: 20.0     # rad/s^2
+    has_effort_limits: true
+    max_effort: 25.0           # Nm (Allowable: 16.2 Nm)
   joint_5:
     has_velocity_limits: true
-    max_velocity: 3.14
+    max_velocity: 5.2360       # 300.0 deg/s (AC Servo 100W, Ratio 50:1)
     has_acceleration_limits: true
-    max_acceleration: 5.0
+    max_acceleration: 20.0     # rad/s^2
+    has_effort_limits: true
+    max_effort: 20.0           # Nm (Allowable: 16.2 Nm)

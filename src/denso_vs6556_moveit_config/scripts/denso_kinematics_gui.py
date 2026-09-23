@@ -13,8 +13,6 @@ import os
 import math
 import time
 import threading
-import csv
-from datetime import datetime
 import numpy as np
 
 # ROS 2 imports
@@ -23,14 +21,15 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 from visualization_msgs.msg import MarkerArray
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from builtin_interfaces.msg import Duration
 
 # PyQt5 imports
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QSlider, QDoubleSpinBox,
     QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
-    QProgressBar, QFrame, QSplitter, QTabWidget, QCheckBox,
-    QComboBox
+    QProgressBar, QFrame, QSplitter, QTabWidget, QCheckBox, QComboBox
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt5.QtGui import QFont, QColor, QPalette
@@ -38,7 +37,7 @@ from PyQt5.QtGui import QFont, QColor, QPalette
 # Import Dynamics Engine
 sys.path.append(os.path.dirname(__file__))
 from denso_dynamics_engine import (
-    DensoDynamicsEngine, TORQUE_LIMITS, JOINT_LIMITS, AXES, DH_CONFIG
+    DensoDynamicsEngine, TORQUE_LIMITS, JOINT_LIMITS, AXES
 )
 
 JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5']
@@ -61,6 +60,7 @@ class RosBridge(QObject):
         self.node = None
         self.cmd_pub = None
         self.marker_pub = None
+        self.traj_pub = None
         self.latest_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
         self.latest_velocities = [0.0, 0.0, 0.0, 0.0, 0.0]
         self.latest_efforts = [0.0, 0.0, 0.0, 0.0, 0.0]
@@ -71,6 +71,7 @@ class RosBridge(QObject):
         self.node.create_subscription(JointState, '/joint_states', self._js_cb, 10)
         self.cmd_pub = self.node.create_publisher(String, '/denso/cmd', 10)
         self.marker_pub = self.node.create_publisher(MarkerArray, '/denso/joint_dynamics_markers', 10)
+        self.traj_pub = self.node.create_publisher(JointTrajectory, '/arm_controller/joint_trajectory', 10)
 
         threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True).start()
 
@@ -98,6 +99,18 @@ class RosBridge(QObject):
             msg = String()
             msg.data = cmd_str
             self.cmd_pub.publish(msg)
+
+    def send_trajectory(self, target_rads, duration_sec=1.5):
+        if self.traj_pub:
+            traj = JointTrajectory()
+            traj.joint_names = list(JOINT_NAMES)
+            pt = JointTrajectoryPoint()
+            pt.positions = [float(p) for p in target_rads]
+            sec = int(duration_sec)
+            nanosec = int((duration_sec - sec) * 1e9)
+            pt.time_from_start = Duration(sec=sec, nanosec=nanosec)
+            traj.points = [pt]
+            self.traj_pub.publish(traj)
 
     def publish_markers(self, marker_array):
         if self.marker_pub and marker_array is not None:
@@ -127,10 +140,9 @@ class DensoKinematicsGUI(QMainWindow):
         self.sim_qd = np.zeros(5)
         self.sim_tau = np.zeros(5)
         self.dynamics_visible = True
-        self.latest_fk = None
 
-        self.setWindowTitle("DENSO VS-6556 - BẢNG ĐIỀU KHIỂN & GIÁM SÁT ĐỘNG HỌC & ĐỘNG LỰC HỌC (ROS 2)")
-        self.resize(1340, 880)
+        self.setWindowTitle("DENSO VS-6556 - BẢNG ĐIỀU KHIỂN & GIÁM SÁT ĐỘNG LỰC HỌC (ROS 2)")
+        self.resize(1240, 820)
         self.init_ui()
         self.apply_dark_theme()
 
@@ -156,10 +168,10 @@ class DensoKinematicsGUI(QMainWindow):
         # --- HEADER ---
         header_layout = QHBoxLayout()
         title_box = QVBoxLayout()
-        title_label = QLabel("DENSO VS-6556 KINEMATICS & DYNAMICS MONITOR")
+        title_label = QLabel("DENSO VS-6556 DYNAMICS MONITOR & CONTROL")
         title_label.setFont(QFont("Segoe UI", 16, QFont.Bold))
         title_label.setStyleSheet("color: #00e5ff; letter-spacing: 1px;")
-        sub_label = QLabel("Bảng Giám Sát Động Lực Học Thời Gian Thực, Phân Tích Thuận/Nghịch & Động Học D-H 5 Khớp (ROS 2)")
+        sub_label = QLabel("Bảng Giám Sát Thời Gian Thực & Phân Tích Động Lực Học Thuận/Nghịch tại 5 Khớp Robot (ROS 2)")
         sub_label.setFont(QFont("Segoe UI", 10))
         sub_label.setStyleSheet("color: #a0a0b0;")
         title_box.addWidget(title_label)
@@ -204,14 +216,14 @@ class DensoKinematicsGUI(QMainWindow):
         tab_fd = self.create_fd_panel()
         self.tabs.addTab(tab_fd, "3. MÔ PHỎNG ĐỘNG LỰC HỌC THUẬN")
 
-        # Tab 4: Động học D-H & Tọa độ TCP
-        tab_dh = self.create_dh_tab()
+        # Tab 4: Động học D-H & Tọa độ điểm cuối (Kinematics & D-H Matrix)
+        tab_dh = self.create_dh_panel()
         self.tabs.addTab(tab_dh, "4. ĐỘNG HỌC D-H & TỌA ĐỘ TCP")
 
         main_layout.addWidget(self.tabs, 1)
 
         # --- FOOTER / LOG BAR ---
-        self.log_label = QLabel("Hệ thống sẵn sàng. Dữ liệu động học & động lực học được cập nhật thời gian thực ở chu kỳ 10Hz.")
+        self.log_label = QLabel("Hệ thống sẵn sàng. Dữ liệu động lực học được cập nhật thời gian thực ở chu kỳ 10Hz.")
         self.log_label.setStyleSheet("color: #00e676; font-size: 11px; padding: 4px;")
         main_layout.addWidget(self.log_label)
 
@@ -261,9 +273,6 @@ class DensoKinematicsGUI(QMainWindow):
         self.card_payload_box, self.card_payload_val, self.card_payload_sub = make_card(
             "TẢI TRỌNG ĐẦU GẮP (PAYLOAD)", "0.0 kg", "Khả năng chịu tải tối đa 6.5 kg", "#8b5cf6"
         )
-        self.card_power_box, self.card_power_val, self.card_power_sub = make_card(
-            "TỔNG CÔNG SUẤT (POWER)", "0.0 W", "P = Σ |τ_i · q̇_i| cơ học", "#d97706"
-        )
         self.card_status_box, self.card_status_val, self.card_status_sub = make_card(
             "TRẠNG THÁI HỆ THỐNG (STATUS)", "● AN TOÀN", "Tất cả khớp hoạt động <50% định mức", "#059669"
         )
@@ -271,48 +280,8 @@ class DensoKinematicsGUI(QMainWindow):
         cards_layout.addWidget(self.card_tau_box)
         cards_layout.addWidget(self.card_load_box)
         cards_layout.addWidget(self.card_payload_box)
-        cards_layout.addWidget(self.card_power_box)
         cards_layout.addWidget(self.card_status_box)
         layout.addLayout(cards_layout)
-
-        # 1b. Mini Cartesian TCP HUD Row
-        hud_box = QFrame()
-        hud_box.setStyleSheet("""
-            QFrame {
-                background-color: #ffffff;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                padding: 6px 14px;
-            }
-        """)
-        hud_layout = QHBoxLayout(hud_box)
-        hud_layout.setContentsMargins(6, 4, 6, 4)
-        hud_layout.setSpacing(14)
-
-        lbl_hud_icon = QLabel("📍 TỌA ĐỘ ĐẦU GẮP (TCP):")
-        lbl_hud_icon.setStyleSheet("color: #0284c7; font-weight: bold; font-size: 11px;")
-        hud_layout.addWidget(lbl_hud_icon)
-
-        self.tab1_tcp_xyz = QLabel("X: +0.0 mm   Y: +0.0 mm   Z: +1000.0 mm")
-        self.tab1_tcp_xyz.setFont(QFont("Segoe UI", 11, QFont.Bold))
-        self.tab1_tcp_xyz.setStyleSheet("color: #0f172a; font-family: 'Segoe UI', monospace;")
-        hud_layout.addWidget(self.tab1_tcp_xyz)
-
-        hud_layout.addSpacing(8)
-
-        self.tab1_tcp_r = QLabel("Tầm vươn R: 1000.0 mm (r_xy: 0.0 mm)")
-        self.tab1_tcp_r.setFont(QFont("Segoe UI", 10))
-        self.tab1_tcp_r.setStyleSheet("color: #475569;")
-        hud_layout.addWidget(self.tab1_tcp_r)
-
-        hud_layout.addStretch()
-
-        self.tab1_tcp_rpy = QLabel("Hướng Roll: -90.0° | Pitch: -90.0° | Yaw: 0.0°")
-        self.tab1_tcp_rpy.setFont(QFont("Segoe UI", 10))
-        self.tab1_tcp_rpy.setStyleSheet("color: #64748b;")
-        hud_layout.addWidget(self.tab1_tcp_rpy)
-
-        layout.addWidget(hud_box)
 
         # 2. Main Telemetry Table (White Background)
         table_container = QGroupBox("BẢNG THEO DÕI ĐỘNG LỰC HỌC 5 KHỚP THỜI GIAN THỰC")
@@ -322,8 +291,8 @@ class DensoKinematicsGUI(QMainWindow):
                 background-color: #ffffff;
                 border: 1px solid #cbd5e1;
                 border-radius: 8px;
-                margin-top: 10px;
-                padding: 12px 10px 10px 10px;
+                margin-top: 16px;
+                padding: 14px 10px 10px 10px;
                 color: #0f172a;
             }
             QGroupBox::title {
@@ -339,10 +308,10 @@ class DensoKinematicsGUI(QMainWindow):
         tbl_layout = QVBoxLayout(table_container)
         tbl_layout.setContentsMargins(6, 12, 6, 6)
 
-        self.telemetry_table = QTableWidget(5, 10)
+        self.telemetry_table = QTableWidget(5, 9)
         self.telemetry_table.setHorizontalHeaderLabels([
             "Khớp", "Trục & Vai Trò", "Vị Trí Góc q", "Vận Tốc q̇", "Gia Tốc q̈",
-            "Mô-Men τ (N·m)", "Giới Hạn τ_max", "Tải Động Cơ (%)", "Công Suất P", "Trạng Thái"
+            "Mô-Men τ (N·m)", "Giới Hạn τ_max", "Tải Động Cơ (%)", "Trạng Thái"
         ])
         h_header = self.telemetry_table.horizontalHeader()
         h_header.setSectionResizeMode(QHeaderView.Stretch)
@@ -351,10 +320,9 @@ class DensoKinematicsGUI(QMainWindow):
         h_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         h_header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
         h_header.setSectionResizeMode(7, QHeaderView.Fixed)
-        self.telemetry_table.setColumnWidth(7, 155)
-        h_header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
-        h_header.setSectionResizeMode(9, QHeaderView.Fixed)
-        self.telemetry_table.setColumnWidth(9, 130)
+        self.telemetry_table.setColumnWidth(7, 165)
+        h_header.setSectionResizeMode(8, QHeaderView.Fixed)
+        self.telemetry_table.setColumnWidth(8, 135)
         self.telemetry_table.verticalHeader().setVisible(False)
         self.telemetry_table.verticalHeader().setDefaultSectionSize(48)
         self.telemetry_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -473,14 +441,7 @@ class DensoKinematicsGUI(QMainWindow):
             self.telemetry_table.setCellWidget(row, 7, pb_container)
             self.telemetry_progress_bars.append((pb, lbl_pct))
 
-            # 8: Mechanical/Electrical Power P (W)
-            it_power = QTableWidgetItem("0.0 W")
-            it_power.setTextAlignment(Qt.AlignCenter)
-            it_power.setFont(QFont("Segoe UI", 11, QFont.Bold))
-            it_power.setForeground(QColor("#0f172a"))
-            self.telemetry_table.setItem(row, 8, it_power)
-
-            # 9: Status Badge (Crisp, centered pill badge with ample row height)
+            # 8: Status Badge (Crisp, centered pill badge with ample row height)
             badge = QLabel("● AN TOÀN")
             badge.setAlignment(Qt.AlignCenter)
             badge.setFont(QFont("Segoe UI", 10, QFont.Bold))
@@ -501,7 +462,7 @@ class DensoKinematicsGUI(QMainWindow):
             badge_box.setContentsMargins(6, 0, 6, 0)
             badge_box.setAlignment(Qt.AlignCenter)
             badge_box.addWidget(badge)
-            self.telemetry_table.setCellWidget(row, 9, badge_container)
+            self.telemetry_table.setCellWidget(row, 8, badge_container)
             self.telemetry_status_badges.append(badge)
 
         tbl_layout.addWidget(self.telemetry_table)
@@ -515,8 +476,8 @@ class DensoKinematicsGUI(QMainWindow):
                 background-color: #ffffff;
                 border: 1px solid #cbd5e1;
                 border-radius: 8px;
-                margin-top: 10px;
-                padding: 12px 14px 10px 14px;
+                margin-top: 16px;
+                padding: 14px 14px 10px 14px;
                 color: #0f172a;
             }
             QGroupBox::title {
@@ -555,28 +516,23 @@ class DensoKinematicsGUI(QMainWindow):
 
         btn_demo = QPushButton("▶ Chạy Demo Vòng Lặp")
         btn_demo.setStyleSheet("background-color: #0284c7; color: white; padding: 7px 14px; border-radius: 6px; font-weight: bold;")
-        btn_demo.clicked.connect(lambda: self.bridge.send_cmd("demo"))
+        btn_demo.clicked.connect(self.on_demo_all)
         ctrl_layout.addWidget(btn_demo)
 
         btn_once = QPushButton("⚡ Chạy 1 Chiều")
         btn_once.setStyleSheet("background-color: #475569; color: white; padding: 7px 14px; border-radius: 6px; font-weight: bold;")
-        btn_once.clicked.connect(lambda: self.bridge.send_cmd("once"))
+        btn_once.clicked.connect(self.on_once_all)
         ctrl_layout.addWidget(btn_once)
 
         btn_stop = QPushButton("■ Dừng Robot")
         btn_stop.setStyleSheet("background-color: #dc2626; color: white; padding: 7px 14px; border-radius: 6px; font-weight: bold;")
-        btn_stop.clicked.connect(lambda: self.bridge.send_cmd("stop"))
+        btn_stop.clicked.connect(self.on_stop_all)
         ctrl_layout.addWidget(btn_stop)
 
         btn_home = QPushButton("⌂ Về Gốc (Home 0°)")
         btn_home.setStyleSheet("background-color: #059669; color: white; padding: 7px 14px; border-radius: 6px; font-weight: bold;")
-        btn_home.clicked.connect(lambda: self.bridge.send_cmd("home"))
+        btn_home.clicked.connect(self.on_home_all)
         ctrl_layout.addWidget(btn_home)
-
-        btn_csv = QPushButton("📸 Xuất Báo Cáo CSV")
-        btn_csv.setStyleSheet("background-color: #0d9488; color: white; padding: 7px 14px; border-radius: 6px; font-weight: bold;")
-        btn_csv.clicked.connect(self.on_export_telemetry_csv)
-        ctrl_layout.addWidget(btn_csv)
 
         ctrl_layout.addStretch()
         layout.addWidget(ctrl_box)
@@ -663,35 +619,6 @@ class DensoKinematicsGUI(QMainWindow):
         btn_grav_comp.setStyleSheet("background-color: #0284c7; color: white; padding: 7px; border-radius: 6px; font-weight: bold;")
         btn_grav_comp.clicked.connect(self.on_id_gravity_comp)
         left_layout.addWidget(btn_grav_comp)
-
-        # Quick Presets Box
-        preset_box = QGroupBox("Tư Thế Mẫu Nhanh (Pose Presets):")
-        preset_box.setStyleSheet("background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; color: #0f172a;")
-        preset_layout = QHBoxLayout(preset_box)
-        preset_layout.setContentsMargins(6, 6, 6, 6)
-        preset_layout.setSpacing(6)
-
-        btn_p_home = QPushButton("⌂ Home 0°")
-        btn_p_home.setStyleSheet("background-color: #059669; color: white; padding: 5px 6px; border-radius: 4px; font-weight: bold;")
-        btn_p_home.clicked.connect(lambda: self.apply_id_preset([0.0, 0.0, 0.0, 0.0, 0.0]))
-        preset_layout.addWidget(btn_p_home)
-
-        btn_p_reach = QPushButton("↔ Vươn Ngang 90°")
-        btn_p_reach.setStyleSheet("background-color: #0284c7; color: white; padding: 5px 6px; border-radius: 4px; font-weight: bold;")
-        btn_p_reach.clicked.connect(lambda: self.apply_id_preset([0.0, 90.0, 0.0, 0.0, 0.0]))
-        preset_layout.addWidget(btn_p_reach)
-
-        btn_p_elbow = QPushButton("⌐ Gập Khuỷu 90°")
-        btn_p_elbow.setStyleSheet("background-color: #475569; color: white; padding: 5px 6px; border-radius: 4px; font-weight: bold;")
-        btn_p_elbow.clicked.connect(lambda: self.apply_id_preset([0.0, 0.0, 90.0, 0.0, 0.0]))
-        preset_layout.addWidget(btn_p_elbow)
-
-        btn_p_ready = QPushButton("⚡ Sẵn Sàng")
-        btn_p_ready.setStyleSheet("background-color: #8b5cf6; color: white; padding: 5px 6px; border-radius: 4px; font-weight: bold;")
-        btn_p_ready.clicked.connect(lambda: self.apply_id_preset([0.0, 30.0, 60.0, 0.0, 30.0]))
-        preset_layout.addWidget(btn_p_ready)
-
-        left_layout.addWidget(preset_box)
 
         self.btn_calc_id = QPushButton("⚡ TÍNH TOÁN MÔ-MEN XOẮN (INVERSE DYNAMICS)")
         self.btn_calc_id.setFont(QFont("Segoe UI", 11, QFont.Bold))
@@ -914,397 +841,10 @@ class DensoKinematicsGUI(QMainWindow):
                 self.mass_table.setItem(r, c, item)
         right_layout.addWidget(self.mass_table)
 
-        self.lbl_kinetic_energy = QLabel("⚡ Động năng toàn robot (E_k): 0.0000 J")
-        self.lbl_kinetic_energy.setStyleSheet("color: #8b5cf6; font-weight: bold; font-size: 12px; margin-top: 6px; padding: 6px; background-color: #f8fafc; border-radius: 4px; border: 1px solid #e2e8f0;")
-        right_layout.addWidget(self.lbl_kinetic_energy)
-
         right_layout.addStretch()
         layout.addWidget(right_box, 1)
 
         return panel
-
-    # ---------------------------------------------------------
-    # TAB 4: KINEMATICS D-H & CARTESIAN TCP (WHITE BACKGROUND)
-    # ---------------------------------------------------------
-    def create_dh_tab(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(12)
-
-        # 1. Top Cartesian HUD KPI Cards
-        cards_layout = QHBoxLayout()
-        cards_layout.setSpacing(12)
-
-        def make_dh_card(title, initial_val, subtext, val_color="#0f172a"):
-            box = QFrame()
-            box.setStyleSheet("""
-                QFrame {
-                    background-color: #ffffff;
-                    border: 1px solid #cbd5e1;
-                    border-radius: 8px;
-                    padding: 8px 14px;
-                }
-            """)
-            v = QVBoxLayout(box)
-            v.setContentsMargins(4, 4, 4, 4)
-            v.setSpacing(3)
-            lbl_t = QLabel(title)
-            lbl_t.setStyleSheet("color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;")
-            lbl_v = QLabel(initial_val)
-            lbl_v.setStyleSheet(f"color: {val_color}; font-size: 17px; font-weight: bold; font-family: 'Segoe UI', monospace;")
-            lbl_s = QLabel(subtext)
-            lbl_s.setStyleSheet("color: #94a3b8; font-size: 11px;")
-            v.addWidget(lbl_t)
-            v.addWidget(lbl_v)
-            v.addWidget(lbl_s)
-            return box, lbl_v, lbl_s
-
-        self.dh_card_pos_box, self.dh_card_pos_val, self.dh_card_pos_sub = make_dh_card(
-            "VỊ TRÍ ĐẦU GẮP TCP (X, Y, Z)", "X: +0.0  Y: +0.0  Z: 1000.0", "Hệ quy chiếu Base (Đơn vị: mm)", "#0284c7"
-        )
-        self.dh_card_reach_box, self.dh_card_reach_val, self.dh_card_reach_sub = make_dh_card(
-            "TẦM VƯƠN ROBOT (REACH)", "R = 1000.0 mm", "Bán kính phẳng r_xy = 0.0 mm", "#10b981"
-        )
-        self.dh_card_rpy_box, self.dh_card_rpy_val, self.dh_card_rpy_sub = make_dh_card(
-            "HƯỚNG EULER ĐẦU GẮP (RPY)", "R: -90.0°  P: -90.0°  Y: 0.0°", "Góc Roll - Pitch - Yaw (độ)", "#8b5cf6"
-        )
-        self.dh_card_status_box, self.dh_card_status_val, self.dh_card_status_sub = make_dh_card(
-            "KHÔNG GIAN LÀM VIỆC (WORKSPACE)", "● TRONG TẦM VƯƠN", "Bán kính R <= 1000 mm (An toàn)", "#059669"
-        )
-
-        cards_layout.addWidget(self.dh_card_pos_box)
-        cards_layout.addWidget(self.dh_card_reach_box)
-        cards_layout.addWidget(self.dh_card_rpy_box)
-        cards_layout.addWidget(self.dh_card_status_box)
-        layout.addLayout(cards_layout)
-
-        # 2. Split Area: Left = DH Table, Right = 4x4 Matrix
-        content_layout = QHBoxLayout()
-        content_layout.setSpacing(12)
-
-        # --- LEFT: DH Table Box ---
-        left_box = QGroupBox("BẢNG THAM SỐ ĐỘNG HỌC DENAVIT - HARTENBERG (STANDARD DH)")
-        left_box.setFont(QFont("Segoe UI", 11, QFont.Bold))
-        left_box.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding: 12px 10px 10px 10px;
-                color: #0f172a;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                left: 12px;
-                padding: 0 8px;
-                color: #0284c7;
-                font-weight: bold;
-                background-color: #ffffff;
-            }
-        """)
-        left_layout = QVBoxLayout(left_box)
-        left_layout.setContentsMargins(6, 12, 6, 6)
-
-        self.dh_table = QTableWidget(5, 7)
-        self.dh_table.setHorizontalHeaderLabels([
-            "Khớp", "Góc q (°)", "Tham Số θ_i", "Độ Dời d_i (m)", "Độ Dài a_i (m)", "Góc Xoắn α_i", "Đặc Điểm Trục Z_i"
-        ])
-        h_dh = self.dh_table.horizontalHeader()
-        h_dh.setSectionResizeMode(QHeaderView.Stretch)
-        h_dh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        h_dh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        h_dh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        h_dh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        h_dh.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        h_dh.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.dh_table.verticalHeader().setVisible(False)
-        self.dh_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.dh_table.setFixedHeight(275)
-        self.dh_table.setAlternatingRowColors(True)
-
-        for row in range(5):
-            self.dh_table.setRowHeight(row, 48)
-
-        self.dh_table.setStyleSheet("""
-            QTableWidget {
-                background-color: #ffffff;
-                color: #0f172a;
-                gridline-color: #e2e8f0;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                font-family: 'Segoe UI', 'DejaVu Sans', sans-serif;
-                font-size: 13px;
-            }
-            QHeaderView::section {
-                background-color: #f1f5f9;
-                color: #0f172a;
-                font-weight: bold;
-                font-size: 12px;
-                padding: 8px 4px;
-                border: 1px solid #e2e8f0;
-            }
-            QTableWidget::item { padding: 6px; color: #0f172a; }
-            QTableWidget::item:alternate { background-color: #f8fafc; }
-        """)
-
-        for row in range(5):
-            it_name = QTableWidgetItem(f"Joint {row+1}")
-            it_name.setFont(QFont("Segoe UI", 11, QFont.Bold))
-            it_name.setTextAlignment(Qt.AlignCenter)
-            self.dh_table.setItem(row, 0, it_name)
-
-            for col in range(1, 7):
-                it = QTableWidgetItem("-")
-                it.setTextAlignment(Qt.AlignCenter if col < 6 else Qt.AlignLeft | Qt.AlignVCenter)
-                self.dh_table.setItem(row, col, it)
-
-        left_layout.addWidget(self.dh_table)
-
-        # Explanatory formula box
-        dh_info_box = QFrame()
-        dh_info_box.setStyleSheet("background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px;")
-        dh_info_layout = QVBoxLayout(dh_info_box)
-        dh_info_layout.setContentsMargins(4, 4, 4, 4)
-        dh_info_layout.setSpacing(4)
-
-        lbl_dh_eq = QLabel("Công thức ma trận D-H chuẩn: A_i = Rot(Z, θ_i) · Trans(Z, d_i) · Trans(X, a_i) · Rot(X, α_i)")
-        lbl_dh_eq.setStyleSheet("color: #0284c7; font-weight: bold; font-size: 11px;")
-        dh_info_layout.addWidget(lbl_dh_eq)
-
-        lbl_dh_sub = QLabel("• Thông số danh định: J1 (d1=0.335m, α1=-90°) | J2 (a2=0.270m) | J4 (d4=0.295m, α4=-90°) | J5 (a5=0.100m)\n"
-                            "• Căn chỉnh 100% khớp với tư thế nến thẳng đứng (Candlestick / Vertical 0° Calibration) của robot thật.")
-        lbl_dh_sub.setStyleSheet("color: #64748b; font-size: 11px;")
-        dh_info_layout.addWidget(lbl_dh_sub)
-
-        left_layout.addWidget(dh_info_box)
-        content_layout.addWidget(left_box, 6)
-
-        # --- RIGHT: 4x4 Matrix Box ---
-        right_box = QGroupBox("MA TRẬN BIẾN ĐỔI ĐỒNG NHẤT 4×4")
-        right_box.setFont(QFont("Segoe UI", 11, QFont.Bold))
-        right_box.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding: 12px 10px 10px 10px;
-                color: #0f172a;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                left: 12px;
-                padding: 0 8px;
-                color: #0284c7;
-                font-weight: bold;
-                background-color: #ffffff;
-            }
-        """)
-        right_layout = QVBoxLayout(right_box)
-        right_layout.setContentsMargins(6, 12, 6, 6)
-
-        # Matrix Selector Dropdown
-        sel_box = QHBoxLayout()
-        sel_box.addWidget(QLabel("Chọn Ma Trận:"))
-        self.combo_matrix = QComboBox()
-        self.combo_matrix.addItems([
-            "Ma trận tổng thể T_0^5 (Base → TCP Flange)",
-            "Ma trận mắt xích A_1 (Base → Joint 1)",
-            "Ma trận mắt xích A_2 (Joint 1 → Joint 2)",
-            "Ma trận mắt xích A_3 (Joint 2 → Joint 3)",
-            "Ma trận mắt xích A_4 (Joint 3 → Joint 4)",
-            "Ma trận mắt xích A_5 (Joint 4 → Joint 5)"
-        ])
-        self.combo_matrix.setStyleSheet("""
-            QComboBox {
-                background-color: #f8fafc;
-                color: #0f172a;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-        """)
-        self.combo_matrix.currentIndexChanged.connect(self.on_matrix_combo_changed)
-        sel_box.addWidget(self.combo_matrix, 1)
-        right_layout.addLayout(sel_box)
-
-        # 4x4 Table
-        self.matrix_table = QTableWidget(4, 4)
-        self.matrix_table.setHorizontalHeaderLabels(["nx (cột 1)", "oy (cột 2)", "az (cột 3)", "Vị trí P (m)"])
-        self.matrix_table.setVerticalHeaderLabels(["X", "Y", "Z", "1"])
-        self.matrix_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.matrix_table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.matrix_table.setFixedHeight(210)
-        self.matrix_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.matrix_table.setStyleSheet("""
-            QTableWidget {
-                background-color: #ffffff;
-                color: #0f172a;
-                gridline-color: #e2e8f0;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 13px;
-                font-weight: bold;
-            }
-            QHeaderView::section {
-                background-color: #f1f5f9;
-                color: #0f172a;
-                font-weight: bold;
-                border: 1px solid #e2e8f0;
-            }
-            QTableWidget::item { padding: 4px; }
-        """)
-
-        for r in range(4):
-            for c in range(4):
-                it = QTableWidgetItem("0.0000")
-                it.setTextAlignment(Qt.AlignCenter)
-                self.matrix_table.setItem(r, c, it)
-        right_layout.addWidget(self.matrix_table)
-
-        # Structure explanation
-        mat_info = QLabel("Cấu trúc: [ Ma trận xoay R (3×3)  |  Vector vị trí P (3×1) ]\n"
-                          "         [ 0         0        0   |  1                   ]")
-        mat_info.setStyleSheet("color: #475569; font-family: 'Consolas', monospace; font-size: 11px; background-color: #f8fafc; padding: 6px; border-radius: 4px;")
-        mat_info.setAlignment(Qt.AlignCenter)
-        right_layout.addWidget(mat_info)
-
-        content_layout.addWidget(right_box, 5)
-        layout.addLayout(content_layout)
-
-        layout.addStretch()
-        return tab
-
-    def update_dh_tab(self, fk_res):
-        if fk_res is None:
-            return
-
-        pos = fk_res['tcp_pos']
-        rpy = fk_res['tcp_rpy']
-        R_reach = fk_res['reach_R']
-        r_xy = fk_res['reach_xy']
-
-        # Update Top KPI Cards
-        self.dh_card_pos_val.setText(f"X: {pos[0]*1000:+5.1f}  Y: {pos[1]*1000:+5.1f}  Z: {pos[2]*1000:5.1f}")
-        self.dh_card_reach_val.setText(f"R = {R_reach*1000:5.1f} mm")
-        self.dh_card_reach_sub.setText(f"Bán kính phẳng r_xy = {r_xy*1000:5.1f} mm")
-        self.dh_card_rpy_val.setText(f"R: {rpy[0]:+5.1f}°  P: {rpy[1]:+5.1f}°  Y: {rpy[2]:+5.1f}°")
-
-        if R_reach <= 1.001:
-            self.dh_card_status_val.setText("● TRONG TẦM VƯƠN")
-            self.dh_card_status_val.setStyleSheet("color: #059669; font-size: 17px; font-weight: bold;")
-            self.dh_card_status_sub.setText("Bán kính R <= 1000 mm (An toàn)")
-        else:
-            self.dh_card_status_val.setText("▲ NGOÀI TẦM CHUẨN")
-            self.dh_card_status_val.setStyleSheet("color: #d97706; font-size: 17px; font-weight: bold;")
-            self.dh_card_status_sub.setText("Khoảng cách vượt quá chiều dài danh định")
-
-        # Update DH Table
-        dh_rows = fk_res['dh_table']
-        for i, row_data in enumerate(dh_rows):
-            # Col 1: q_deg
-            self.dh_table.item(i, 1).setText(f"{row_data['q_deg']:+.1f}°")
-            # Col 2: theta_deg
-            self.dh_table.item(i, 2).setText(f"{row_data['theta_deg']:+.1f}° ({row_data['theta_rad']:+.3f})")
-            # Col 3: d
-            self.dh_table.item(i, 3).setText(f"{row_data['d']:.3f}")
-            # Col 4: a
-            self.dh_table.item(i, 4).setText(f"{row_data['a']:.3f}")
-            # Col 5: alpha
-            self.dh_table.item(i, 5).setText(f"{row_data['alpha_deg']:+.1f}°")
-            # Col 6: desc
-            self.dh_table.item(i, 6).setText(row_data['desc'])
-
-        # Update 4x4 Matrix Table
-        self.render_selected_matrix(fk_res)
-
-    def on_matrix_combo_changed(self, idx):
-        if self.latest_fk:
-            self.render_selected_matrix(self.latest_fk)
-
-    def render_selected_matrix(self, fk_res):
-        idx = self.combo_matrix.currentIndex()
-        if idx == 0:
-            M = fk_res['T_total']
-        else:
-            M = fk_res['A_matrices'][idx - 1]
-
-        for r in range(4):
-            for c in range(4):
-                val = M[r, c]
-                if abs(val) < 1e-4:
-                    val_str = "0.0000"
-                else:
-                    val_str = f"{val:+.4f}"
-                it = self.matrix_table.item(r, c)
-                it.setText(val_str)
-                if c == 3 and r < 3:
-                    it.setForeground(QColor("#0284c7"))  # Position in blue
-                elif r == 3:
-                    it.setForeground(QColor("#94a3b8"))  # Bottom row in gray
-                else:
-                    it.setForeground(QColor("#0f172a"))  # Rotation in dark
-
-    def on_export_telemetry_csv(self):
-        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"denso_telemetry_{now_str}.csv"
-        filepath = os.path.join(os.path.expanduser("~"), filename)
-
-        q = self.current_joints
-        qd = self.current_velocities
-        now = time.monotonic()
-        dt = max(1e-3, now - self.prev_calc_time)
-        qdd = (np.array(qd) - self.prev_calc_qd) / dt
-        payload = self.sp_tab1_payload.value()
-        res = self.dynamics_engine.inverse_dynamics(q, qd, qdd, payload_mass=payload)
-        fk = self.dynamics_engine.compute_fk_dh(q)
-
-        lines = [
-            f"# DENSO VS-6556 TELEMETRY SNAPSHOT - {datetime.now().isoformat()}",
-            f"# TCP Position (m): X={fk['tcp_pos'][0]:.4f}, Y={fk['tcp_pos'][1]:.4f}, Z={fk['tcp_pos'][2]:.4f}",
-            f"# TCP Euler RPY (deg): Roll={fk['tcp_rpy'][0]:.1f}, Pitch={fk['tcp_rpy'][1]:.1f}, Yaw={fk['tcp_rpy'][2]:.1f}",
-            f"# Reach R (m): {fk['reach_R']:.4f}, Payload (kg): {payload:.2f}",
-            "Joint,Name,q_deg,q_rad,qd_deg_s,qd_rad_s,qdd_rad_s2,tau_Nm,tau_limit_Nm,load_percent,power_W"
-        ]
-
-        for i in range(5):
-            q_deg = float(np.degrees(q[i]))
-            qd_deg = float(np.degrees(qd[i]))
-            t_val = float(res['tau'][i])
-            pct = float(res['percent_load'][i])
-            p_val = abs(t_val * float(qd[i]))
-            lines.append(
-                f"Joint_{i+1},{JOINT_NAMES[i]},{q_deg:.2f},{q[i]:.4f},{qd_deg:.2f},{qd[i]:.4f},{qdd[i]:.3f},{t_val:.2f},{TORQUE_LIMITS[i]:.0f},{pct:.1f},{p_val:.2f}"
-            )
-
-        csv_content = "\n".join(lines)
-        try:
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(csv_content)
-        except Exception:
-            pass
-
-        try:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(csv_content)
-            self.log_label.setText(f"📸 Đã xuất dữ liệu đo ra file '{filepath}' và lưu vào Clipboard!")
-        except Exception:
-            self.log_label.setText(f"📸 Đã xuất dữ liệu đo ra file '{filepath}'!")
-
-    def apply_id_preset(self, deg_list):
-        for i in range(5):
-            self.id_input_table.item(i, 1).setText(f"{deg_list[i]:.1f}")
-            self.id_input_table.item(i, 2).setText("0.00")
-            self.id_input_table.item(i, 3).setText("0.00")
-        self.on_compute_id()
-        self.log_label.setText(f"🎯 Đã nạp tư thế mẫu: {deg_list}° và tính xong mô-men.")
 
     # ---------------------------------------------------------
     # TAB 1 LIVE UPDATE (TELEMETRY)
@@ -1319,18 +859,6 @@ class DensoKinematicsGUI(QMainWindow):
         self.prev_calc_qd = np.array(qd)
         self.prev_calc_time = now
 
-        # 1. Forward Kinematics (DH)
-        fk_res = self.dynamics_engine.compute_fk_dh(q)
-        self.latest_fk = fk_res
-
-        # Update Tab 1 Mini Cartesian HUD
-        pos = fk_res['tcp_pos']
-        rpy = fk_res['tcp_rpy']
-        self.tab1_tcp_xyz.setText(f"X: {pos[0]*1000:+6.1f} mm   Y: {pos[1]*1000:+6.1f} mm   Z: {pos[2]*1000:6.1f} mm")
-        self.tab1_tcp_r.setText(f"Tầm vươn R: {fk_res['reach_R']*1000:6.1f} mm (r_xy: {fk_res['reach_xy']*1000:6.1f} mm)")
-        self.tab1_tcp_rpy.setText(f"Hướng Roll: {rpy[0]:+5.1f}° | Pitch: {rpy[1]:+5.1f}° | Yaw: {rpy[2]:+5.1f}°")
-
-        # 2. Inverse Dynamics for Telemetry
         payload = self.sp_tab1_payload.value()
         res = self.dynamics_engine.inverse_dynamics(q, qd, qdd, payload_mass=payload)
         tau = res['tau']
@@ -1338,14 +866,10 @@ class DensoKinematicsGUI(QMainWindow):
 
         max_tau_val = 0.0
         max_load_pct = 0.0
-        total_power = 0.0
 
         for i in range(5):
             t_val = float(tau[i])
             pct = float(pct_load[i])
-            p_val = abs(t_val * float(qd[i]))
-            total_power += p_val
-
             if abs(t_val) > max_tau_val:
                 max_tau_val = abs(t_val)
             if pct > max_load_pct:
@@ -1414,15 +938,7 @@ class DensoKinematicsGUI(QMainWindow):
                 }}
             """)
 
-            # Col 8: Power P (W)
-            it_power = self.telemetry_table.item(i, 8)
-            it_power.setText(f"{p_val:.1f} W")
-            if p_val > 50.0:
-                it_power.setForeground(QColor("#b45309"))
-            else:
-                it_power.setForeground(QColor("#0f172a"))
-
-            # Col 9: Status Badge (Crisp, centered pill badge with ample row height)
+            # Col 8: Status Badge (Crisp, fully legible, no emoji squishing)
             badge = self.telemetry_status_badges[i]
             if pct < 50.0:
                 badge.setText("● AN TOÀN")
@@ -1451,14 +967,6 @@ class DensoKinematicsGUI(QMainWindow):
         self.card_load_val.setText(f"{max_load_pct:.1f}%")
         self.card_payload_val.setText(f"{payload:.1f} kg")
 
-        self.card_power_val.setText(f"{total_power:.1f} W")
-        if total_power < 50.0:
-            self.card_power_val.setStyleSheet("color: #059669; font-size: 20px; font-weight: bold;")
-        elif total_power < 150.0:
-            self.card_power_val.setStyleSheet("color: #d97706; font-size: 20px; font-weight: bold;")
-        else:
-            self.card_power_val.setStyleSheet("color: #dc2626; font-size: 20px; font-weight: bold;")
-
         if max_load_pct < 50.0:
             self.card_load_val.setStyleSheet("color: #10b981; font-size: 20px; font-weight: bold;")
             self.card_status_val.setText("● AN TOÀN")
@@ -1474,9 +982,6 @@ class DensoKinematicsGUI(QMainWindow):
             self.card_status_val.setText("■ CẢNH BÁO QUÁ TẢI")
             self.card_status_val.setStyleSheet("color: #dc2626; font-size: 20px; font-weight: bold;")
             self.card_status_sub.setText("Có khớp vượt 80% mô-men định mức!")
-
-        # 3. Update Tab 4 (DH Kinematics & Cartesian TCP)
-        self.update_dh_tab(fk_res)
 
     # ---------------------------------------------------------
     # TAB 2 & 3 CALLBACKS
@@ -1588,9 +1093,6 @@ class DensoKinematicsGUI(QMainWindow):
             for c in range(5):
                 self.mass_table.item(r, c).setText(f"{M[r, c]:.4f}")
 
-        ek = self.dynamics_engine.compute_kinetic_energy(q, qd)
-        self.lbl_kinetic_energy.setText(f"⚡ Động năng toàn robot (E_k): {ek:.4f} J")
-
         markers = self.dynamics_engine.build_marker_array(q, tau, qdd, frame_id="world")
         self.bridge.publish_markers(markers)
 
@@ -1630,9 +1132,6 @@ class DensoKinematicsGUI(QMainWindow):
             self.fd_res_table.item(i, 1).setText(f"{qdd[i]:+.3f}")
             self.fd_res_table.item(i, 2).setText(f"{np.rad2deg(qdd[i]):+.2f}°/s²")
 
-        ek = self.dynamics_engine.compute_kinetic_energy(self.sim_q, self.sim_qd)
-        self.lbl_kinetic_energy.setText(f"⚡ Động năng toàn robot (E_k): {ek:.4f} J")
-
         markers = self.dynamics_engine.build_marker_array(self.sim_q, tau, qdd, frame_id="world")
         self.bridge.publish_markers(markers)
 
@@ -1646,6 +1145,7 @@ class DensoKinematicsGUI(QMainWindow):
 
     def on_timer_tick(self):
         self.update_telemetry_tab()
+        self.update_dh_tab()
 
     def on_toggle_dynamics(self):
         self.dynamics_visible = not self.dynamics_visible
@@ -1665,6 +1165,295 @@ class DensoKinematicsGUI(QMainWindow):
             )
             self.bridge.send_cmd("dynamics_off")
             self.log_label.setText("Đã ẩn các vector mô-men xoắn trong RViz2.")
+
+
+    # ---------------------------------------------------------
+    # SYNCHRONIZED ACTION HANDLERS (RVIZ + GAZEBO)
+    # ---------------------------------------------------------
+    def on_home_all(self):
+        self.bridge.send_cmd("home")
+        self.bridge.send_trajectory([0.0, 0.0, 0.0, 0.0, 0.0], duration_sec=1.5)
+        self.log_label.setText("⌂ Đang đưa robot về Home 0° (Đồng bộ RViz2 & Gazebo)...")
+
+    def on_stop_all(self):
+        self.bridge.send_cmd("stop")
+        # Hold current position in Gazebo
+        self.bridge.send_trajectory(list(self.current_joints), duration_sec=0.2)
+        self.log_label.setText("■ Đã dừng giữ robot tại vị trí hiện tại.")
+
+    def on_demo_all(self):
+        self.bridge.send_cmd("demo")
+        self.log_label.setText("▶ Bắt đầu chu trình chạy lặp Link 1 -> Link 5 (Đồng bộ RViz2 & Gazebo).")
+        self._start_gazebo_sequence()
+
+    def on_once_all(self):
+        self.bridge.send_cmd("once")
+        self.log_label.setText("⚡ Chạy 1 chiều Link 1 -> Link 5 rồi giữ vị trí.")
+        self._start_gazebo_sequence(loop=False)
+
+    def _start_gazebo_sequence(self, loop=True):
+        seq = [
+            ([0.785, 0.0, 0.0, 0.0, 0.0], 2.0),
+            ([0.785, 0.785, 0.0, 0.0, 0.0], 2.0),
+            ([0.785, 0.785, 0.785, 0.0, 0.0], 2.0),
+            ([0.785, 0.785, 0.785, 1.57, 0.0], 2.0),
+            ([0.785, 0.785, 0.785, 1.57, 0.87], 2.0),
+            ([0.0, 0.0, 0.0, 0.0, 0.0], 2.5),
+        ]
+        def run_seq():
+            while True:
+                for target, dur in seq:
+                    self.bridge.send_trajectory(target, dur)
+                    time.sleep(dur + 1.0)
+                if not loop:
+                    break
+        threading.Thread(target=run_seq, daemon=True).start()
+
+    def send_pose_sync(self, target_joints, name=""):
+        self.bridge.send_trajectory(target_joints, duration_sec=1.5)
+        # Also publish manual angles to mock controller if needed
+        self.log_label.setText(f"🎯 Đã gửi tư thế '{name}' tới Robot (Đồng bộ RViz2 & Gazebo)...")
+
+    # ---------------------------------------------------------
+    # TAB 4: KINEMATICS D-H & TCP COORDINATES
+    # ---------------------------------------------------------
+    def create_dh_panel(self):
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
+
+        # 1. Top KPI Summary Cards (White Background)
+        cards_layout = QHBoxLayout()
+        cards_layout.setSpacing(12)
+
+        def make_dh_card(title, initial_val, subtext, val_color="#0f172a"):
+            box = QFrame()
+            box.setStyleSheet("""
+                QFrame {
+                    background-color: #ffffff;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 8px;
+                    padding: 8px 14px;
+                }
+            """)
+            v = QVBoxLayout(box)
+            v.setContentsMargins(4, 4, 4, 4)
+            v.setSpacing(3)
+            lbl_t = QLabel(title)
+            lbl_t.setStyleSheet("color: #64748b; font-size: 11px; font-weight: bold; text-transform: uppercase;")
+            lbl_v = QLabel(initial_val)
+            lbl_v.setStyleSheet(f"color: {val_color}; font-size: 18px; font-weight: bold; font-family: 'Segoe UI', monospace;")
+            lbl_s = QLabel(subtext)
+            lbl_s.setStyleSheet("color: #94a3b8; font-size: 11px;")
+            v.addWidget(lbl_t)
+            v.addWidget(lbl_v)
+            v.addWidget(lbl_s)
+            return box, lbl_v, lbl_s
+
+        self.dh_card_xyz_box, self.dh_card_xyz_val, self.dh_card_xyz_sub = make_dh_card(
+            "TỌA ĐỘ ĐẦU GẮP TCP (X, Y, Z)", "X: +15 mm | Y: 0 mm | Z: +900 mm", "Tính từ gốc Base (world origin)", "#0284c7"
+        )
+        self.dh_card_reach_box, self.dh_card_reach_val, self.dh_card_reach_sub = make_dh_card(
+            "TẦM VƯƠN R (BÁN KÍNH r_xy)", "R: 900.1 mm | r_xy: 15.0 mm", "Bán kính tối đa: 653 mm", "#10b981"
+        )
+        self.dh_card_rpy_box, self.dh_card_rpy_val, self.dh_card_rpy_sub = make_dh_card(
+            "GÓC EULER ROLL-PITCH-YAW", "R: 0.0° | P: 0.0° | Y: 0.0°", "Hướng vector trục kẹp đầu cuối", "#8b5cf6"
+        )
+        self.dh_card_ws_box, self.dh_card_ws_val, self.dh_card_ws_sub = make_dh_card(
+            "VÙNG LÀM VIỆC (WORKSPACE)", "● TRONG VÙNG", "Trạng thái vận hành an toàn", "#059669"
+        )
+
+        cards_layout.addWidget(self.dh_card_xyz_box)
+        cards_layout.addWidget(self.dh_card_reach_box)
+        cards_layout.addWidget(self.dh_card_rpy_box)
+        cards_layout.addWidget(self.dh_card_ws_box)
+        layout.addLayout(cards_layout)
+
+        # 2. Main Middle Splitter: Left = DH Table, Right = 4x4 Homogeneous Transform
+        mid_splitter = QSplitter(Qt.Horizontal)
+
+        # Left Box: Standard DH Parameters Table
+        dh_box = QGroupBox("📋 BẢNG THAM SỐ ĐỘNG HỌC D-H CHUẨN (STANDARD D-H PARAMETERS)")
+        dh_box.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        dh_box.setStyleSheet("background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; color: #0f172a;")
+        dh_layout = QVBoxLayout(dh_box)
+        dh_layout.setContentsMargins(10, 14, 10, 10)
+
+        self.dh_table = QTableWidget(5, 7)
+        self.dh_table.setHorizontalHeaderLabels([
+            "Khớp i", "Khâu i", "Góc θi (Live)", "di (m)", "ai (m)", "αi (độ)", "Trục Zi"
+        ])
+        self.dh_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.dh_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.dh_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #ffffff;
+                color: #0f172a;
+                gridline-color: #e2e8f0;
+                font-size: 12px;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+            }
+            QHeaderView::section {
+                background-color: #f1f5f9;
+                color: #0f172a;
+                font-weight: bold;
+                padding: 6px;
+                border: 1px solid #cbd5e1;
+            }
+        """)
+
+        # Static standard D-H nominal values for Denso VS-6556
+        DH_NOMINALS = [
+            ("Joint 1", "Base -> Link 1", "0.0°", "0.185", "0.000", "+90.0°", "[0, 0, 1]"),
+            ("Joint 2", "Link 1 -> Link 2", "0.0°", "0.000", "0.270", "0.0°", "[0, 1, 0]"),
+            ("Joint 3", "Link 2 -> Link 3", "0.0°", "0.000", "0.090", "+90.0°", "[0, 1, 0]"),
+            ("Joint 4", "Link 3 -> Link 4", "0.0°", "0.207", "0.000", "-90.0°", "[1, 0, 0]"),
+            ("Joint 5", "Link 4 -> Link 5", "0.0°", "0.100", "0.000", "0.0°", "[0, 1, 0]"),
+        ]
+        for r, row_data in enumerate(DH_NOMINALS):
+            for c, val in enumerate(row_data):
+                it = QTableWidgetItem(val)
+                it.setTextAlignment(Qt.AlignCenter)
+                self.dh_table.setItem(r, c, it)
+        dh_layout.addWidget(self.dh_table)
+        mid_splitter.addWidget(dh_box)
+
+        # Right Box: 4x4 Homogeneous Transformation Matrix
+        tf_box = QGroupBox("📐 MA TRẬN BIẾN ĐỔI ĐỒNG NHẤT 4x4 (HOMOGENEOUS TRANSFORM)")
+        tf_box.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        tf_box.setStyleSheet("background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; color: #0f172a;")
+        tf_layout = QVBoxLayout(tf_box)
+        tf_layout.setContentsMargins(10, 14, 10, 10)
+
+        sel_h = QHBoxLayout()
+        sel_h.addWidget(QLabel("Chọn mắt xích:"))
+        self.combo_matrix = QComboBox()
+        self.combo_matrix.addItems([
+            "Ma trận Tổng thể T0_5 (Base -> TCP)",
+            "Ma trận T0_1 (Base -> Joint 1)",
+            "Ma trận T0_2 (Base -> Joint 2)",
+            "Ma trận T0_3 (Base -> Joint 3)",
+            "Ma trận T0_4 (Base -> Joint 4)",
+        ])
+        self.combo_matrix.setStyleSheet("background-color: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; padding: 4px; font-weight: bold;")
+        sel_h.addWidget(self.combo_matrix)
+        sel_h.addStretch()
+        tf_layout.addLayout(sel_h)
+
+        self.matrix_table = QTableWidget(4, 4)
+        self.matrix_table.setHorizontalHeaderLabels(["nx (Col 1)", "oy (Col 2)", "az (Col 3)", "p (Col 4)"])
+        self.matrix_table.setVerticalHeaderLabels(["X", "Y", "Z", "1"])
+        self.matrix_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.matrix_table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.matrix_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.matrix_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #f8fafc;
+                color: #0f172a;
+                gridline-color: #cbd5e1;
+                font-family: monospace;
+                font-size: 13px;
+                font-weight: bold;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+            }
+            QHeaderView::section {
+                background-color: #e2e8f0;
+                color: #0f172a;
+                font-weight: bold;
+                border: 1px solid #cbd5e1;
+            }
+        """)
+        for r in range(4):
+            for c in range(4):
+                val = "1.0000" if r == c else "0.0000"
+                it = QTableWidgetItem(val)
+                it.setTextAlignment(Qt.AlignCenter)
+                self.matrix_table.setItem(r, c, it)
+        tf_layout.addWidget(self.matrix_table)
+        mid_splitter.addWidget(tf_box)
+
+        layout.addWidget(mid_splitter, 1)
+
+        # 3. Bottom Box: Quick Preset Poses (Sync RViz2 & Gazebo)
+        preset_box = QGroupBox("🎯 TƯ THẾ MẪU CHUẨN ĐỒNG BỘ RVIZ2 & GAZEBO (QUICK POSES)")
+        preset_box.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        preset_box.setStyleSheet("background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; color: #0f172a;")
+        p_layout = QHBoxLayout(preset_box)
+        p_layout.setContentsMargins(10, 10, 10, 10)
+        p_layout.setSpacing(10)
+
+        poses = [
+            ("⌂ Home (0°)", [0.0, 0.0, 0.0, 0.0, 0.0], "#059669"),
+            ("🎯 Sẵn Sàng (Ready)", [0.0, 0.5, 0.8, 0.0, -0.5], "#0284c7"),
+            ("📏 Vươn Ngang 90°", [0.0, 0.785, 0.785, 0.0, 0.0], "#475569"),
+            ("📐 Gập Khuỷu 90°", [0.0, 0.0, 1.57, 0.0, 0.0], "#64748b"),
+            ("🔄 Gắp Thấp (Pick Low)", [0.0, 1.05, 0.25, 0.0, -0.7], "#7c3aed"),
+        ]
+        for title, joints, color in poses:
+            btn = QPushButton(title)
+            btn.setStyleSheet(f"background-color: {color}; color: white; padding: 8px 14px; border-radius: 6px; font-weight: bold;")
+            btn.clicked.connect(lambda ch, j=joints, n=title: self.send_pose_sync(j, n))
+            p_layout.addWidget(btn)
+
+        layout.addWidget(preset_box)
+        return panel
+
+    def update_dh_tab(self):
+        q = np.array(self.current_joints, dtype=float)
+        transforms = self.dynamics_engine.get_joint_transforms(q)
+        tcp_T = transforms[-1]
+
+        # TCP Position in mm
+        x_mm = tcp_T[0, 3] * 1000.0
+        y_mm = tcp_T[1, 3] * 1000.0
+        z_mm = tcp_T[2, 3] * 1000.0
+        r_xy = math.sqrt(x_mm**2 + y_mm**2)
+        reach_R = math.sqrt(x_mm**2 + y_mm**2 + z_mm**2)
+
+        # Euler angles from rotation matrix
+        R = tcp_T[:3, :3]
+        sy = math.sqrt(R[0, 0]**2 + R[1, 0]**2)
+        if sy > 1e-6:
+            roll = math.degrees(math.atan2(R[2, 1], R[2, 2]))
+            pitch = math.degrees(math.atan2(-R[2, 0], sy))
+            yaw = math.degrees(math.atan2(R[1, 0], R[0, 0]))
+        else:
+            roll = math.degrees(math.atan2(-R[1, 2], R[1, 1]))
+            pitch = math.degrees(math.atan2(-R[2, 0], sy))
+            yaw = 0.0
+
+        self.dh_card_xyz_val.setText(f"X: {x_mm:+4.0f} | Y: {y_mm:+4.0f} | Z: {z_mm:+4.0f} mm")
+        self.dh_card_reach_val.setText(f"R: {reach_R:5.1f} mm | r_xy: {r_xy:5.1f} mm")
+        self.dh_card_rpy_val.setText(f"R: {roll:+5.1f}° | P: {pitch:+5.1f}° | Y: {yaw:+5.1f}°")
+
+        if r_xy > 653.0 or reach_R > 950.0:
+            self.dh_card_ws_val.setText("⚠ GẦN BIÊN WORKSPACE")
+            self.dh_card_ws_val.setStyleSheet("color: #e11d48; font-size: 18px; font-weight: bold;")
+        else:
+            self.dh_card_ws_val.setText("● TRONG VÙNG AN TOÀN")
+            self.dh_card_ws_val.setStyleSheet("color: #059669; font-size: 18px; font-weight: bold;")
+
+        # Update Live θ in DH table
+        for i in range(5):
+            deg = math.degrees(q[i])
+            if abs(deg) < 0.05:
+                deg = 0.0
+            self.dh_table.item(i, 2).setText(f"{deg:+5.1f}° ({q[i]:+4.2f} rad)")
+
+        # Update 4x4 Transformation Matrix
+        c_idx = self.combo_matrix.currentIndex()
+        selected_T = tcp_T if c_idx == 0 else transforms[c_idx]
+
+        for r in range(4):
+            for c in range(4):
+                val = selected_T[r, c]
+                if abs(val) < 0.0001:
+                    val = 0.0
+                fmt = f"{val:+7.4f}" if c < 3 else (f"{val*1000:+7.1f} mm" if r < 3 else f"{val:.0f}")
+                self.matrix_table.item(r, c).setText(fmt)
 
     def apply_dark_theme(self):
         palette = QPalette()

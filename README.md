@@ -77,6 +77,31 @@ denso_gui
 
 ---
 
+### Cách 3: Khởi chạy Mô Phỏng Vật Lý Gazebo Harmonic (`gz-sim 8`)
+
+Hệ thống tích hợp gói mô phỏng vật lý `denso_gazebo` với phần cứng mô phỏng `gz_ros2_control`:
+
+#### 1. Khởi chạy Gazebo Simulation độc lập:
+```bash
+denso_gazebo
+```
+*(Cửa sổ Gazebo Harmonic sẽ mở ra cùng cánh tay robot Denso VS-6556 đặt trên sàn mô phỏng. Trình điều khiển `arm_controller` và `joint_state_broadcaster` tự động kích hoạt).*
+
+#### 2. Khởi chạy Gazebo Sim kết hợp MoveIt 2 & RViz2:
+```bash
+denso_gazebo_moveit
+```
+*(Mở đồng thời cả Gazebo Sim và RViz2. Mọi trajectory được MoveIt lập kế hoạch sẽ được gửi trực tiếp và thực thi chính xác trên thế giới vật lý ảo).*
+
+#### 3. Kiểm thử tự động quỹ đạo 5 khớp:
+Mở một terminal khác và gõ:
+```bash
+denso_gazebo_test
+```
+*(Robot sẽ tự động duyệt qua các điểm mốc tư thế làm việc và trở về Home, xác nhận hệ thống chạy ổn định 100%).*
+
+---
+
 ## 🎮 3. Danh Sách Lệnh Điều Khiển Nhanh (Aliases)
 
 Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
@@ -84,6 +109,9 @@ Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
 | Lệnh | Chức năng |
 |---|---|
 | `denso` | Bật toàn bộ hệ thống Robot + MoveIt 2 + RViz2 trên máy thật. |
+| `denso_gazebo` | **Bật mô phỏng vật lý Gazebo Harmonic (gz-sim 8)** với robot Denso VS-6556. |
+| `denso_gazebo_moveit` | **Bật đồng thời Gazebo + MoveIt 2 + RViz2** (đồng bộ điều khiển thời gian thực). |
+| `denso_gazebo_test` | Chạy kịch bản tự động kiểm thử quỹ đạo 5 khớp chuyển động ổn định trên Gazebo. |
 | `denso_docker` | Bật toàn bộ hệ thống Robot bên trong Docker container độc lập. |
 | `denso_table` / `denso_gui` | Mở **Bảng Thông Số Động Lực Học (Nền Trắng)** và Giám Sát Thời Gian Thực. |
 | `denso_dynamics` | Bật / Tắt (Ẩn / Hiện) tức thì các vector mô-men xoắn trong RViz2. |

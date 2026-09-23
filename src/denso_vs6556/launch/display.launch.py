@@ -1,14 +1,38 @@
 import os
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 from moveit_configs_utils import MoveItConfigsBuilder
 
 def generate_launch_description():
-    denso_pkg = get_package_share_directory('denso_vs6556')
-    urdf_path = os.path.join(denso_pkg, 'urdf', 'denso_vs6556.urdf')
-    rviz_config = os.path.join(denso_pkg, 'rviz', 'display.rviz')
-    moveit_pkg = get_package_share_directory('denso_vs6556_moveit_config')
+    pkg_denso = get_package_share_directory('denso_vs6556')
+    urdf_path = os.path.join(pkg_denso, 'urdf', 'denso_vs6556.urdf')
+    rviz_config = os.path.join(pkg_denso, 'rviz', 'display.rviz')
+    pkg_moveit = get_package_share_directory('denso_vs6556_moveit_config')
+
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use simulation clock (from Gazebo Sim)'
+    )
+    use_sim_time = LaunchConfiguration('use_sim_time')
+
+    use_mock_arg = DeclareLaunchArgument(
+        'use_mock',
+        default_value='true',
+        description='Launch standalone mock controller'
+    )
+    use_mock = LaunchConfiguration('use_mock')
+
+    launch_rsp_arg = DeclareLaunchArgument(
+        'launch_rsp',
+        default_value='true',
+        description='Launch robot_state_publisher and static_transform_publisher'
+    )
+    launch_rsp = LaunchConfiguration('launch_rsp')
 
     moveit_config = (
         MoveItConfigsBuilder('denso_vs6556', package_name='denso_vs6556_moveit_config')
@@ -25,21 +49,28 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
-    # MoveGroup Node
+    # MoveGroup Node (with use_sim_time support)
     move_group_node = Node(
         package='moveit_ros_move_group',
         executable='move_group',
         output='screen',
-        parameters=[moveit_config.to_dict()],
+        parameters=[
+            moveit_config.to_dict(),
+            {'use_sim_time': use_sim_time}
+        ],
     )
 
-    # Robot State Publisher
+    # Robot State Publisher (can be disabled if Gazebo already provides it)
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
-        parameters=[moveit_config.robot_description],
+        parameters=[
+            moveit_config.robot_description,
+            {'use_sim_time': use_sim_time}
+        ],
+        condition=IfCondition(launch_rsp)
     )
 
     # Static TF world -> base_link
@@ -48,7 +79,9 @@ def generate_launch_description():
         executable='static_transform_publisher',
         name='static_transform_publisher',
         output='log',
-        arguments=['0', '0', '0', '0', '0', '0', 'world', 'base_link'],
+        arguments=['--x', '0', '--y', '0', '--z', '0', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'world', '--child-frame-id', 'base_link'],
+        parameters=[{'use_sim_time': use_sim_time}],
+        condition=IfCondition(launch_rsp)
     )
 
     # Mock Controller Node (FollowJointTrajectory + smooth joint state publisher)
@@ -57,6 +90,7 @@ def generate_launch_description():
         executable='denso_mock_controller.py',
         name='denso_mock_controller',
         output='screen',
+        condition=IfCondition(use_mock)
     )
 
     # RViz2 Node with MotionPlanning
@@ -72,10 +106,14 @@ def generate_launch_description():
             moveit_config.planning_pipelines,
             moveit_config.robot_description_kinematics,
             moveit_config.joint_limits,
+            {'use_sim_time': use_sim_time}
         ],
     )
 
     return LaunchDescription([
+        use_sim_time_arg,
+        use_mock_arg,
+        launch_rsp_arg,
         static_tf,
         robot_state_publisher,
         mock_controller_node,
