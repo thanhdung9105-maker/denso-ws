@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Denso VS-6556 Mock Controller:
 - 10Hz stable publishing, synchronized with ROS clock.
@@ -15,14 +15,15 @@ Denso VS-6556 Mock Controller:
 import math
 import time
 import threading
-import rclpy
-from rclpy.node import Node
-from rclpy.action import ActionServer, CancelResponse, GoalResponse
-from sensor_msgs.msg import JointState, Image
-from trajectory_msgs.msg import JointTrajectory
-from control_msgs.action import FollowJointTrajectory
-from visualization_msgs.msg import MarkerArray
-from std_msgs.msg import String
+import json
+import rclpy  # pyrefly: ignore [missing-import]
+from rclpy.node import Node  # pyrefly: ignore [missing-import]
+from rclpy.action import ActionServer, CancelResponse, GoalResponse  # pyrefly: ignore [missing-import]
+from sensor_msgs.msg import JointState, Image  # pyrefly: ignore [missing-import]
+from trajectory_msgs.msg import JointTrajectory  # pyrefly: ignore [missing-import]
+from control_msgs.action import FollowJointTrajectory  # pyrefly: ignore [missing-import]
+from visualization_msgs.msg import MarkerArray  # pyrefly: ignore [missing-import]
+from std_msgs.msg import String  # pyrefly: ignore [missing-import]
 
 # Import Denso Dynamics Engine
 import os
@@ -78,6 +79,9 @@ class DensoController(Node):
 
         # Visual Marker publisher for RViz2 dynamics visualization
         self.marker_pub = self.create_publisher(MarkerArray, '/denso/joint_dynamics_markers', 1)
+        self.status_pub = self.create_publisher(String, '/denso/status', 1)
+        # Publish status at 2Hz
+        self.create_timer(0.5, self._publish_status)
 
         self.cmd_sub = self.create_subscription(
             String,
@@ -101,6 +105,27 @@ class DensoController(Node):
 
         self.get_logger().info('Denso Controller ready: Tat ca cac link co dinh tai vi tri goc 0 deg.')
         self.get_logger().info('Go lenh "denso_joints" hoac "denso_once" de chay chuyen dong tu dong.')
+
+    def _publish_status(self):
+        """Publish controller status at 2Hz for GUI health monitoring."""
+        try:
+            with self.lock:
+                mode = 'external' if self.external_active else ('demo' if self.demo_enabled else 'idle')
+                status = {
+                    'mode': mode,
+                    'demo_step': self.demo_step_idx,
+                    'demo_enabled': self.demo_enabled,
+                    'demo_loop': self.demo_loop,
+                    'demo_state': self.demo_state,
+                    'payload_kg': round(self.payload_mass, 2),
+                    'dynamics_visible': self.dynamics_markers_visible,
+                    'positions_deg': [round(p * 57.2958, 2) for p in self.current_positions],
+                }
+            msg = String()
+            msg.data = json.dumps(status)
+            self.status_pub.publish(msg)
+        except Exception as e:
+            self.get_logger().debug(f'Status publish error: {e}')
 
     def cmd_callback(self, msg: String):
         cmd = msg.data.strip().lower()
@@ -164,14 +189,14 @@ class DensoController(Node):
 
     def clear_rviz_markers(self):
         try:
-            from visualization_msgs.msg import Marker
+            from visualization_msgs.msg import Marker  # pyrefly: ignore [missing-import]
             del_array = MarkerArray()
             now = self.get_clock().now().to_msg()
 
             # Safely delete torque arrows
             for i in range(5):
                 m = Marker()
-                m.header.frame_id = "world"
+                m.header.frame_id = "base_link"
                 m.header.stamp = now
                 m.ns = "joint_torques"
                 m.id = i
@@ -181,7 +206,7 @@ class DensoController(Node):
             # Safely delete dashboard table and stand
             for mid in [198, 199, 200]:
                 m = Marker()
-                m.header.frame_id = "world"
+                m.header.frame_id = "base_link"
                 m.header.stamp = now
                 m.ns = "dynamics_dashboard"
                 m.id = mid
@@ -191,7 +216,7 @@ class DensoController(Node):
             # Safely delete any legacy labels
             for i in range(5):
                 m = Marker()
-                m.header.frame_id = "world"
+                m.header.frame_id = "base_link"
                 m.header.stamp = now
                 m.ns = "joint_dynamics_labels"
                 m.id = 100 + i
@@ -355,7 +380,7 @@ class DensoController(Node):
                 if self.dynamics_markers_visible:
                     try:
                         markers = self.dynamics_engine.build_marker_array(
-                            self.current_positions, dyn_res['tau'], qdd, frame_id="world"
+                            self.current_positions, dyn_res['tau'], qdd, frame_id="base_link"
                         )
                         self.marker_pub.publish(markers)
                     except Exception as e:

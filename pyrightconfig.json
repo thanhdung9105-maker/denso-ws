@@ -1,0 +1,12 @@
+{
+  "include": [
+    "src"
+  ],
+  "extraPaths": [
+    "/opt/ros/jazzy/lib/python3.12/site-packages",
+    "/usr/lib/python3/dist-packages",
+    "/home/dung/denso_ws/src/denso_vs6556_moveit_config/scripts"
+  ],
+  "reportMissingImports": "none",
+  "reportMissingTypeStubs": false
+}

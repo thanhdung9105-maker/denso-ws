@@ -7,15 +7,15 @@ import argparse
 if "RMW_IMPLEMENTATION" not in os.environ:
     os.environ["RMW_IMPLEMENTATION"] = "rmw_cyclonedds_cpp"
 
-import rclpy
-from rclpy.node import Node
-from std_msgs.msg import String
-from sensor_msgs.msg import JointState
+import rclpy  # pyrefly: ignore [missing-import]
+from rclpy.node import Node  # pyrefly: ignore [missing-import]
+from std_msgs.msg import String  # pyrefly: ignore [missing-import]
+from sensor_msgs.msg import JointState  # pyrefly: ignore [missing-import]
 
 def main():
     parser = argparse.ArgumentParser(description="Denso VS-6556 Link 1-5 Joint Demo Controller")
     parser.add_argument("--stop", action="store_true", help="Stop the automated joint demo")
-    parser.add_argument("--home", action="store_true", help="Send the arm to home 0°")
+    parser.add_argument("--home", action="store_true", help="Send the arm to home 0Â°")
     parser.add_argument("--monitor", action="store_true", default=True, help="Monitor live joint movements in terminal")
     args, unknown = parser.parse_known_args()
 
@@ -41,7 +41,7 @@ def main():
     elif cmd == "stop":
         print("[INFO] Da gui lenh: Tam dung tu dong. Giu nguyen vi tri robot.")
     elif cmd == "home":
-        print("[INFO] Da gui lenh: Thu toan bo canh tay ve vi tri Home 0°.")
+        print("[INFO] Da gui lenh: Thu toan bo canh tay ve vi tri Home 0Â°.")
 
     node.destroy_node()
     if rclpy.ok():

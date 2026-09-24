@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import time
-import rclpy
-from rclpy.node import Node
-from rclpy.action import ActionClient
+import rclpy  # pyrefly: ignore [missing-import]
+from rclpy.node import Node  # pyrefly: ignore [missing-import]
+from rclpy.action import ActionClient  # pyrefly: ignore [missing-import]
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import MotionPlanRequest, Constraints, JointConstraint
 

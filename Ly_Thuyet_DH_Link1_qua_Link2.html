@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Lý thuyết Động học Denavit-Hartenberg: Tính toán từ Link 1 qua Link 2</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 16mm 18mm 16mm;
+  }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    color: #1e293b;
+    line-height: 1.55;
+    font-size: 13.5px;
+    background: #fff;
+    margin: 0;
+    padding: 0;
+  }
+  .header {
+    border-bottom: 3px solid #2563eb;
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+  }
+  .header h1 {
+    color: #1e3a8a;
+    font-size: 22px;
+    margin: 0 0 6px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .header .subtitle {
+    color: #475569;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .badge {
+    display: inline-block;
+    background: #dbeafe;
+    color: #1d4ed8;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    margin-top: 6px;
+  }
+  h2 {
+    color: #1e40af;
+    font-size: 16px;
+    border-left: 4px solid #2563eb;
+    padding-left: 8px;
+    margin-top: 22px;
+    margin-bottom: 10px;
+  }
+  h3 {
+    color: #0f172a;
+    font-size: 14px;
+    margin-top: 14px;
+    margin-bottom: 6px;
+  }
+  p {
+    margin: 0 0 10px 0;
+    text-align: justify;
+  }
+  .alert-box {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-left: 4px solid #f59e0b;
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .alert-box.blue {
+    border-left-color: #2563eb;
+    background: #eff6ff;
+  }
+  .alert-box.green {
+    border-left-color: #10b981;
+    background: #ecfdf5;
+  }
+  .alert-title {
+    font-weight: 700;
+    margin-bottom: 4px;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 12.5px;
+  }
+  table.data-table th, table.data-table td {
+    border: 1px solid #cbd5e1;
+    padding: 7px 10px;
+    text-align: center;
+  }
+  table.data-table th {
+    background: #f1f5f9;
+    color: #1e293b;
+    font-weight: 600;
+  }
+  table.data-table tr:nth-child(even) {
+    background: #f8fafc;
+  }
+  .matrix-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 12px 0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+  }
+  .matrix-wrapper {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    padding: 0 5px;
+  }
+  .matrix-wrapper::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    border-left: 2px solid #0f172a;
+    border-top: 2px solid #0f172a;
+    border-bottom: 2px solid #0f172a;
+    border-radius: 4px 0 0 4px;
+  }
+  .matrix-wrapper::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    border-right: 2px solid #0f172a;
+    border-top: 2px solid #0f172a;
+    border-bottom: 2px solid #0f172a;
+    border-radius: 0 4px 4px 0;
+  }
+  .matrix-table {
+    border-collapse: collapse;
+    margin: 4px;
+  }
+  .matrix-table td {
+    padding: 3px 7px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .diagram-container {
+    text-align: center;
+    margin: 15px 0;
+    background: #fafafa;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .page-break {
+    page-break-before: always;
+  }
+  .code-font {
+    font-family: 'Consolas', 'Courier New', monospace;
+    background: #f1f5f9;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #b91c1c;
+  }
+  .formula-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin: 10px 0;
+    text-align: center;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Tài Liệu Lý Thuyết Động Học Denavit - Hartenberg</h1>
+  <div class="subtitle">Giải quyết bài toán "Lệch trục Y trong CAD/URDF" & Tính toán số học chi tiết từ Khâu 1 qua Khâu 2 (Robot Denso VS-6556)</div>
+  <div class="badge">Áp dụng: Standard DH Convention & Robot Workspace Denso</div>
+</div>
+
+<h2>1. Đặt Vấn Đề: Tại Sao CAD/URDF Có Dời Theo Y Nhưng DH Chỉ Có X Và Z?</h2>
+<p>
+Trong quá trình xây dựng động học từ mô hình vật lý hoặc file URDF (ví dụ robot <strong>Denso VS-6556</strong> trong workspace), người phân tích thường bắt gặp đoạn mã sau tại khớp 2 (nối giữa <span class="code-font">link_1</span> và <span class="code-font">link_2</span>):
+</p>
+
+<div class="alert-box">
+  <div class="alert-title">Trích đoạn URDF thực tế của Joint 2 (Khớp vai Robot Denso):</div>
+  <code style="display:block; white-space:pre; font-family:Consolas, monospace; color:#334155; font-size:12px;">
+&lt;joint name="joint_2" type="revolute"&gt;
+  &lt;parent link="link_1"/&gt;
+  &lt;child link="link_2"/&gt;
+  &lt;origin xyz="-0.075 <b>-0.0745</b> 0.130" rpy="0 0 0"/&gt;
+  &lt;axis xyz="0 1 0"/&gt;
+&lt;/joint&gt;
+  </code>
+</div>
+
+<p>
+<strong>Nghịch lý đặt ra:</strong> Trong URDF, gốc khớp 2 bị dịch chuyển theo phương Y một khoảng là <span class="code-font">y = -0.0745 m (-74.5 mm)</span>. Tuy nhiên, bảng tham số <strong>Denavit-Hartenberg (Standard DH)</strong> chỉ có 4 tham số:
+</p>
+<ul>
+  <li>$	heta_i$: Góc quay quanh trục $Z_{i-1}$</li>
+  <li>$d_i$: Độ dời tịnh tiến dọc theo trục $Z_{i-1}$</li>
+  <li>$a_i$: Độ dài đường vuông góc chung (độ dời tịnh tiến dọc theo trục $X_i$)</li>
+  <li>$lpha_i$: Góc xoắn nghiêng quanh trục $X_i$</li>
+</ul>
+<p>
+<strong>Hoàn toàn không có tham số dời tịnh tiến theo phương $Y$! Vậy con số $-74.5	ext{ mm}$ đó đi đâu?</strong>
+</p>
+
+<div class="alert-box blue">
+  <div class="alert-title">Bản chất Vật Lý & Hình Học Không Gian:</div>
+  <ol style="margin: 0; padding-left: 18px;">
+    <li><strong>Khớp quay là một đường thẳng vô hạn:</strong> Khớp quay $J_2$ là trục $Z_1$ nằm ngang kéo dài vô tận trong không gian 3D. Bất kỳ điểm nào nằm trên trục quay này đều có tính chất động học hoàn toàn như nhau. Vỏ động cơ trong CAD được nhà sản xuất Denso lắp thụt sang bên hông $74.5	ext{ mm}$ thuần túy là để gá cơ khí gọn gàng.</li>
+    <li><strong>Quy ước DH bắt buộc gốc tọa độ phải nằm trên đường vuông góc chung:</strong> Gốc $O_1$ không được phép đặt tùy tiện tại vỏ motor, mà bắt buộc phải đặt tại <em>giao điểm của trục $Z_1$ với đường vuông góc chung hạ từ trục $Z_0$</em>. Điểm này nằm ngay trên <strong>mặt phẳng đối xứng trung tâm của robot ($Y = 0$)</strong>.</li>
+    <li><strong>Tự động triệt tiêu trong chuỗi động học:</strong> Độ lệch cơ khí $-74.5	ext{ mm}$ tại Joint 2 được bù ngược lại ở Joint 3 ($+6.5	ext{ mm}$) và Joint 4 ($+68.0	ext{ mm}$):<br>
+    $\Delta Y_{	ext{total}} = -74.5 + 6.5 + 68.0 = 0.0	ext{ mm}$. Cổ tay và khâu công tác cuối cùng quay về đúng mặt phẳng trung tâm!</li>
+  </ol>
+</div>
+
+<div class="diagram-container">
+  <svg width="620" height="175" viewBox="0 0 620 175" style="max-width:100%; height:auto;">
+    <!-- Background & Grid lines -->
+    <rect width="620" height="175" fill="#f8fafc" rx="6"/>
+    
+    <!-- Base link Z0 -->
+    <line x1="80" y1="150" x2="80" y2="40" stroke="#2563eb" stroke-width="3"/>
+    <polygon points="80,30 75,45 85,45" fill="#2563eb"/>
+    <text x="90" y="42" font-family="Segoe UI" font-size="12" font-weight="700" fill="#2563eb">Z₀ (Trục quay J1 thẳng đứng)</text>
+    <circle cx="80" cy="150" r="4" fill="#0f172a"/>
+    <text x="50" y="162" font-family="Segoe UI" font-size="11" font-weight="600" fill="#0f172a">Gốc O₀</text>
+
+    <!-- d1 height line -->
+    <line x1="70" y1="150" x2="70" y2="70" stroke="#64748b" stroke-dasharray="3,3" stroke-width="1.5"/>
+    <text x="15" y="115" font-family="Segoe UI" font-size="11" fill="#475569">d₁ = 335 mm</text>
+
+    <!-- Offset a1 -->
+    <line x1="80" y1="70" x2="160" y2="70" stroke="#dc2626" stroke-width="2.5"/>
+    <text x="95" y="63" font-family="Segoe UI" font-size="11" font-weight="700" fill="#dc2626">a₁ = -75 mm (dọc X₁)</text>
+
+    <!-- Frame O1 on symmetry plane -->
+    <circle cx="160" cy="70" r="5" fill="#16a34a"/>
+    <text x="170" y="68" font-family="Segoe UI" font-size="12" font-weight="700" fill="#16a34a">Gốc O₁ (Chuẩn DH tại Y=0)</text>
+
+    <!-- Physical motor offset along joint axis (into paper / lateral) -->
+    <line x1="160" y1="70" x2="230" y2="105" stroke="#9333ea" stroke-dasharray="4,3" stroke-width="2"/>
+    <circle cx="230" cy="105" r="4" fill="#9333ea"/>
+    <text x="240" y="110" font-family="Segoe UI" font-size="11" font-weight="600" fill="#9333ea">Vị trí motor CAD (Y = -74.5 mm)</text>
+    <text x="240" y="125" font-family="Segoe UI" font-size="10" fill="#64748b">← Nằm trên cùng trục quay Z₁ nhưng trượt dọc theo trục</text>
+
+    <!-- Link 2 arm -->
+    <line x1="160" y1="70" x2="380" y2="70" stroke="#0f172a" stroke-width="3"/>
+    <circle cx="380" cy="70" r="5" fill="#2563eb"/>
+    <text x="375" y="55" font-family="Segoe UI" font-size="12" font-weight="700" fill="#2563eb">Gốc O₂ (Khớp khuỷu J3)</text>
+    <text x="230" y="63" font-family="Segoe UI" font-size="11" font-weight="700" fill="#0f172a">a₂ = L₂ = 270 mm (Cánh tay trên)</text>
+    
+    <text x="200" y="160" font-family="Segoe UI" font-size="11" font-style="italic" fill="#334155">
+      Hình 1: Khi chọn gốc O₁ chuẩn theo DH tại chân đường vuông góc chung, độ dời hoàn toàn nằm trên X₁ và Z₀, Y = 0.
+    </text>
+  </svg>
+</div>
+
+<h2>2. Bảng Tham Số Denavit - Hartenberg Chuẩn (Robot Denso VS-6556)</h2>
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Khâu (Link)</th>
+      <th>Khớp nối</th>
+      <th>Góc quay $	heta_i$</th>
+      <th>Độ dời $d_i$ (m)</th>
+      <th>Độ dài khâu $a_i$ (m)</th>
+      <th>Góc xoắn $lpha_i$</th>
+      <th>Ý nghĩa hình học vật lý</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Khâu 1</strong></td>
+      <td>Base $	o$ J2 (Vai)</td>
+      <td>$q_1$</td>
+      <td>$0.335$</td>
+      <td>$-0.075$</td>
+      <td>$-90^\circ$</td>
+      <td>Độ cao từ đế lên vai $205 + 130 = 335	ext{ mm}$, lệch tâm vai $-75	ext{ mm}$</td>
+    </tr>
+    <tr>
+      <td><strong>Khâu 2</strong></td>
+      <td>J2 $	o$ J3 (Khuỷu)</td>
+      <td>$q_2 - 90^\circ$</td>
+      <td>$0.000$</td>
+      <td>$0.270$</td>
+      <td>$0^\circ$</td>
+      <td>Cánh tay trên dài $270	ext{ mm}$, hai trục quay $Z_1 \parallel Z_2$ song song nhau</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="page-break"></div>
+
+<h2>3. Công Thức Ma Trận Biến Đổi Thuần Nhất Standard D-H</h2>
+<p>
+Ma trận biến đổi đồng nhất từ hệ tọa độ khâu $i-1$ sang khâu $i$ trong quy ước Standard DH:
+</p>
+
+<div class="formula-box">
+  $A_i = 	ext{Rot}(Z_{i-1}, 	heta_i) \cdot 	ext{Trans}(Z_{i-1}, d_i) \cdot 	ext{Trans}(X_i, a_i) \cdot 	ext{Rot}(X_i, lpha_i)$
+</div>
+
+<div class="matrix-container">
+  <span>$A_i =$</span>
+  <div class="matrix-wrapper">
+    <table class="matrix-table">
+      <tr><td>$\cos	heta_i$</td><td>$-\sin	heta_i \coslpha_i$</td><td>$\sin	heta_i \sinlpha_i$</td><td>$a_i \cos	heta_i$</td></tr>
+      <tr><td>$\sin	heta_i$</td><td>$\cos	heta_i \coslpha_i$</td><td>$-\cos	heta_i \sinlpha_i$</td><td>$a_i \sin	heta_i$</td></tr>
+      <tr><td>$0$</td><td>$\sinlpha_i$</td><td>$\coslpha_i$</td><td>$d_i$</td></tr>
+      <tr><td>$0$</td><td>$0$</td><td>$0$</td><td>$1$</td></tr>
+    </table>
+  </div>
+</div>
+
+<h3>3.1. Ma trận $A_1$ (Từ Base Link sang Khâu 1):</h3>
+<p>Với $	heta_1 = q_1, d_1 = 0.335, a_1 = -0.075, lpha_1 = -90^\circ$ (do đó $\coslpha_1 = 0, \sinlpha_1 = -1$):</p>
+<div class="matrix-container">
+  <span>$A_1(q_1) =$</span>
+  <div class="matrix-wrapper">
+    <table class="matrix-table">
+      <tr><td>$\cos q_1$</td><td>$0$</td><td>$-\sin q_1$</td><td>$-0.075 \cos q_1$</td></tr>
+      <tr><td>$\sin q_1$</td><td>$0$</td><td>$\cos q_1$</td><td>$-0.075 \sin q_1$</td></tr>
+      <tr><td>$0$</td><td>$-1$</td><td>$0$</td><td>$0.335$</td></tr>
+      <tr><td>$0$</td><td>$0$</td><td>$0$</td><td>$1$</td></tr>
+    </table>
+  </div>
+</div>
+
+<h3>3.2. Ma trận $A_2$ (Từ Khâu 1 sang Khâu 2):</h3>
+<p>Với $	heta_2 = q_2 - 90^\circ, d_2 = 0.000, a_2 = 0.270, lpha_2 = 0^\circ$ (do đó $\coslpha_2 = 1, \sinlpha_2 = 0$):</p>
+<p>Áp dụng hệ thức lượng giác: $\cos(q_2 - 90^\circ) = \sin q_2$ và $\sin(q_2 - 90^\circ) = -\cos q_2$:</p>
+<div class="matrix-container">
+  <span>$A_2(q_2) =$</span>
+  <div class="matrix-wrapper">
+    <table class="matrix-table">
+      <tr><td>$\sin q_2$</td><td>$\cos q_2$</td><td>$0$</td><td>$0.270 \sin q_2$</td></tr>
+      <tr><td>$-\cos q_2$</td><td>$\sin q_2$</td><td>$0$</td><td>$-0.270 \cos q_2$</td></tr>
+      <tr><td>$0$</td><td>$0$</td><td>$1$</td><td>$0$</td></tr>
+      <tr><td>$0$</td><td>$0$</td><td>$0$</td><td>$1$</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>4. Tính Toán Ví Dụ Cụ Thể Ra Đúng Số (Numerical Examples)</h2>
+
+<h3>Ví dụ 1: Trạng thái Home ban đầu ($q_1 = 0^\circ, q_2 = 0^\circ$)</h3>
+<p>Ở vị trí Home, thay $q_1 = 0^\circ \implies \cos(0^\circ) = 1, \sin(0^\circ) = 0$ và $q_2 = 0^\circ \implies \sin(0^\circ) = 0, \cos(0^\circ) = 1$:</p>
+
+<div class="matrix-container">
+  <span>$A_1 = $</span>
+  <div class="matrix-wrapper">
+    <table class="matrix-table">
+      <tr><td>1.000</td><td>0.000</td><td>0.000</td><td>-0.075</td></tr>
+      <tr><td>0.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr>
+      <tr><td>0.000</td><td>-1.000</td><td>0.000</td><td>0.335</td></tr>
+      <tr><td>0.000</td><td>0.000</td><td>0.000</td><td>1.000</td></tr>
+    </table>
+  </div>
+  <span style="margin: 0 10px;">; &nbsp; $A_2 = $</span>
+  <div class="matrix-wrapper">
+    <table class="matrix-table">
+      <tr><td>0.000</td><td>1.000</td><td>0.000</td><td>0.000</td></tr>
+      <tr><td>-1.000</td><td>0.000</td><td>0.000</td><td>-0.270</td></tr>
+      <tr><td>0.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr>
+      <tr><td>0.000</td><td>0.000</td><td>0.000</td><td>1.000</td></tr>
+    </table>
+  </div>
+</div>
+
+<p>Nhân hai ma trận để tìm vị trí và hướng của Khâu 2 trong hệ quy chiếu gốc $\{0\}$: ${}^0T_2 = A_1 \cdot A_2$:</p>
+
+<div class="matrix-container">
+  <span>${}^0T_2 = $</span>
+  <div class="matrix-wrapper">
+    <table class="matrix-table">
+      <tr><td><strong>0.000</strong></td><td><strong>1.000</strong></td><td><strong>0.000</strong></td><td><strong style="color:#b91c1c;">-0.075</strong></td></tr>
+      <tr><td><strong>0.000</strong></td><td><strong>0.000</strong></td><td><strong>1.000</strong></td><td><strong style="color:#b91c1c;">0.000</strong></td></tr>
+      <tr><td><strong>1.000</strong></td><td><strong>0.000</strong></td><td><strong>0.000</strong></td><td><strong style="color:#b91c1c;">0.605</strong></td></tr>
+      <tr><td>0.000</td><td>0.000</td><td>0.000</td><td>1.000</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="alert-box green">
+  <div class="alert-title">Kết luận Tọa độ Điểm Khớp Khuỷu O₂ tại thế Home:</div>
+  <ul>
+    <li>$X = -0.075	ext{ m} = \mathbf{-75.00	ext{ mm}}$ (Do khớp vai bị lệch tâm lùi về phía sau một khoảng $a_1 = -75	ext{ mm}$)</li>
+    <li>$Y = 0.000	ext{ m} = \mathbf{0.00	ext{ mm}}$ (Hoàn toàn nằm chính giữa mặt phẳng đối xứng, triệt tiêu độ lệch hông)</li>
+    <li>$Z = 0.605	ext{ m} = \mathbf{+605.00	ext{ mm}}$ ($d_1 + a_2 = 335	ext{ mm} + 270	ext{ mm} = 605	ext{ mm}$, cánh tay vươn thẳng đứng lên trời)</li>
+  </ul>
+</div>
+
+<div class="page-break"></div>
+
+<h3>Ví dụ 2: Tư thế góc quay bất kỳ ($q_1 = 30^\circ, q_2 = 45^\circ$)</h3>
+<p>
+Giả sử khớp 1 quay $30^\circ$ và khớp 2 gập một góc $45^\circ$:
+</p>
+<ul>
+  <li>$\cos(30^\circ) = rac{\sqrt{3}}{2} pprox 0.8660$; &nbsp; $\sin(30^\circ) = 0.5000$</li>
+  <li>$	heta_2 = 45^\circ - 90^\circ = -45^\circ \implies \cos(-45^\circ) = rac{\sqrt{2}}{2} pprox 0.7071$; &nbsp; $\sin(-45^\circ) = -0.7071$</li>
+  <li>$a_1 \cos(30^\circ) = -0.075 	imes 0.8660 = -0.0650	ext{ m}$; &nbsp; $a_1 \sin(30^\circ) = -0.075 	imes 0.5 = -0.0375	ext{ m}$</li>
+  <li>$a_2 \cos(-45^\circ) = 0.270 	imes 0.7071 = +0.1909	ext{ m}$; &nbsp; $a_2 \sin(-45^\circ) = 0.270 	imes (-0.7071) = -0.1909	ext{ m}$</li>
+</ul>
+
+<div class="matrix-container">
+  <span>$A_1 = $</span>
+  <div class="matrix-wrapper">
+    <table class="matrix-table">
+      <tr><td>0.8660</td><td>0.0000</td><td>-0.5000</td><td>-0.0650</td></tr>
+      <tr><td>0.5000</td><td>0.0000</td><td>0.8660</td><td>-0.0375</td></tr>
+      <tr><td>0.0000</td><td>-1.0000</td><td>0.0000</td><td>0.3350</td></tr>
+      <tr><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>1.0000</td></tr>
+    </table>
+  </div>
+  <span style="margin: 0 10px;">; &nbsp; $A_2 = $</span>
+  <div class="matrix-wrapper">
+    <table class="matrix-table">
+      <tr><td>0.7071</td><td>0.7071</td><td>0.0000</td><td>0.1909</td></tr>
+      <tr><td>-0.7071</td><td>0.7071</td><td>0.0000</td><td>-0.1909</td></tr>
+      <tr><td>0.0000</td><td>0.0000</td><td>1.0000</td><td>0.0000</td></tr>
+      <tr><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>1.0000</td></tr>
+    </table>
+  </div>
+</div>
+
+<p>Nhân hai ma trận ${}^0T_2 = A_1 \cdot A_2$:</p>
+
+<div class="matrix-container">
+  <span>${}^0T_2 = $</span>
+  <div class="matrix-wrapper">
+    <table class="matrix-table">
+      <tr><td>0.6124</td><td>0.6124</td><td>-0.5000</td><td><strong style="color:#b91c1c;">+0.1004</strong></td></tr>
+      <tr><td>0.3536</td><td>0.3536</td><td>0.8660</td><td><strong style="color:#b91c1c;">+0.0580</strong></td></tr>
+      <tr><td>0.7071</td><td>-0.7071</td><td>0.0000</td><td><strong style="color:#b91c1c;">+0.5259</strong></td></tr>
+      <tr><td>0.0000</td><td>0.0000</td><td>0.0000</td><td>1.0000</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="alert-box green">
+  <div class="alert-title">Kiểm Chứng Bằng Phương Pháp Hình Học Lượng Giác Phẳng (Sin-Cos Verification):</div>
+  <p style="margin-bottom:6px;">Chiếu toàn bộ cánh tay lên mặt phẳng thẳng đứng của robot trước khi xoay khớp đế $q_1$:</p>
+  <ul>
+    <li>Bán kính tầm vươn trên mặt phẳng cánh tay: $R_{	ext{arm}} = a_1 + L_2 \sin(q_2) = -75 + 270 \sin(45^\circ) = -75 + 190.92 = \mathbf{+115.92	ext{ mm}}$</li>
+    <li>Độ cao trục Z: $Z = d_1 + L_2 \cos(q_2) = 335 + 270 \cos(45^\circ) = 335 + 190.92 = \mathbf{+525.92	ext{ mm}}$</li>
+    <li>Xoay theo khớp đế $q_1 = 30^\circ$:<br>
+      $X = R_{	ext{arm}} \cos(30^\circ) = 115.92 	imes 0.8660 = \mathbf{+100.39	ext{ mm}}$ (Khớp chính xác với cột 4 của ${}^0T_2$: $+0.1004	ext{ m}$)<br>
+      $Y = R_{	ext{arm}} \sin(30^\circ) = 115.92 	imes 0.5000 = \mathbf{+57.96	ext{ mm}}$ (Khớp chính xác với cột 4 của ${}^0T_2$: $+0.0580	ext{ m}$)<br>
+      $Z = \mathbf{+525.92	ext{ mm}}$ (Khớp chính xác với cột 4 của ${}^0T_2$: $+0.5259	ext{ m}$)
+    </li>
+  </ul>
+  <p style="margin:4px 0 0 0; font-weight:600; color:#065f46;">
+    → Sai số giữa Ma trận DH và Hình học giải tích thực nghiệm là: 0.0000 mm!
+  </p>
+</div>
+
+<h2>5. Tổng Kết Quy Tắc Xử Lý Khi Gặp "Độ Dời Theo Y"</h2>
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Môi trường / Mục đích</th>
+      <th>Có cần triệt tiêu dời theo Y không?</th>
+      <th>Giải pháp kỹ thuật chuẩn</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Tính Động học thuận DH giải tích</strong> (Làm toán, code Python / Matlab, báo cáo)</td>
+      <td><strong>Bắt buộc triệt tiêu</strong> (Vì DH chỉ cho phép 4 tham số, dời trên Y là vi phạm quy tắc DH)</td>
+      <td>Đặt gốc tọa độ $O$ tại giao điểm với đường vuông góc chung (mặt phẳng đối xứng $Y=0$). Kích thước lệch cơ khí $74.5	ext{ mm}$ chỉ là vị trí đặt vỏ động cơ, không ảnh hưởng đến chuyển động quay của trục.</td>
+    </tr>
+    <tr>
+      <td><strong>Mô phỏng ROS / MoveIt / Gazebo</strong> (File URDF / XACRO)</td>
+      <td><strong>Không cần triệt tiêu</strong></td>
+      <td>URDF dùng ma trận biến đổi thuần nhất 6-DOF tự do: <span class="code-font">&lt;origin xyz="x y z" rpy="r p y"/&gt;</span>. Ta nhập trực tiếp tọa độ CAD để đặt mesh 3D trực quan chính xác.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div style="margin-top:20px; text-align:right; font-size:11.5px; color:#64748b;">
+  Tài liệu kỹ thuật nội bộ Denso Workspace • Biên soạn tự động bởi Hệ thống Antigravity AI
+</div>
+
+</body>
+</html>

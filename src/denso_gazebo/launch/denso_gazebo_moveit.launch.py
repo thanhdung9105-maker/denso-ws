@@ -28,6 +28,7 @@ def generate_launch_description():
             default_planning_pipeline="ompl",
         )
         .trajectory_execution(file_path="config/moveit_controllers.yaml")
+        .sensors_3d(file_path="config/sensors_3d.yaml")
         .to_moveit_configs()
     )
 
@@ -37,12 +38,15 @@ def generate_launch_description():
         description='Run Gazebo in headless mode (server only)'
     )
 
-    # Launch Gazebo Simulation with controllers
+    # Launch Gazebo Simulation with controllers and single robot_state_publisher
     gazebo_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_denso_gazebo, 'launch', 'denso_gazebo.launch.py')
         ),
-        launch_arguments={'headless': LaunchConfiguration('headless')}.items()
+        launch_arguments={
+            'headless': LaunchConfiguration('headless'),
+            'launch_rsp': 'true'
+        }.items()
     )
 
     # MoveGroup Node (with use_sim_time)

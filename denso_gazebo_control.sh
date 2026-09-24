@@ -15,5 +15,5 @@ export QT_QPA_PLATFORM=xcb
 export QT_AUTO_SCREEN_SCALE_FACTOR=0
 export QT_SCALE_FACTOR=1
 
-echo "[INFO] Đang mở Bảng Nhập & Điều Khiển Trực Tiếp Gazebo cho Denso VS-6556 [ROS_DOMAIN_ID=${ROS_DOMAIN_ID}]..."
+echo "[INFO] Khởi động Giao diện Điều khiển Tương tác Robot Denso VS-6556 trong Gazebo Sim [Domain ID: ${ROS_DOMAIN_ID}]..."
 python3 /home/dung/denso_ws/src/denso_gazebo/scripts/denso_gazebo_control_panel.py "$@"

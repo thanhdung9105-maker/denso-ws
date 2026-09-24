@@ -52,8 +52,6 @@
         <joint name="joint_5" value="-0.7"/>
     </group_state>
 
-    <virtual_joint name="world_joint" type="fixed" parent_frame="world" child_link="base_link"/>
-
     <disable_collisions link1="base_link" link2="link_1" reason="Adjacent"/>
     <disable_collisions link1="link_1" link2="link_2" reason="Adjacent"/>
     <disable_collisions link1="link_2" link2="link_3" reason="Adjacent"/>

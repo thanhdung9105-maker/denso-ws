@@ -1,16 +1,6 @@
 <?xml version="1.0"?>
 <robot name="denso_vs6556">
 
-  <!-- World link -->
-  <link name="world"/>
-
-  <!-- Fixed joint: world to base -->
-  <joint name="world_to_base" type="fixed">
-    <parent link="world"/>
-    <child link="base_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-  </joint>
-
   <!-- base_link (c001) -->
   <link name="base_link">
     <inertial>
@@ -43,7 +33,7 @@
       <inertia ixx="0.035" ixy="0.0" ixz="0.0" iyy="0.035" iyz="0.0" izz="0.025"/>
     </inertial>
     <visual>
-      <origin xyz="-0.160 0.110 0.0" rpy="1.570796 0 0"/>
+      <origin xyz="-0.16000 0.11000 -0.02000" rpy="1.570796 0 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c002.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -52,7 +42,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.160 0.110 0.0" rpy="1.570796 0 0"/>
+      <origin xyz="-0.16000 0.11000 -0.02000" rpy="1.570796 0 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c002.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -67,7 +57,7 @@
       <inertia ixx="0.045" ixy="0.0" ixz="0.0" iyy="0.040" iyz="0.0" izz="0.015"/>
     </inertial>
     <visual>
-      <origin xyz="-0.08719 0.0055 -0.08557" rpy="1.570796 0 0"/>
+      <origin xyz="-0.08719 0.02550 -0.08557" rpy="1.570796 0 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c003.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -76,7 +66,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.08719 0.0055 -0.08557" rpy="1.570796 0 0"/>
+      <origin xyz="-0.08719 0.02550 -0.08557" rpy="1.570796 0 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c003.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -91,8 +81,8 @@
       <inertia ixx="0.020" ixy="0.0" ixz="0.0" iyy="0.020" iyz="0.0" izz="0.010"/>
     </inertial>
     <visual>
-      <!-- Origin set exactly at elbow circular joint axis as per SolidWorks (-75mm, 605mm, 49mm) -->
-      <origin xyz="-0.10802 0.13900 -0.07250" rpy="1.570796 0 0"/>
+      <!-- Aligned with joint_3 elbow pitch axis matching SolidWorks VS-6556-B_asm.STL -->
+      <origin xyz="-0.07250 0.15800 0.10802" rpy="1.570796 1.570796 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c004.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -101,7 +91,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.10802 0.13900 -0.07250" rpy="1.570796 0 0"/>
+      <origin xyz="-0.07250 0.15800 0.10802" rpy="1.570796 1.570796 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c004.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -111,13 +101,13 @@
   <!-- link_4 (c005, forearm) -->
   <link name="link_4">
     <inertial>
-      <origin xyz="-0.10 0.0 0.0" rpy="0 0 0"/>
+      <origin xyz="0 0 0.10" rpy="0 0 0"/>
       <mass value="2.0"/>
-      <inertia ixx="0.005" ixy="0.0" ixz="0.0" iyy="0.015" iyz="0.0" izz="0.015"/>
+      <inertia ixx="0.015" ixy="0.0" ixz="0.0" iyy="0.015" iyz="0.0" izz="0.005"/>
     </inertial>
     <visual>
-      <!-- Aligned with elbow at link_3 and wrist fork at tip, matching SolidWorks reference -->
-      <origin xyz="-0.2545 0.0670 -0.0566" rpy="1.570796 0 0"/>
+      <!-- Aligned with forearm roll axis matching SolidWorks VS-6556-B_asm.STL -->
+      <origin xyz="0.05660 -0.06700 0.23350" rpy="-1.570796 1.570796 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c005.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -126,7 +116,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.2545 0.0670 -0.0566" rpy="1.570796 0 0"/>
+      <origin xyz="0.05660 -0.06700 0.23350" rpy="-1.570796 1.570796 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c005.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -136,13 +126,13 @@
   <!-- link_5 (c006, tool flange) -->
   <link name="link_5">
     <inertial>
-      <origin xyz="-0.03 0.0 0.0" rpy="0 0 0"/>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
       <mass value="1.2"/>
       <inertia ixx="0.003" ixy="0.0" ixz="0.0" iyy="0.003" iyz="0.0" izz="0.003"/>
     </inertial>
     <visual>
-      <!-- Origin set at wrist pivot axis matching SolidWorks: (-370mm, 695mm, 0mm) -->
-      <origin xyz="-0.08304 0.03242 -0.04093" rpy="1.570796 0 0"/>
+      <!-- Origin set at wrist pitch axis matching SolidWorks VS-6556-B_asm.STL -->
+      <origin xyz="-0.04093 0.03242 0.06204" rpy="1.570796 1.570796 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c006.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -151,7 +141,7 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.08304 0.03242 -0.04093" rpy="1.570796 0 0"/>
+      <origin xyz="-0.04093 0.03242 0.06204" rpy="1.570796 1.570796 0"/>
       <geometry>
         <mesh filename="package://denso_vs6556/meshes/410590-0080-c006.STL" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -162,7 +152,7 @@
   <joint name="joint_1" type="revolute">
     <parent link="base_link"/>
     <child link="link_1"/>
-    <origin xyz="0 0 0.185" rpy="0 0 0"/>
+    <origin xyz="0 0 0.205" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
     <limit lower="-2.96706" upper="2.96706" effort="80" velocity="4.5815"/>
     <dynamics damping="0.8" friction="0.5"/>
@@ -172,7 +162,7 @@
   <joint name="joint_2" type="revolute">
     <parent link="link_1"/>
     <child link="link_2"/>
-    <origin xyz="-0.075 -0.0545 0.150" rpy="0 0 0"/>
+    <origin xyz="-0.075 -0.0745 0.130" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-2.094395" upper="2.356194" effort="100" velocity="4.1888"/>
     <dynamics damping="1.2" friction="0.8"/>
@@ -182,30 +172,30 @@
   <joint name="joint_3" type="revolute">
     <parent link="link_2"/>
     <child link="link_3"/>
-    <origin xyz="0 0.0055 0.270" rpy="0 1.5707963 0"/>
+    <origin xyz="0 0.0065 0.270" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-2.076942" upper="2.897247" effort="60" velocity="5.2360"/>
     <dynamics damping="0.9" friction="0.6"/>
   </joint>
 
-  <!-- joint_4: link_3 -> link_4 (forearm roll) -->
+  <!-- joint_4: link_3 -> link_4 (forearm roll, Z axis) -->
   <joint name="joint_4" type="revolute">
     <parent link="link_3"/>
     <child link="link_4"/>
-    <origin xyz="-0.088 0.049 0.090" rpy="3.1415926 0 0"/>
-    <axis xyz="1 0 0"/>
+    <origin xyz="0.090 0.068 0.109" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
     <limit lower="-3.316126" upper="3.316126" effort="25" velocity="5.2360"/>
     <dynamics damping="0.3" friction="0.2"/>
   </joint>
 
-  <!-- joint_5: link_4 -> link_5 (wrist pitch, rotation in XZ plane, Y axis) -->
+  <!-- joint_5: link_4 -> link_5 (wrist pitch, Y axis) -->
   <joint name="joint_5" type="revolute">
     <parent link="link_4"/>
     <child link="link_5"/>
-    <origin xyz="-0.207 0 0" rpy="3.1415926 0 0"/>
+    <origin xyz="0 0 0.186" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-2.094395" upper="2.094395" effort="20" velocity="5.2360"/>
     <dynamics damping="0.2" friction="0.15"/>
   </joint>
 
-</robot>
+  </robot>

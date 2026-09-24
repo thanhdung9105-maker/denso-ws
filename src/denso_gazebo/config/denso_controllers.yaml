@@ -8,9 +8,13 @@ controller_manager:
     arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
+gz_ros2_control:
+  ros__parameters:
+    position_proportional_gain: 0.1
+
 gz_ros_control:
   ros__parameters:
-    position_proportional_gain: 0.5
+    position_proportional_gain: 0.1
 
 arm_controller:
   ros__parameters:
@@ -25,12 +29,14 @@ arm_controller:
     state_interfaces:
       - position
       - velocity
+    interpolate_from_desired_state: true
     allow_partial_joints_goal: false
+    interpolation_method: splines
     constraints:
       stopped_velocity_tolerance: 0.05
-      goal_time: 0.5
-      joint_1: { trajectory: 0.2, goal: 0.05 }
-      joint_2: { trajectory: 0.2, goal: 0.05 }
-      joint_3: { trajectory: 0.2, goal: 0.05 }
-      joint_4: { trajectory: 0.2, goal: 0.05 }
-      joint_5: { trajectory: 0.2, goal: 0.05 }
+      goal_time: 1.0
+      joint_1: { trajectory: 0.20, goal: 0.03 }
+      joint_2: { trajectory: 0.20, goal: 0.03 }
+      joint_3: { trajectory: 0.20, goal: 0.03 }
+      joint_4: { trajectory: 0.20, goal: 0.03 }
+      joint_5: { trajectory: 0.20, goal: 0.03 }

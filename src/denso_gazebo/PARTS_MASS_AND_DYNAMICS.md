@@ -80,7 +80,7 @@ Các giá trị ma sát, giảm chấn và giới hạn mô-men xoắn được 
    - `controller_manager` update_rate trong `denso_controllers.yaml`: Được nâng từ $100\text{ Hz} \rightarrow 500\text{ Hz}$.
    - Triệt tiêu cảnh báo lệch chu kỳ (*"Desired controller update period is slower than simulation period"*).
 2. **Độ lợi tỷ lệ vị trí `gz_ros2_control`:**
-   - Cấu hình `position_proportional_gain: 0.5` trong URDF plugin và yaml controller.
+   - Cấu hình `position_proportional_gain: 0.1` trong URDF plugin và yaml controller.
    - Thời hằng đáp ứng: $T = \frac{1}{0.5 \times 500} = 0.004\text{ s} = 4\text{ ms}$ (phản hồi tức thời, loại bỏ độ rơ/trễ khi mang tải).
 3. **ODE Quick Solver & Ràng buộc vật lý:**
    - Solver iterations: `50`, SOR: `1.3`.

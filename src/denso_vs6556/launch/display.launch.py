@@ -73,15 +73,6 @@ def generate_launch_description():
         condition=IfCondition(launch_rsp)
     )
 
-    # Static TF world -> base_link
-    static_tf = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='static_transform_publisher',
-        output='log',
-        arguments=['--x', '0', '--y', '0', '--z', '0', '--roll', '0', '--pitch', '0', '--yaw', '0', '--frame-id', 'world', '--child-frame-id', 'base_link'],
-        parameters=[{'use_sim_time': use_sim_time}],
-        condition=IfCondition(launch_rsp)
     )
 
     # Mock Controller Node (FollowJointTrajectory + smooth joint state publisher)
@@ -114,7 +105,7 @@ def generate_launch_description():
         use_sim_time_arg,
         use_mock_arg,
         launch_rsp_arg,
-        static_tf,
+        
         robot_state_publisher,
         mock_controller_node,
         move_group_node,
