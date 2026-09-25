@@ -1,0 +1,7 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: denso_vs6556
+    relative_path: urdf/denso_vs6556.urdf
+  srdf:
+    package: denso_vs6556_moveit_config
+    relative_path: config/denso_vs6556.srdf
