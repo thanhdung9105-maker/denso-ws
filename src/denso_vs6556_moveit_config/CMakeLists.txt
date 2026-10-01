@@ -20,6 +20,7 @@ install(
     scripts/denso_joint_by_joint_demo.py
     scripts/denso_kinematics_gui.py
     scripts/denso_dynamics_engine.py
+    scripts/denso_dh_fk_node.py
   DESTINATION lib/denso_vs6556_moveit_config
 )
 

@@ -97,6 +97,17 @@ def generate_launch_description():
         condition=IfCondition(launch_rsp)
     )
 
+    # Static transform world -> base_link to anchor TF tree with base_link registered first
+    static_transform_publisher = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_transform_publisher",
+        output="screen",
+        arguments=["0", "0", "0", "0", "0", "0", "world", "base_link"],
+        parameters=[{"use_sim_time": True}],
+        condition=IfCondition(launch_rsp)
+    )
+
     # Spawn Denso robot into Gazebo Sim
     spawn_robot = Node(
         package="ros_gz_sim",
@@ -181,6 +192,7 @@ def generate_launch_description():
         gazebo_gui,
         gazebo_headless,
         robot_state_publisher,
+        static_transform_publisher,
         spawn_robot,
         bridge,
         load_joint_state_broadcaster,

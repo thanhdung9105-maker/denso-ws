@@ -56,7 +56,7 @@ Visualization Manager:
     Visual Enabled: true
   - Class: rviz_default_plugins/TF
     Enabled: false
-    Filter (blacklist): ''
+    Filter (blacklist): 'world'
     Filter (whitelist): ''
     Frame Timeout: 15
     Frames:

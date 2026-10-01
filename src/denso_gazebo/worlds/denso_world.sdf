@@ -80,5 +80,73 @@
         </visual>
       </link>
     </model>
+  
+    <!-- ======================================================== -->
+    <!-- DENSO ROBOTIC DRAWING WORKBENCH & WHITEBOARD CANVAS      -->
+    <!-- ======================================================== -->
+    <model name="drawing_workbench">
+      <static>true</static>
+      <pose>0.38 0.0 0.086 0 0 0</pose>
+      <link name="table_base">
+        <!-- Main Industrial Workbench -->
+        <visual name="workbench_visual">
+          <geometry>
+            <box>
+              <size>0.48 0.54 0.172</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.10 0.15 0.22 1.0</ambient>
+            <diffuse>0.12 0.18 0.26 1.0</diffuse>
+            <specular>0.4 0.4 0.5 1.0</specular>
+          </material>
+        </visual>
+        <collision name="workbench_collision">
+          <geometry>
+            <box>
+              <size>0.48 0.54 0.172</size>
+            </box>
+          </geometry>
+        </collision>
+
+        <!-- White Paper / Canvas Sheet on Top (Z = 0.175m) -->
+        <visual name="drawing_paper">
+          <pose>0.0 0.0 0.087 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.34 0.34 0.003</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.96 0.96 0.98 1.0</ambient>
+            <diffuse>0.96 0.96 0.98 1.0</diffuse>
+            <specular>0.1 0.1 0.1 1.0</specular>
+          </material>
+        </visual>
+
+        <!-- Paper Border / Mounting Mat (Cyan Neon Accent) -->
+        <visual name="paper_frame">
+          <pose>0.0 0.0 0.0865 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.36 0.36 0.002</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.0 0.7 0.9 1.0</ambient>
+            <diffuse>0.0 0.8 1.0 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+  
+    <!-- Default Zoomed-in Camera View directly facing Drawing Table -->
+    <gui fullscreen="0">
+      <camera name="user_camera">
+        <pose>0.42 -0.58 0.54 0.0 0.72 1.5708</pose>
+        <view_controller>orbit</view_controller>
+      </camera>
+    </gui>
+
   </world>
 </sdf>

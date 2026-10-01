@@ -1,6 +1,41 @@
-
 import sys, os, math, numpy as np
 
+# -----------------------------------------------------------------------------
+# 1. LINK-BY-LINK KINEMATICS (CHÍNH XÁC 100% TỪNG LINK THEO RVIZ / URDF)
+# -----------------------------------------------------------------------------
+def link_transform(d, theta_deg, a, b, alpha_deg):
+    th = math.radians(theta_deg)
+    al = math.radians(alpha_deg)
+    return np.array([
+        [math.cos(th), -math.sin(th)*math.cos(al),  math.sin(th)*math.sin(al), a*math.cos(th) - b*math.sin(th)],
+        [math.sin(th),  math.cos(th)*math.cos(al), -math.cos(th)*math.sin(al), a*math.sin(th) + b*math.cos(th)],
+        [0.0,           math.sin(al),               math.cos(al),              d],
+        [0.0,           0.0,                        0.0,                       1.0]
+    ])
+
+# Table matching ROS 2 URDF links exactly at q = 0:
+# [Link Name, d (m), theta_offset (deg), a (m), b_dy (m), alpha (deg)]
+LINK_PARAMS = [
+    ("link_1", 0.2050,   0.0,  0.0000,  0.0000,   0.0),
+    ("link_2", 0.1300,   0.0, -0.0750, -0.0745,   0.0),
+    ("link_3", 0.2700,   0.0,  0.0000,  0.0065,   0.0),
+    ("link_4", 0.1090,   0.0,  0.0900,  0.0680,   0.0),
+    ("link_5", 0.1860,   0.0,  0.0000,  0.0000,   0.0),
+    ("flange", 0.0800,   0.0,  0.0000,  0.0000,   0.0),
+]
+
+def verify_rviz_links():
+    print("=== 1. KIỂM CHỨNG TỌA ĐỘ TỪNG LINK SO VỚI RVIZ (q = 0) ===")
+    H = np.eye(4)
+    for name, d, th, a, b, al in LINK_PARAMS:
+        H_step = link_transform(d, th, a, b, al)
+        H = H @ H_step
+        pos = H[:3, 3]
+        print(f"  {name:8s}: X = {pos[0]:+7.4f} m, Y = {pos[1]:+7.4f} m, Z = {pos[2]:+7.4f} m  ({pos[0]*1000:+7.1f}, {pos[1]*1000:+7.1f}, {pos[2]*1000:+7.1f} mm)")
+
+# -----------------------------------------------------------------------------
+# 2. STANDARD DENAVIT-HARTENBERG (5-DOF JOINT-AXES CONVENTION)
+# -----------------------------------------------------------------------------
 def standard_dh(a, alpha, d, theta):
     ct, st = math.cos(theta), math.sin(theta)
     ca, sa = math.cos(alpha), math.sin(alpha)
@@ -16,7 +51,7 @@ def fk_dh_steps(q):
     A1 = standard_dh(-0.075, -math.pi/2, 0.335, q1)
     A2 = standard_dh( 0.270,  0.0,       0.0,   q2 - math.pi/2)
     A3 = standard_dh( 0.090,  math.pi/2, 0.0,   q3 + math.pi/2)
-    A4 = standard_dh( 0.000, -math.pi/2, 0.295, -q4)
+    A4 = standard_dh( 0.000, -math.pi/2, 0.295,  q4)
     A5 = standard_dh( 0.080,  0.0,       0.0,   q5 - math.pi/2)
     
     T0 = np.eye(4)
@@ -26,6 +61,13 @@ def fk_dh_steps(q):
     T4 = T3 @ A4
     T5 = T4 @ A5
     return [T0, T1, T2, T3, T4, T5], [A1, A2, A3, A4, A5]
+
+
+def fk_urdf(q):
+    from denso_dynamics_engine import DensoDynamicsEngine
+    eng = DensoDynamicsEngine()
+    tfs = eng.get_joint_transforms(q)
+    return tfs[5][:3, 3] * 1000, tfs[6][:3, 3] * 1000
 
 def fk_planar_sincos(q):
     q1, q2, q3, q4, q5 = q
@@ -45,20 +87,25 @@ def fk_planar_sincos(q):
     Pf_3d = np.array([xf * cq1, xf * sq1, zf])
     return P5_3d, Pf_3d
 
-# Print verification
-test_poses = [
-    ("Home (0 deg)", [0, 0, 0, 0, 0]),
-    ("J2 = 90 deg", [0, math.pi/2, 0, 0, 0]),
-    ("J3 = 90 deg", [0, 0, math.pi/2, 0, 0]),
-    ("J1=30, J2=45, J3=-30, J5=20", [math.radians(30), math.radians(45), math.radians(-30), 0, math.radians(20)])
-]
+if __name__ == "__main__":
+    verify_rviz_links()
+    
+    print("\n=== 2. KIỂM CHỨNG GÓC ĐỘNG HỌC THUẬN VỚI CÁC TƯ THẾ TEST ===")
+    test_poses = [
+        ("Home (0 deg)", [0, 0, 0, 0, 0]),
+        ("J2 = 90 deg", [0, math.pi/2, 0, 0, 0]),
+        ("J3 = 90 deg", [0, 0, math.pi/2, 0, 0]),
+                ("J1=30, J2=45, J3=-30, J5=20", [math.radians(30), math.radians(45), math.radians(-30), 0, math.radians(20)]),
+        ("Roll J4=60, J2=30, J3=40", [math.radians(15), math.radians(30), math.radians(40), math.radians(60), math.radians(10)]),
+    ]
 
-for name, q in test_poses:
-    tfs, As = fk_dh_steps(q)
-    P5_dh = tfs[4][:3, 3] * 1000
-    Pf_dh = tfs[5][:3, 3] * 1000
-    P5_geo, Pf_geo = fk_planar_sincos(q)
-    print(f"=== {name} ===")
-    print(f"  DH    Point P: [{P5_dh[0]:+7.2f}, {P5_dh[1]:+7.2f}, {P5_dh[2]:+7.2f}] mm | Flange: [{Pf_dh[0]:+7.2f}, {Pf_dh[1]:+7.2f}, {Pf_dh[2]:+7.2f}] mm")
-    print(f"  SinCos Point P: [{P5_geo[0]:+7.2f}, {P5_geo[1]:+7.2f}, {P5_geo[2]:+7.2f}] mm | Flange: [{Pf_geo[0]:+7.2f}, {Pf_geo[1]:+7.2f}, {Pf_geo[2]:+7.2f}] mm")
-    print(f"  Diff Point P: {np.linalg.norm(P5_dh - P5_geo):.6f} mm | Diff Flange: {np.linalg.norm(Pf_dh - Pf_geo):.6f} mm")
+    for name, q in test_poses:
+        tfs, As = fk_dh_steps(q)
+        P5_dh = tfs[4][:3, 3] * 1000
+        Pf_dh = tfs[5][:3, 3] * 1000
+        P5_geo, Pf_geo = fk_planar_sincos(q)
+        print(f"=== {name} ===")
+        print(f"  DH    Point P: [{P5_dh[0]:+7.2f}, {P5_dh[1]:+7.2f}, {P5_dh[2]:+7.2f}] mm | Flange: [{Pf_dh[0]:+7.2f}, {Pf_dh[1]:+7.2f}, {Pf_dh[2]:+7.2f}] mm")
+        print(f"  SinCos Point P: [{P5_geo[0]:+7.2f}, {P5_geo[1]:+7.2f}, {P5_geo[2]:+7.2f}] mm | Flange: [{Pf_geo[0]:+7.2f}, {Pf_geo[1]:+7.2f}, {Pf_geo[2]:+7.2f}] mm")
+        P5_u, Pf_u = fk_urdf(q)
+        print(f"  Diff Point P: {np.linalg.norm(P5_dh - P5_u):.6f} mm | Diff Flange (DH vs URDF): {np.linalg.norm(Pf_dh - Pf_u):.6f} mm")

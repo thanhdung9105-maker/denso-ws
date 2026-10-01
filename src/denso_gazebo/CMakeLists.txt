@@ -20,6 +20,7 @@ install(DIRECTORY
 install(PROGRAMS
   scripts/test_gazebo_motion.py
   scripts/denso_gazebo_control_panel.py
+  scripts/denso_gcode_vision_engine.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

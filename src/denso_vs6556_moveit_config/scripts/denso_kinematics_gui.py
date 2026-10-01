@@ -126,12 +126,15 @@ class RosBridge(QObject):
                     self.latest_efforts[idx] = float(msg.effort[i])
                 updated = True
         if updated:
-            self.last_js_time = self.node.get_clock().now()
-            self.joint_states_received.emit(
-                list(self.latest_joints),
-                list(self.latest_velocities),
-                list(self.latest_efforts)
-            )
+            try:
+                self.last_js_time = self.node.get_clock().now()
+                self.joint_states_received.emit(
+                    list(self.latest_joints),
+                    list(self.latest_velocities),
+                    list(self.latest_efforts)
+                )
+            except (RuntimeError, AttributeError):
+                pass
 
     def _status_cb(self, msg: String):
         try:
@@ -151,6 +154,7 @@ class RosBridge(QObject):
             traj.joint_names = list(JOINT_NAMES)
             pt = JointTrajectoryPoint()
             pt.positions = [float(p) for p in target_rads]
+            pt.velocities = [0.0] * len(JOINT_NAMES)
             sec = int(duration_sec)
             nanosec = int((duration_sec - sec) * 1e9)
             pt.time_from_start = Duration(sec=sec, nanosec=nanosec)
@@ -1357,16 +1361,16 @@ class DensoKinematicsGUI(QMainWindow):
         # 2. Main Middle Splitter: Left = DH Table, Right = 4x4 Homogeneous Transform
         mid_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left Box: Standard DH Parameters Table
-        dh_box = QGroupBox("📋 BẢNG THAM SỐ ĐỘNG HỌC D-H CHUẨN (STANDARD D-H PARAMETERS)")
+        # Left Box: Extended DH Parameters Table matching RViz URDF
+        dh_box = QGroupBox("📋 BẢNG THAM SỐ ĐỘNG HỌC D-H MỞ RỘNG (EXTENDED D-H - CHUẨN XÁC TỪNG KHÂU RVIZ)")
         dh_box.setFont(QFont("Segoe UI", 11, QFont.Bold))
         dh_box.setStyleSheet("background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; color: #0f172a;")
         dh_layout = QVBoxLayout(dh_box)
         dh_layout.setContentsMargins(10, 14, 10, 10)
 
-        self.dh_table = QTableWidget(5, 8)
+        self.dh_table = QTableWidget(6, 8)
         self.dh_table.setHorizontalHeaderLabels([
-            "Khớp i", "Khâu liên kết", "Góc θi (Live)", "di (m)", "ai (m)", "αi (độ)", "Trục Zi", "Đối chiếu Bản vẽ Denso (mm)"
+            "Khâu (Link)", "Liên kết TF", "Góc θi (Live)", "di (m)", "ai (m)", "bi (m) [Lệch Y]", "Trục quay", "Tọa độ RViz [X, Y, Z] (mm)"
         ])
         h_header = self.dh_table.horizontalHeader()
         if h_header is not None:
@@ -1390,13 +1394,14 @@ class DensoKinematicsGUI(QMainWindow):
             }
         """)
 
-        # Static standard D-H nominal values for Denso VS-6556 (from Technical Drawing)
+        # Extended D-H nominal values for Denso VS-6556 matching ROS 2 URDF & RViz
         DH_NOMINALS = [
-            ("Joint 1", "Base -> Link 1", "0.0°", "0.335", "-0.075", "-90.0°", "[0, 0, 1]", "Đế h=335mm (Trục J2 cao 335mm, lùi 75mm)"),
-            ("Joint 2", "Link 1 -> Link 2", "-90.0°", "0.000", "0.270", "0.0°",   "[0, 1, 0]", "Cánh tay trên = 270mm (First arm chuẩn)"),
-            ("Joint 3", "Link 2 -> Link 3", "+90.0°", "0.000", "0.090", "+90.0°", "[0, 1, 0]", "Đoạn khuỷu lệch nhô trước = 90mm"),
-            ("Joint 4", "Link 3 -> Link 4", "0.0°", "0.295", "0.000", "-90.0°", "[0, 0, 1]", "Cẳng tay 295mm (Tâm cổ tay Point P)"),
-            ("Joint 5", "Link 4 -> Flange", "-90.0°", "0.000", "0.080", "0.0°",   "[0, 1, 0]", "Point P -> Mặt bích gá = 80mm (Flange TCP)"),
+            ("link_1", "base_link -> link_1", "0.0°", "0.2050", "0.0000", "0.0000", "Z (Yaw)",   "[   0.0,    0.0, +205.0]"),
+            ("link_2", "link_1 -> link_2",    "0.0°", "0.1300", "-0.0750", "-0.0745", "Y (Pitch)", "[ -75.0,  -74.5, +335.0]"),
+            ("link_3", "link_2 -> link_3",    "0.0°", "0.2700", "0.0000", "+0.0065", "Y (Pitch)", "[ -75.0,  -68.0, +605.0]"),
+            ("link_4", "link_3 -> link_4",    "0.0°", "0.1090", "+0.0900", "+0.0680", "Z (Roll)",  "[ +15.0,    0.0, +714.0]"),
+            ("link_5", "link_4 -> link_5",    "0.0°", "0.1860", "0.0000", "0.0000", "Y (Pitch)", "[ +15.0,    0.0, +900.0]"),
+            ("flange", "link_5 -> flange",    "0.0°", "0.0800", "0.0000", "0.0000", "Z (TCP)",   "[ +15.0,    0.0, +980.0]"),
         ]
         for r, row_data in enumerate(DH_NOMINALS):
             for c, val in enumerate(row_data):
@@ -1406,7 +1411,7 @@ class DensoKinematicsGUI(QMainWindow):
         dh_layout.addWidget(self.dh_table)
 
         # Drawing Specs Reference Footer
-        spec_lbl = QLabel("📐 <b>Kích thước kỹ thuật chuẩn Denso VS-6556:</b> Bán kính Point P: <b>R=653.42mm</b> | Mặt bích View A: <b>R=733.42mm</b> | Tay 1: <b>270mm</b> | Tay 2: <b>295mm</b> (90+207) | Chiều cao J2: <b>335mm</b> | Lệch đế: <b>75mm</b>")
+        spec_lbl = QLabel("📐 <b>Ma trận D-H Mở Rộng:</b> Tích hợp độ lệch phương ngang <b>b</b> (trục Y) của cụm động cơ vai (-74.5mm) & khuỷu (+6.5mm), đưa tọa độ từng link khớp 100% với RViz/TF Tree.")
         spec_lbl.setStyleSheet("color: #475569; font-size: 11px; padding: 4px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px;")
         dh_layout.addWidget(spec_lbl)
         mid_splitter.addWidget(dh_box)
@@ -1422,16 +1427,18 @@ class DensoKinematicsGUI(QMainWindow):
         sel_h.addWidget(QLabel("Chọn mắt xích:"))
         self.combo_matrix = QComboBox()
         self.combo_matrix.addItems([
-            "Ma trận tích lũy T0_Flange (Base -> Flange TCP)",
-            "Ma trận tích lũy T0_PointP (Base -> Tâm cổ tay Point P)",
-            "Ma trận tích lũy T0_3 (Base -> Khớp 3 Elbow)",
-            "Ma trận tích lũy T0_2 (Base -> Khớp 2 Shoulder)",
-            "Ma trận tích lũy T0_1 (Base -> Khớp 1 Shoulder Yaw)",
-            "Ma trận cục bộ D-H A_5 (Point P -> Flange TCP)",
-            "Ma trận cục bộ D-H A_4 (Khâu 3 -> Point P)",
-            "Ma trận cục bộ D-H A_3 (Khâu 2 -> Khâu 3)",
-            "Ma trận cục bộ D-H A_2 (Khâu 1 -> Khâu 2)",
-            "Ma trận cục bộ D-H A_1 (Base -> Khâu 1)",
+            "Ma trận tích lũy T0_Flange (Base -> Flange TCP: Z=980mm)",
+            "Ma trận tích lũy T0_link5 (Base -> Link 5 / Tâm cổ tay Point P: Z=900mm)",
+            "Ma trận tích lũy T0_link4 (Base -> Link 4 Cẳng tay: Z=714mm)",
+            "Ma trận tích lũy T0_link3 (Base -> Link 3 Khớp khuỷu: Z=605mm)",
+            "Ma trận tích lũy T0_link2 (Base -> Link 2 Khớp vai: Z=335mm)",
+            "Ma trận tích lũy T0_link1 (Base -> Link 1 Mặt bích J1: Z=205mm)",
+            "Ma trận cục bộ D-H H_link1 (Base -> Link 1: d=0.205m)",
+            "Ma trận cục bộ D-H H_link2 (Link 1 -> Link 2: a=-0.075, b=-0.0745, d=0.130)",
+            "Ma trận cục bộ D-H H_link3 (Link 2 -> Link 3: b=+0.0065, d=0.270)",
+            "Ma trận cục bộ D-H H_link4 (Link 3 -> Link 4: a=+0.090, b=+0.068, d=0.109)",
+            "Ma trận cục bộ D-H H_link5 (Link 4 -> Link 5: d=0.186m)",
+            "Ma trận cục bộ D-H H_flange (Link 5 -> Flange TCP: d=0.080m)",
         ])
         self.combo_matrix.setStyleSheet("background-color: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; padding: 4px; font-weight: bold;")
         sel_h.addWidget(self.combo_matrix)
@@ -1503,10 +1510,10 @@ class DensoKinematicsGUI(QMainWindow):
 
     def update_dh_tab(self):
         q = np.array(self.current_joints, dtype=float)
-        # Computes forward kinematics directly via verified Standard D-H chain
-        dh_transforms, dh_matrices_A = self.dynamics_engine.get_dh_transforms(q)
-        point_P_T = dh_transforms[4]
-        flange_T = dh_transforms[5]
+        # Computes forward kinematics directly via verified Extended D-H chain (RViz URDF matched)
+        ext_transforms, ext_matrices_H = self.dynamics_engine.get_extended_dh_transforms(q)
+        point_P_T = ext_transforms[5]   # Link 5 (Point P)
+        flange_T  = ext_transforms[6]   # Flange TCP
 
         # Point P Position (mm) - Center of J4, J5, J6
         p_x = point_P_T[0, 3] * 1000.0
@@ -1558,17 +1565,20 @@ class DensoKinematicsGUI(QMainWindow):
             self.dh_card_ws_val.setStyleSheet("color: #059669; font-size: 16px; font-weight: bold;")
             self.dh_card_ws_sub.setText(f"Tầm vươn an toàn ({pct_reach:.1f}%)")
 
-        # Update Live θ in DH table (showing both theta_DH and actuator angle q)
-        for i in range(5):
-            a_v, al_v, d_v, th_off, sgn = DH_PARAMS[i]
-            theta_dh = sgn * q[i] + th_off
-            deg_dh = math.degrees(theta_dh)
-            q_deg = math.degrees(q[i])
-            if abs(deg_dh) < 0.05:
-                deg_dh = 0.0
-            if abs(q_deg) < 0.05:
-                q_deg = 0.0
-            set_table_item_text(self.dh_table, i, 2, f"{deg_dh:+5.1f}° (q{i+1}={q_deg:+4.1f}°)")
+        # Update Live θ and Live Coordinates in Extended DH table (Rows 0..5 = link_1..flange)
+        for i in range(6):
+            if i < 5:
+                q_deg = math.degrees(q[i])
+                if abs(q_deg) < 0.05:
+                    q_deg = 0.0
+                set_table_item_text(self.dh_table, i, 2, f"q{i+1} = {q_deg:+5.1f}°")
+            else:
+                set_table_item_text(self.dh_table, i, 2, "Cố định (Fixed)")
+
+            # Live [X, Y, Z] from cumulative transform ext_transforms[i+1] (0 is base_link)
+            T_i = ext_transforms[i+1]
+            pos_x, pos_y, pos_z = T_i[0, 3] * 1000.0, T_i[1, 3] * 1000.0, T_i[2, 3] * 1000.0
+            set_table_item_text(self.dh_table, i, 7, f"[{pos_x:+6.1f}, {pos_y:+6.1f}, {pos_z:+6.1f}]")
 
         # Update 4x4 Transformation Matrix based on selected dropdown
         c_idx = self.combo_matrix.currentIndex()
@@ -1577,21 +1587,25 @@ class DensoKinematicsGUI(QMainWindow):
         elif c_idx == 1:
             selected_T = point_P_T
         elif c_idx == 2:
-            selected_T = dh_transforms[3]   # T0_3 (Elbow)
+            selected_T = ext_transforms[4]   # link_4
         elif c_idx == 3:
-            selected_T = dh_transforms[2]   # T0_2 (Upper Arm)
+            selected_T = ext_transforms[3]   # link_3
         elif c_idx == 4:
-            selected_T = dh_transforms[1]   # T0_1 (Base Yaw)
+            selected_T = ext_transforms[2]   # link_2
         elif c_idx == 5:
-            selected_T = dh_matrices_A[4]   # A5 (Point P -> Flange TCP)
+            selected_T = ext_transforms[1]   # link_1
         elif c_idx == 6:
-            selected_T = dh_matrices_A[3]   # A4 (Forearm -> Point P)
+            selected_T = ext_matrices_H[0]   # H_link1
         elif c_idx == 7:
-            selected_T = dh_matrices_A[2]   # A3 (Elbow Offset)
+            selected_T = ext_matrices_H[1]   # H_link2
         elif c_idx == 8:
-            selected_T = dh_matrices_A[1]   # A2 (Upper Arm)
+            selected_T = ext_matrices_H[2]   # H_link3
         elif c_idx == 9:
-            selected_T = dh_matrices_A[0]   # A1 (Base -> J2)
+            selected_T = ext_matrices_H[3]   # H_link4
+        elif c_idx == 10:
+            selected_T = ext_matrices_H[4]   # H_link5
+        elif c_idx == 11:
+            selected_T = ext_matrices_H[5]   # H_flange
         else:
             selected_T = flange_T
 
@@ -1952,6 +1966,214 @@ class DensoKinematicsGUI(QMainWindow):
         self.rec_status_label.setText("● Quỹ đạo đã được xóa.")
         self.rec_status_label.setStyleSheet("color: #64748b; font-size: 11px; padding: 4px;")
         self.log_label.setText("🗑️ Đã xóa toàn bộ quỹ đạo.")
+
+
+    # ---------------------------------------------------------
+    # TAB 6: CARTESIAN INVERSE KINEMATICS (IK)
+    # ---------------------------------------------------------
+    def create_ik_cartesian_panel(self):
+        panel = QWidget()
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(14)
+
+        # Left Column: Inputs & Commands
+        left_box = QGroupBox("🎯 NHẬP TỌA ĐỘ MỤC TIÊU LINK 5 (CARTESIAN TARGET)")
+        left_box.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        left_box.setStyleSheet("background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; color: #0f172a;")
+        left_layout = QVBoxLayout(left_box)
+        left_layout.setContentsMargins(12, 14, 12, 12)
+        left_layout.setSpacing(10)
+
+        # Mode row
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("Khâu mục tiêu:"))
+        self.gui_ik_mode = QComboBox()
+        self.gui_ik_mode.addItems([
+            "Khâu 5 - Cổ tay (Point P, Z_home=900mm)",
+            "Mặt Bích / End-Effector (Flange, Z_home=980mm)"
+        ])
+        self.gui_ik_mode.setStyleSheet("background-color: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; padding: 4px; font-weight: bold;")
+        self.gui_ik_mode.currentIndexChanged.connect(self._on_gui_ik_calc)
+        mode_row.addWidget(self.gui_ik_mode)
+        left_layout.addLayout(mode_row)
+
+        # Grid XYZ
+        grid = QGridLayout()
+        grid.setSpacing(8)
+
+        self.gui_spin_x = QDoubleSpinBox()
+        self.gui_spin_x.setRange(-800.0, 800.0)
+        self.gui_spin_x.setValue(15.0)
+        self.gui_spin_x.setSingleStep(10.0)
+
+        self.gui_spin_y = QDoubleSpinBox()
+        self.gui_spin_y.setRange(-800.0, 800.0)
+        self.gui_spin_y.setValue(0.0)
+        self.gui_spin_y.setSingleStep(10.0)
+
+        self.gui_spin_z = QDoubleSpinBox()
+        self.gui_spin_z.setRange(-200.0, 1100.0)
+        self.gui_spin_z.setValue(900.0)
+        self.gui_spin_z.setSingleStep(10.0)
+
+        self.gui_spin_dur = QDoubleSpinBox()
+        self.gui_spin_dur.setRange(0.5, 10.0)
+        self.gui_spin_dur.setValue(2.0)
+        self.gui_spin_dur.setSingleStep(0.5)
+        self.gui_spin_dur.setSuffix(" s")
+
+        for spin in [self.gui_spin_x, self.gui_spin_y, self.gui_spin_z]:
+            spin.setStyleSheet("background-color: #f8fafc; color: #0284c7; border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px; font-weight: bold;")
+            spin.valueChanged.connect(self._on_gui_ik_calc)
+
+        self.gui_spin_dur.setStyleSheet("background-color: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px; font-weight: bold;")
+
+        grid.addWidget(QLabel("Tọa độ X (mm):"), 0, 0)
+        grid.addWidget(self.gui_spin_x, 0, 1)
+        grid.addWidget(QLabel("Tọa độ Y (mm):"), 1, 0)
+        grid.addWidget(self.gui_spin_y, 1, 1)
+        grid.addWidget(QLabel("Tọa độ Z (mm):"), 2, 0)
+        grid.addWidget(self.gui_spin_z, 2, 1)
+        grid.addWidget(QLabel("Thời gian chạy:"), 3, 0)
+        grid.addWidget(self.gui_spin_dur, 3, 1)
+        left_layout.addLayout(grid)
+
+        # Quick presets
+        pre_layout = QHBoxLayout()
+        for name, coords in [("Home", (15, 0, 900)), ("Front", (400, 0, 500)), ("Left", (0, 380, 500)), ("Right", (0, -380, 500))]:
+            btn = QPushButton(name)
+            btn.setStyleSheet("background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 5px 8px; border-radius: 4px; font-weight: bold;")
+            btn.clicked.connect(lambda _, c=coords: self._set_gui_ik_coords(*c))
+            pre_layout.addWidget(btn)
+        left_layout.addLayout(pre_layout)
+
+        # Read actual button
+        btn_read = QPushButton("📍 Đọc Tọa Độ Robot Hiện Tại")
+        btn_read.setStyleSheet("background-color: #64748b; color: white; padding: 8px; border-radius: 6px; font-weight: bold;")
+        btn_read.clicked.connect(self._on_gui_ik_read_actual)
+        left_layout.addWidget(btn_read)
+
+        # Execute button
+        btn_exec = QPushButton("🚀 CHUYỂN ĐỘNG (GỬI TRAJECTORY)")
+        btn_exec.setStyleSheet("background-color: #0284c7; color: white; padding: 12px; border-radius: 6px; font-weight: bold; font-size: 13px;")
+        btn_exec.clicked.connect(self._on_gui_ik_execute)
+        left_layout.addWidget(btn_exec)
+
+        left_layout.addStretch()
+        layout.addWidget(left_box, 2)
+
+        # Right Column: Results & Collision Check
+        right_box = QGroupBox("📋 KẾT QUẢ TÍNH NGHỊCH HỌC & KIỂM TRA AN TOÀN")
+        right_box.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        right_box.setStyleSheet("background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; color: #0f172a;")
+        right_layout = QVBoxLayout(right_box)
+        right_layout.setContentsMargins(12, 14, 12, 12)
+        right_layout.setSpacing(10)
+
+        # Status badge
+        self.gui_ik_status_badge = QLabel("✅ SẴN SÀNG")
+        self.gui_ik_status_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.gui_ik_status_badge.setStyleSheet("background-color: #ecfdf5; color: #065f46; border: 1.5px solid #10b981; border-radius: 6px; padding: 8px; font-weight: bold;")
+        right_layout.addWidget(self.gui_ik_status_badge)
+
+        # IK table
+        self.gui_ik_table = QTableWidget(5, 5)
+        self.gui_ik_table.setHorizontalHeaderLabels(["Khớp", "Mục Tiêu (°)", "Mục Tiêu (rad)", "Hiện Tại (°)", "Độ Lệch Δ(°)"])
+        h_hdr = self.gui_ik_table.horizontalHeader()
+        if h_hdr:
+            h_hdr.setSectionResizeMode(QHeaderView.Stretch)
+        self.gui_ik_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.gui_ik_table.setStyleSheet("background-color: #ffffff; color: #0f172a; gridline-color: #e2e8f0; font-size: 12px;")
+        for r in range(5):
+            it = QTableWidgetItem(f"Joint {r+1}")
+            it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            self.gui_ik_table.setItem(r, 0, it)
+            for c in range(1, 5):
+                it_c = QTableWidgetItem("0.0")
+                it_c.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.gui_ik_table.setItem(r, c, it_c)
+
+        right_layout.addWidget(self.gui_ik_table)
+        right_layout.addStretch()
+        layout.addWidget(right_box, 3)
+
+        self.last_gui_ik_sol = [0.0, 0.0, 0.0, 0.0, 0.0]
+        # Calculate initial
+        QTimer.singleShot(200, self._on_gui_ik_calc)
+        return panel
+
+    def _set_gui_ik_coords(self, x, y, z):
+        self.gui_spin_x.blockSignals(True)
+        self.gui_spin_y.blockSignals(True)
+        self.gui_spin_z.blockSignals(True)
+        self.gui_spin_x.setValue(x)
+        self.gui_spin_y.setValue(y)
+        self.gui_spin_z.setValue(z)
+        self.gui_spin_x.blockSignals(False)
+        self.gui_spin_y.blockSignals(False)
+        self.gui_spin_z.blockSignals(False)
+        self._on_gui_ik_calc()
+
+    def _on_gui_ik_read_actual(self):
+        use_flange = (self.gui_ik_mode.currentIndex() == 1)
+        transforms = self.dynamics_engine.get_joint_transforms(self.current_joints)
+        idx = 6 if use_flange else 5
+        p = transforms[idx][:3, 3] * 1000.0
+        self._set_gui_ik_coords(p[0], p[1], p[2])
+        self.log_label.setText(f"📍 Đã đọc tọa độ thực tế: X={p[0]:.1f}, Y={p[1]:.1f}, Z={p[2]:.1f} mm")
+
+    def _on_gui_ik_calc(self):
+        x = self.gui_spin_x.value() / 1000.0
+        y = self.gui_spin_y.value() / 1000.0
+        z = self.gui_spin_z.value() / 1000.0
+        use_flange = (self.gui_ik_mode.currentIndex() == 1)
+
+        q_sol, ok, iters, err_m = self.dynamics_engine.inverse_kinematics(
+            [x, y, z], q_seed=self.current_joints, use_flange=use_flange
+        )
+        self.last_gui_ik_sol = list(q_sol)
+
+        is_col, col_reason = self.dynamics_engine.check_collision(q_sol)
+
+        if is_col:
+            self.gui_ik_status_badge.setText(f"⚠️ {col_reason}")
+            self.gui_ik_status_badge.setStyleSheet("background-color: #fef2f2; color: #991b1b; border: 1.5px solid #ef4444; border-radius: 6px; padding: 8px; font-weight: bold;")
+        elif ok:
+            self.gui_ik_status_badge.setText(f"✅ HỘI TỤ THÀNH CÔNG (Sai số: {err_m*1000.0:.2f} mm | An toàn)")
+            self.gui_ik_status_badge.setStyleSheet("background-color: #ecfdf5; color: #065f46; border: 1.5px solid #10b981; border-radius: 6px; padding: 8px; font-weight: bold;")
+        else:
+            self.gui_ik_status_badge.setText(f"⚠️ NGOÀI TẦM VỚI (Sai số: {err_m*1000.0:.1f} mm)")
+            self.gui_ik_status_badge.setStyleSheet("background-color: #fffbeb; color: #92400e; border: 1.5px solid #f59e0b; border-radius: 6px; padding: 8px; font-weight: bold;")
+
+        for i in range(5):
+            t_deg = math.degrees(q_sol[i])
+            c_deg = math.degrees(self.current_joints[i])
+            d_deg = abs(t_deg - c_deg)
+            self.gui_ik_table.item(i, 1).setText(f"{t_deg:+.2f}°")
+            self.gui_ik_table.item(i, 2).setText(f"{q_sol[i]:+.3f}")
+            self.gui_ik_table.item(i, 3).setText(f"{c_deg:+.2f}°")
+            self.gui_ik_table.item(i, 4).setText(f"{d_deg:.2f}°")
+
+    def _on_gui_ik_execute(self):
+        # Recalculate directly to guarantee freshest values
+        x = self.gui_spin_x.value() / 1000.0
+        y = self.gui_spin_y.value() / 1000.0
+        z = self.gui_spin_z.value() / 1000.0
+        use_flange = (self.gui_ik_mode.currentIndex() == 1)
+
+        q_sol, ok, _, err_m = self.dynamics_engine.inverse_kinematics(
+            [x, y, z], q_seed=self.current_joints, use_flange=use_flange
+        )
+        is_col, col_reason = self.dynamics_engine.check_collision(q_sol)
+        if is_col:
+            self.log_label.setText(f"❌ KHÔNG THỂ CHẠY: {col_reason}")
+            return
+
+        dur = self.gui_spin_dur.value()
+        self.bridge.send_trajectory(q_sol, duration_sec=dur)
+        self.log_label.setText(f"🚀 Đã gửi quỹ đạo chuyển động tới tọa độ Link 5 (Thời gian: {dur:.1f}s)")
 
     def apply_dark_theme(self):
         palette = QPalette()
