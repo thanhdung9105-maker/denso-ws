@@ -75,13 +75,14 @@ from denso_dynamics_engine import (
     DensoDynamicsEngine, TORQUE_LIMITS, JOINT_LIMITS, AXES, DH_PARAMS
 )
 
-JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5']
+JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
 JOINT_DESCS = [
     "Base (Xoay trục Z)",
     "Vai (Gập nghiêng Y)",
     "Khuỷu tay (Gập Y)",
     "Cẳng tay (Xoay trục dọc / Roll)",
-    "Cổ tay (Gập ngửa Y)"
+    "Cổ tay (Gập ngửa Y)",
+    "Mặt bích (Xoay trục Z / Flange Roll)"
 ]
 
 # -------------------------------------------------------------
@@ -96,9 +97,9 @@ class RosBridge(QObject):
         self.cmd_pub = None
         self.marker_pub = None
         self.traj_pub = None
-        self.latest_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
-        self.latest_velocities = [0.0, 0.0, 0.0, 0.0, 0.0]
-        self.latest_efforts = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self.latest_joints = [0.0] * len(JOINT_NAMES)
+        self.latest_velocities = [0.0] * len(JOINT_NAMES)
+        self.latest_efforts = [0.0] * len(JOINT_NAMES)
 
     def start_ros(self):
         rclpy.init(args=None)
@@ -175,19 +176,19 @@ class DensoKinematicsGUI(QMainWindow):
         self.bridge = bridge
         self.dynamics_engine = DensoDynamicsEngine()
 
-        self.current_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
-        self.current_velocities = [0.0, 0.0, 0.0, 0.0, 0.0]
-        self.current_efforts = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self.current_joints = [0.0] * len(JOINT_NAMES)
+        self.current_velocities = [0.0] * len(JOINT_NAMES)
+        self.current_efforts = [0.0] * len(JOINT_NAMES)
 
         # Velocity and acceleration calculation cache
         self.prev_calc_time = time.monotonic()
-        self.prev_calc_qd = np.zeros(5)
+        self.prev_calc_qd = np.zeros(len(JOINT_NAMES))
 
         # Forward dynamics real-time simulation state
         self.sim_active = False
-        self.sim_q = np.zeros(5)
-        self.sim_qd = np.zeros(5)
-        self.sim_tau = np.zeros(5)
+        self.sim_q = np.zeros(len(JOINT_NAMES))
+        self.sim_qd = np.zeros(len(JOINT_NAMES))
+        self.sim_tau = np.zeros(len(JOINT_NAMES))
         self.dynamics_visible = True
 
         self.setWindowTitle("DENSO VS-6556 - BẢNG ĐIỀU KHIỂN & GIÁM SÁT ĐỘNG LỰC HỌC (ROS 2)")
@@ -379,7 +380,7 @@ class DensoKinematicsGUI(QMainWindow):
         tbl_layout = QVBoxLayout(table_container)
         tbl_layout.setContentsMargins(6, 12, 6, 6)
 
-        self.telemetry_table = QTableWidget(5, 9)
+        self.telemetry_table = QTableWidget(len(JOINT_NAMES), 9)
         self.telemetry_table.setHorizontalHeaderLabels([
             "Khớp", "Trục & Vai Trò", "Vị Trí Góc q", "Vận Tốc q̇", "Gia Tốc q̈",
             "Mô-Men τ (N·m)", "Giới Hạn τ_max", "Tải Động Cơ (%)", "Trạng Thái"
@@ -400,10 +401,10 @@ class DensoKinematicsGUI(QMainWindow):
             v_header.setVisible(False)
             v_header.setDefaultSectionSize(48)
         self.telemetry_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.telemetry_table.setFixedHeight(290)
+        self.telemetry_table.setFixedHeight(345)
         self.telemetry_table.setAlternatingRowColors(True)
 
-        for row in range(5):
+        for row in range(len(JOINT_NAMES)):
             self.telemetry_table.setRowHeight(row, 48)
 
         self.telemetry_table.setStyleSheet("""
@@ -439,7 +440,7 @@ class DensoKinematicsGUI(QMainWindow):
         self.telemetry_progress_bars = []
         self.telemetry_status_badges = []
 
-        for row in range(5):
+        for row in range(len(JOINT_NAMES)):
             # 0: Joint Name
             it_name = QTableWidgetItem(f"Joint {row+1}")
             it_name.setFont(QFont("Segoe UI", 12, QFont.Bold))
@@ -638,7 +639,7 @@ class DensoKinematicsGUI(QMainWindow):
         lbl_q.setStyleSheet("color: #0284c7; font-weight: bold;")
         left_layout.addWidget(lbl_q)
 
-        self.id_input_table = QTableWidget(5, 4)
+        self.id_input_table = QTableWidget(len(JOINT_NAMES), 4)
         self.id_input_table.setHorizontalHeaderLabels(["Khớp", "q (độ)", "q̇ (rad/s)", "q̈ (rad/s²)"])
         h_header = self.id_input_table.horizontalHeader()
         if h_header is not None:
@@ -646,7 +647,7 @@ class DensoKinematicsGUI(QMainWindow):
         v_header = self.id_input_table.verticalHeader()
         if v_header is not None:
             v_header.setVisible(False)
-        self.id_input_table.setFixedHeight(175)
+        self.id_input_table.setFixedHeight(210)
         self.id_input_table.setStyleSheet("""
             QTableWidget {
                 background-color: #ffffff; color: #0f172a; gridline-color: #e2e8f0;
@@ -657,7 +658,7 @@ class DensoKinematicsGUI(QMainWindow):
             }
         """)
 
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             it0 = QTableWidgetItem(f"Joint {i+1}")
             it0.setFlags(Qt.ItemFlag.ItemIsEnabled)
             it0.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -720,7 +721,7 @@ class DensoKinematicsGUI(QMainWindow):
         right_layout = QVBoxLayout(right_box)
         right_layout.setContentsMargins(12, 16, 12, 12)
 
-        self.id_res_table = QTableWidget(5, 7)
+        self.id_res_table = QTableWidget(len(JOINT_NAMES), 7)
         self.id_res_table.setHorizontalHeaderLabels([
             "Khớp", "Quán tính (M·q̈)", "Coriolis (C·q̇)", "Trọng lực (g)", "Tải trọng", "Tổng τ (N·m)", "% Tải"
         ])
@@ -731,7 +732,7 @@ class DensoKinematicsGUI(QMainWindow):
         if v_header is not None:
             v_header.setVisible(False)
         self.id_res_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.id_res_table.setFixedHeight(180)
+        self.id_res_table.setFixedHeight(210)
         self.id_res_table.setStyleSheet("""
             QTableWidget {
                 background-color: #ffffff; color: #0f172a; gridline-color: #e2e8f0;
@@ -742,7 +743,7 @@ class DensoKinematicsGUI(QMainWindow):
             }
         """)
 
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             for c in range(7):
                 item = QTableWidgetItem("-" if c > 0 else f"Joint {i+1}")
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -758,8 +759,9 @@ class DensoKinematicsGUI(QMainWindow):
         bar_box = QGroupBox()
         bar_box.setStyleSheet("background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;")
         bar_grid = QGridLayout(bar_box)
-        for i in range(5):
-            bar_grid.addWidget(QLabel(f"J{i+1} (Max {TORQUE_LIMITS[i]:.0f}Nm):"), i, 0)
+        for i in range(len(JOINT_NAMES)):
+            max_limit = TORQUE_LIMITS[i] if i < len(TORQUE_LIMITS) else 30.0
+            bar_grid.addWidget(QLabel(f"J{i+1} (Max {max_limit:.0f}Nm):"), i, 0)
             pb = QProgressBar()
             pb.setRange(0, 100)
             pb.setValue(0)
@@ -803,11 +805,12 @@ class DensoKinematicsGUI(QMainWindow):
         left_layout.addWidget(lbl_desc)
 
         self.fd_spinboxes = []
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
+            max_limit = TORQUE_LIMITS[i] if i < len(TORQUE_LIMITS) else 30.0
             h = QHBoxLayout()
-            h.addWidget(QLabel(f"Joint {i+1} (Max {TORQUE_LIMITS[i]:.0f} N·m):"))
+            h.addWidget(QLabel(f"Joint {i+1} (Max {max_limit:.0f} N·m):"))
             sp = QDoubleSpinBox()
-            sp.setRange(-float(TORQUE_LIMITS[i]), float(TORQUE_LIMITS[i]))
+            sp.setRange(-float(max_limit), float(max_limit))
             sp.setValue(0.0)
             sp.setSingleStep(1.0)
             sp.setDecimals(1)
@@ -872,7 +875,7 @@ class DensoKinematicsGUI(QMainWindow):
         lbl_acc.setStyleSheet("color: #0284c7; font-weight: bold;")
         right_layout.addWidget(lbl_acc)
 
-        self.fd_res_table = QTableWidget(5, 4)
+        self.fd_res_table = QTableWidget(len(JOINT_NAMES), 4)
         self.fd_res_table.setHorizontalHeaderLabels(["Khớp", "Gia tốc q̈ (rad/s²)", "Gia tốc q̈ (°/s²)", "Chiều Gia Tốc"])
         h_header = self.fd_res_table.horizontalHeader()
         if h_header is not None:
@@ -881,7 +884,7 @@ class DensoKinematicsGUI(QMainWindow):
         if v_header is not None:
             v_header.setVisible(False)
         self.fd_res_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.fd_res_table.setFixedHeight(175)
+        self.fd_res_table.setFixedHeight(210)
         self.fd_res_table.setStyleSheet("""
             QTableWidget {
                 background-color: #ffffff; color: #0f172a; gridline-color: #e2e8f0;
@@ -892,7 +895,7 @@ class DensoKinematicsGUI(QMainWindow):
             }
         """)
 
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             texts = [f"Joint {i+1}", "0.000", "0.00°/s²", "Cân bằng"]
             for c, text in enumerate(texts):
                 it = QTableWidgetItem(text)
@@ -900,17 +903,17 @@ class DensoKinematicsGUI(QMainWindow):
                 self.fd_res_table.setItem(i, c, it)
         right_layout.addWidget(self.fd_res_table)
 
-        lbl_m = QLabel("Ma trận quán tính M(q) 5×5 (Inertia Matrix):")
+        lbl_m = QLabel(f"Ma trận quán tính M(q) {len(JOINT_NAMES)}×{len(JOINT_NAMES)} (Inertia Matrix):")
         lbl_m.setStyleSheet("color: #8b5cf6; font-weight: bold; margin-top: 5px;")
         right_layout.addWidget(lbl_m)
 
-        self.mass_table = QTableWidget(5, 5)
-        self.mass_table.setHorizontalHeaderLabels(["M1", "M2", "M3", "M4", "M5"])
-        self.mass_table.setVerticalHeaderLabels(["J1", "J2", "J3", "J4", "J5"])
+        self.mass_table = QTableWidget(len(JOINT_NAMES), len(JOINT_NAMES))
+        self.mass_table.setHorizontalHeaderLabels([f"M{i+1}" for i in range(len(JOINT_NAMES))])
+        self.mass_table.setVerticalHeaderLabels([f"J{i+1}" for i in range(len(JOINT_NAMES))])
         h_header = self.mass_table.horizontalHeader()
         if h_header is not None:
             h_header.setSectionResizeMode(QHeaderView.Stretch)
-        self.mass_table.setFixedHeight(150)
+        self.mass_table.setFixedHeight(180)
         self.mass_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.mass_table.setStyleSheet("""
             QTableWidget {
@@ -922,8 +925,8 @@ class DensoKinematicsGUI(QMainWindow):
             }
         """)
 
-        for r in range(5):
-            for c in range(5):
+        for r in range(len(JOINT_NAMES)):
+            for c in range(len(JOINT_NAMES)):
                 item = QTableWidgetItem("0.0000")
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.mass_table.setItem(r, c, item)
@@ -955,7 +958,7 @@ class DensoKinematicsGUI(QMainWindow):
         max_tau_val = 0.0
         max_load_pct = 0.0
 
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             t_val = float(tau[i])
             pct = float(pct_load[i])
             if abs(t_val) > max_tau_val:
@@ -1074,14 +1077,14 @@ class DensoKinematicsGUI(QMainWindow):
     # TAB 2 & 3 CALLBACKS
     # ---------------------------------------------------------
     def on_id_sync_robot(self):
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             set_table_item_text(self.id_input_table, i, 1, f"{np.rad2deg(self.current_joints[i]):.1f}")
             set_table_item_text(self.id_input_table, i, 2, f"{self.current_velocities[i]:.3f}")
             set_table_item_text(self.id_input_table, i, 3, "0.00")
         self.log_label.setText("📌 Đã đồng bộ vị trí và vận tốc hiện tại từ Robot vào Động Lực Học Nghịch.")
 
     def on_id_gravity_comp(self):
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             set_table_item_text(self.id_input_table, i, 2, "0.00")
             set_table_item_text(self.id_input_table, i, 3, "0.00")
         self.on_compute_id()
@@ -1089,9 +1092,9 @@ class DensoKinematicsGUI(QMainWindow):
 
     def on_compute_id(self):
         try:
-            q = np.array([np.deg2rad(float(get_table_item_text(self.id_input_table, i, 1))) for i in range(5)])
-            qd = np.array([float(get_table_item_text(self.id_input_table, i, 2)) for i in range(5)])
-            qdd = np.array([float(get_table_item_text(self.id_input_table, i, 3)) for i in range(5)])
+            q = np.array([np.deg2rad(float(get_table_item_text(self.id_input_table, i, 1))) for i in range(len(JOINT_NAMES))])
+            qd = np.array([float(get_table_item_text(self.id_input_table, i, 2)) for i in range(len(JOINT_NAMES))])
+            qdd = np.array([float(get_table_item_text(self.id_input_table, i, 3)) for i in range(len(JOINT_NAMES))])
         except ValueError:
             self.log_label.setText("❌ Lỗi định dạng số trong bảng nhập thông số khớp!")
             return
@@ -1102,7 +1105,7 @@ class DensoKinematicsGUI(QMainWindow):
 
         res = self.dynamics_engine.inverse_dynamics(q, qd, qdd, payload_mass=payload, f_ext=f_ext)
 
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             set_table_item_text(self.id_res_table, i, 1, f"{res['M_qdd'][i]:+.2f}")
             set_table_item_text(self.id_res_table, i, 2, f"{res['C_qd'][i]:+.2f}")
             set_table_item_text(self.id_res_table, i, 3, f"{res['g'][i]:+.2f}")
@@ -1148,7 +1151,7 @@ class DensoKinematicsGUI(QMainWindow):
 
     def on_fd_set_gravity_torques(self):
         g_tau = self.dynamics_engine.gravity_compensation(self.current_joints)
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             val = float(g_tau[i])
             limit = float(TORQUE_LIMITS[i])
             val_clipped = max(-limit, min(limit, val))
@@ -1163,7 +1166,7 @@ class DensoKinematicsGUI(QMainWindow):
         M = self.dynamics_engine.compute_mass_matrix(q)
         qdd = self.dynamics_engine.forward_dynamics(q, qd, tau)
 
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             rad_s2 = qdd[i]
             deg_s2 = np.rad2deg(rad_s2)
             set_table_item_text(self.fd_res_table, i, 1, f"{rad_s2:+.3f}")
@@ -1176,8 +1179,8 @@ class DensoKinematicsGUI(QMainWindow):
                 direction = "Gia tốc âm (-)"
             set_table_item_text(self.fd_res_table, i, 3, direction)
 
-        for r in range(5):
-            for c in range(5):
+        for r in range(len(JOINT_NAMES)):
+            for c in range(len(JOINT_NAMES)):
                 set_table_item_text(self.mass_table, r, c, f"{M[r, c]:.4f}")
 
         markers = self.dynamics_engine.build_marker_array(q, tau, qdd, frame_id="base_link")
@@ -1188,7 +1191,7 @@ class DensoKinematicsGUI(QMainWindow):
     def on_start_simulation(self):
         self.sim_active = True
         self.sim_q = np.array(self.current_joints, dtype=float)
-        self.sim_qd = np.zeros(5)
+        self.sim_qd = np.zeros(len(JOINT_NAMES))
         self.btn_start_sim.setEnabled(False)
         self.btn_stop_sim.setEnabled(True)
         self.sim_timer.start(50)  # 20Hz
@@ -1212,10 +1215,10 @@ class DensoKinematicsGUI(QMainWindow):
             self.sim_q, self.sim_qd, tau, dt=dt
         )
 
-        cmd = f"goto {self.sim_q[0]:.4f} {self.sim_q[1]:.4f} {self.sim_q[2]:.4f} {self.sim_q[3]:.4f} {self.sim_q[4]:.4f}"
+        cmd = "goto " + " ".join(f"{val:.4f}" for val in self.sim_q)
         self.bridge.send_cmd(cmd)
 
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             set_table_item_text(self.fd_res_table, i, 1, f"{qdd[i]:+.3f}")
             set_table_item_text(self.fd_res_table, i, 2, f"{np.rad2deg(qdd[i]):+.2f}°/s²")
 
@@ -1260,7 +1263,7 @@ class DensoKinematicsGUI(QMainWindow):
     # ---------------------------------------------------------
     def on_home_all(self):
         self.bridge.send_cmd("home")
-        self.bridge.send_trajectory([0.0, 0.0, 0.0, 0.0, 0.0], duration_sec=1.5)
+        self.bridge.send_trajectory([0.0] * len(JOINT_NAMES), duration_sec=1.5)
         self.log_label.setText("⌂ Đang đưa robot về Home 0° (Đồng bộ RViz2 & Gazebo)...")
 
     def on_stop_all(self):
@@ -1271,22 +1274,23 @@ class DensoKinematicsGUI(QMainWindow):
 
     def on_demo_all(self):
         self.bridge.send_cmd("demo")
-        self.log_label.setText("▶ Bắt đầu chu trình chạy lặp Link 1 -> Link 5 (Đồng bộ RViz2 & Gazebo).")
+        self.log_label.setText("▶ Bắt đầu chu trình chạy lặp Link 1 -> Link 6 (Đồng bộ RViz2 & Gazebo).")
         self._start_gazebo_sequence()
 
     def on_once_all(self):
         self.bridge.send_cmd("once")
-        self.log_label.setText("⚡ Chạy 1 chiều Link 1 -> Link 5 rồi giữ vị trí.")
+        self.log_label.setText("⚡ Chạy 1 chiều Link 1 -> Link 6 rồi giữ vị trí.")
         self._start_gazebo_sequence(loop=False)
 
     def _start_gazebo_sequence(self, loop=True):
         seq = [
-            ([0.785, 0.0, 0.0, 0.0, 0.0], 2.0),
-            ([0.785, 0.785, 0.0, 0.0, 0.0], 2.0),
-            ([0.785, 0.785, 0.785, 0.0, 0.0], 2.0),
-            ([0.785, 0.785, 0.785, 1.57, 0.0], 2.0),
-            ([0.785, 0.785, 0.785, 1.57, 0.87], 2.0),
-            ([0.0, 0.0, 0.0, 0.0, 0.0], 2.5),
+            ([0.785, 0.0, 0.0, 0.0, 0.0, 0.0], 2.0),
+            ([0.785, 0.785, 0.0, 0.0, 0.0, 0.0], 2.0),
+            ([0.785, 0.785, 0.785, 0.0, 0.0, 0.0], 2.0),
+            ([0.785, 0.785, 0.785, 1.57, 0.0, 0.0], 2.0),
+            ([0.785, 0.785, 0.785, 1.57, 0.87, 0.0], 2.0),
+            ([0.785, 0.785, 0.785, 1.57, 0.87, 1.57], 2.0),
+            ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2.5),
         ]
         def run_seq():
             while True:
@@ -1368,7 +1372,7 @@ class DensoKinematicsGUI(QMainWindow):
         dh_layout = QVBoxLayout(dh_box)
         dh_layout.setContentsMargins(10, 14, 10, 10)
 
-        self.dh_table = QTableWidget(6, 8)
+        self.dh_table = QTableWidget(7, 8)
         self.dh_table.setHorizontalHeaderLabels([
             "Khâu (Link)", "Liên kết TF", "Góc θi (Live)", "di (m)", "ai (m)", "bi (m) [Lệch Y]", "Trục quay", "Tọa độ RViz [X, Y, Z] (mm)"
         ])
@@ -1396,12 +1400,13 @@ class DensoKinematicsGUI(QMainWindow):
 
         # Extended D-H nominal values for Denso VS-6556 matching ROS 2 URDF & RViz
         DH_NOMINALS = [
-            ("link_1", "base_link -> link_1", "0.0°", "0.2050", "0.0000", "0.0000", "Z (Yaw)",   "[   0.0,    0.0, +205.0]"),
-            ("link_2", "link_1 -> link_2",    "0.0°", "0.1300", "-0.0750", "-0.0745", "Y (Pitch)", "[ -75.0,  -74.5, +335.0]"),
-            ("link_3", "link_2 -> link_3",    "0.0°", "0.2700", "0.0000", "+0.0065", "Y (Pitch)", "[ -75.0,  -68.0, +605.0]"),
-            ("link_4", "link_3 -> link_4",    "0.0°", "0.1090", "+0.0900", "+0.0680", "Z (Roll)",  "[ +15.0,    0.0, +714.0]"),
-            ("link_5", "link_4 -> link_5",    "0.0°", "0.1860", "0.0000", "0.0000", "Y (Pitch)", "[ +15.0,    0.0, +900.0]"),
-            ("flange", "link_5 -> flange",    "0.0°", "0.0800", "0.0000", "0.0000", "Z (TCP)",   "[ +15.0,    0.0, +980.0]"),
+            ("link_1", "base_link -> link_1", "0.0°", "0.2050", "0.0000", "0.0000", "Z (Yaw)",    "[   0.0,    0.0, +205.0]"),
+            ("link_2", "link_1 -> link_2",    "0.0°", "0.1300", "-0.0750", "-0.0745", "-Y (Pitch)", "[ -75.0,  -74.5, +335.0]"),
+            ("link_3", "link_2 -> link_3",    "0.0°", "0.2700", "0.0000", "+0.0065", "-Y (Pitch)", "[ -75.0,  -68.0, +605.0]"),
+            ("link_4", "link_3 -> link_4",    "0.0°", "0.1090", "+0.0900", "+0.0680", "Z (Roll)",   "[ +15.0,    0.0, +714.0]"),
+            ("link_5", "link_4 -> link_5",    "0.0°", "0.1860", "0.0000", "0.0000", "-Y (Pitch)", "[ +15.0,    0.0, +900.0]"),
+            ("link_6", "link_5 -> link_6",    "0.0°", "0.0620", "0.0000", "0.0000", "Z (Roll)",   "[ +15.0,    0.0, +962.0]"),
+            ("flange", "link_6 -> flange",    "0.0°", "0.0280", "0.0000", "0.0000", "Z (TCP)",    "[ +15.0,    0.0, +990.0]"),
         ]
         for r, row_data in enumerate(DH_NOMINALS):
             for c, val in enumerate(row_data):
@@ -1427,7 +1432,8 @@ class DensoKinematicsGUI(QMainWindow):
         sel_h.addWidget(QLabel("Chọn mắt xích:"))
         self.combo_matrix = QComboBox()
         self.combo_matrix.addItems([
-            "Ma trận tích lũy T0_Flange (Base -> Flange TCP: Z=980mm)",
+            "Ma trận tích lũy T0_Flange (Base -> Flange TCP: Z=990mm)",
+            "Ma trận tích lũy T0_link6 (Base -> Link 6 Cổ tay xoay: Z=962mm)",
             "Ma trận tích lũy T0_link5 (Base -> Link 5 / Tâm cổ tay Point P: Z=900mm)",
             "Ma trận tích lũy T0_link4 (Base -> Link 4 Cẳng tay: Z=714mm)",
             "Ma trận tích lũy T0_link3 (Base -> Link 3 Khớp khuỷu: Z=605mm)",
@@ -1438,7 +1444,8 @@ class DensoKinematicsGUI(QMainWindow):
             "Ma trận cục bộ D-H H_link3 (Link 2 -> Link 3: b=+0.0065, d=0.270)",
             "Ma trận cục bộ D-H H_link4 (Link 3 -> Link 4: a=+0.090, b=+0.068, d=0.109)",
             "Ma trận cục bộ D-H H_link5 (Link 4 -> Link 5: d=0.186m)",
-            "Ma trận cục bộ D-H H_flange (Link 5 -> Flange TCP: d=0.080m)",
+            "Ma trận cục bộ D-H H_link6 (Link 5 -> Link 6: d=0.06204m)",
+            "Ma trận cục bộ D-H H_flange (Link 6 -> Flange TCP: d=0.028m)",
         ])
         self.combo_matrix.setStyleSheet("background-color: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; padding: 4px; font-weight: bold;")
         sel_h.addWidget(self.combo_matrix)
@@ -1493,11 +1500,11 @@ class DensoKinematicsGUI(QMainWindow):
         p_layout.setSpacing(10)
 
         poses = [
-            ("⌂ Home (0°)", [0.0, 0.0, 0.0, 0.0, 0.0], "#059669"),
-            ("🎯 Sẵn Sàng (Ready)", [0.0, 0.5, 0.8, 0.0, -0.5], "#0284c7"),
-            ("📏 Vươn Ngang 90°", [0.0, 0.785, 0.785, 0.0, 0.0], "#475569"),
-            ("📐 Gập Khuỷu 90°", [0.0, 0.0, 1.57, 0.0, 0.0], "#64748b"),
-            ("🔄 Gắp Thấp (Pick Low)", [0.0, 1.05, 0.25, 0.0, -0.7], "#7c3aed"),
+            ("⌂ Home (0°)", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "#059669"),
+            ("🎯 Sẵn Sàng (Ready)", [0.0, 0.5, 0.8, 0.0, -0.5, 0.0], "#0284c7"),
+            ("📏 Vươn Ngang 90°", [0.0, 0.785, 0.785, 0.0, 0.0, 0.0], "#475569"),
+            ("📐 Gập Khuỷu 90°", [0.0, 0.0, 1.57, 0.0, 0.0, 0.0], "#64748b"),
+            ("🔄 Gắp Thấp (Pick Low)", [0.0, 1.05, 0.25, 0.0, -0.7, 0.0], "#7c3aed"),
         ]
         for title, joints, color in poses:
             btn = QPushButton(title)
@@ -1565,9 +1572,9 @@ class DensoKinematicsGUI(QMainWindow):
             self.dh_card_ws_val.setStyleSheet("color: #059669; font-size: 16px; font-weight: bold;")
             self.dh_card_ws_sub.setText(f"Tầm vươn an toàn ({pct_reach:.1f}%)")
 
-        # Update Live θ and Live Coordinates in Extended DH table (Rows 0..5 = link_1..flange)
-        for i in range(6):
-            if i < 5:
+        # Update Live θ and Live Coordinates in Extended DH table (Rows 0..6 = link_1..flange)
+        for i in range(7):
+            if i < 6:
                 q_deg = math.degrees(q[i])
                 if abs(q_deg) < 0.05:
                     q_deg = 0.0
@@ -1585,27 +1592,31 @@ class DensoKinematicsGUI(QMainWindow):
         if c_idx == 0:
             selected_T = flange_T
         elif c_idx == 1:
-            selected_T = point_P_T
+            selected_T = ext_transforms[6]   # link_6
         elif c_idx == 2:
-            selected_T = ext_transforms[4]   # link_4
+            selected_T = point_P_T           # link_5
         elif c_idx == 3:
-            selected_T = ext_transforms[3]   # link_3
+            selected_T = ext_transforms[4]   # link_4
         elif c_idx == 4:
-            selected_T = ext_transforms[2]   # link_2
+            selected_T = ext_transforms[3]   # link_3
         elif c_idx == 5:
-            selected_T = ext_transforms[1]   # link_1
+            selected_T = ext_transforms[2]   # link_2
         elif c_idx == 6:
-            selected_T = ext_matrices_H[0]   # H_link1
+            selected_T = ext_transforms[1]   # link_1
         elif c_idx == 7:
-            selected_T = ext_matrices_H[1]   # H_link2
+            selected_T = ext_matrices_H[0]   # H_link1
         elif c_idx == 8:
-            selected_T = ext_matrices_H[2]   # H_link3
+            selected_T = ext_matrices_H[1]   # H_link2
         elif c_idx == 9:
-            selected_T = ext_matrices_H[3]   # H_link4
+            selected_T = ext_matrices_H[2]   # H_link3
         elif c_idx == 10:
-            selected_T = ext_matrices_H[4]   # H_link5
+            selected_T = ext_matrices_H[3]   # H_link4
         elif c_idx == 11:
-            selected_T = ext_matrices_H[5]   # H_flange
+            selected_T = ext_matrices_H[4]   # H_link5
+        elif c_idx == 12:
+            selected_T = ext_matrices_H[5]   # H_link6
+        elif c_idx == 13:
+            selected_T = ext_matrices_H[6]   # H_flange
         else:
             selected_T = flange_T
 
@@ -1663,15 +1674,18 @@ class DensoKinematicsGUI(QMainWindow):
         left_layout.setContentsMargins(12, 16, 12, 12)
         left_layout.setSpacing(8)
 
-        JOINT_LABELS = ["J1 Base (Z) ±170°", "J2 Vai (Y) -120°~+135°",
-                        "J3 Khuỷu (Y) -119°~+166°", "J4 Cẳng (X) ±190°", "J5 Cổ Tay (Y) ±120°"]
-        SLIDER_MINS  = [-170, -120, -119, -190, -120]
-        SLIDER_MAXS  = [ 170,  135,  166,  190,  120]
+        JOINT_LABELS = [
+            "J1 Base (Z) ±170°", "J2 Vai (Y) -120°~+135°",
+            "J3 Khuỷu (Y) -119°~+166°", "J4 Cẳng (Z) ±190°",
+            "J5 Cổ Tay (Y) ±120°", "J6 Mặt Bích (Z) ±360°"
+        ]
+        SLIDER_MINS  = [-170, -120, -119, -190, -120, -360]
+        SLIDER_MAXS  = [ 170,  135,  166,  190,  120,  360]
 
         self.manual_sliders = []
         self.manual_val_labels = []
 
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             row = QHBoxLayout()
             lbl = QLabel(JOINT_LABELS[i])
             lbl.setFixedWidth(185)
@@ -2041,7 +2055,7 @@ class DensoKinematicsGUI(QMainWindow):
 
         # Quick presets
         pre_layout = QHBoxLayout()
-        for name, coords in [("Home", (15, 0, 900)), ("Front", (400, 0, 500)), ("Left", (0, 380, 500)), ("Right", (0, -380, 500))]:
+        for name, coords in [("Home", (15, 0, 900)), ("Back (Bàn Vẽ)", (-380, 0, 180)), ("Front", (400, 0, 500)), ("Left", (0, 380, 500)), ("Right", (0, -380, 500))]:
             btn = QPushButton(name)
             btn.setStyleSheet("background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 5px 8px; border-radius: 4px; font-weight: bold;")
             btn.clicked.connect(lambda _, c=coords: self._set_gui_ik_coords(*c))
@@ -2078,14 +2092,15 @@ class DensoKinematicsGUI(QMainWindow):
         right_layout.addWidget(self.gui_ik_status_badge)
 
         # IK table
-        self.gui_ik_table = QTableWidget(5, 5)
+        self.gui_ik_table = QTableWidget(len(JOINT_NAMES), 5)
         self.gui_ik_table.setHorizontalHeaderLabels(["Khớp", "Mục Tiêu (°)", "Mục Tiêu (rad)", "Hiện Tại (°)", "Độ Lệch Δ(°)"])
         h_hdr = self.gui_ik_table.horizontalHeader()
         if h_hdr:
             h_hdr.setSectionResizeMode(QHeaderView.Stretch)
         self.gui_ik_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.gui_ik_table.setFixedHeight(210)
         self.gui_ik_table.setStyleSheet("background-color: #ffffff; color: #0f172a; gridline-color: #e2e8f0; font-size: 12px;")
-        for r in range(5):
+        for r in range(len(JOINT_NAMES)):
             it = QTableWidgetItem(f"Joint {r+1}")
             it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             it.setFont(QFont("Segoe UI", 10, QFont.Bold))
@@ -2099,7 +2114,7 @@ class DensoKinematicsGUI(QMainWindow):
         right_layout.addStretch()
         layout.addWidget(right_box, 3)
 
-        self.last_gui_ik_sol = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self.last_gui_ik_sol = [0.0] * len(JOINT_NAMES)
         # Calculate initial
         QTimer.singleShot(200, self._on_gui_ik_calc)
         return panel
@@ -2118,9 +2133,8 @@ class DensoKinematicsGUI(QMainWindow):
 
     def _on_gui_ik_read_actual(self):
         use_flange = (self.gui_ik_mode.currentIndex() == 1)
-        transforms = self.dynamics_engine.get_joint_transforms(self.current_joints)
-        idx = 6 if use_flange else 5
-        p = transforms[idx][:3, 3] * 1000.0
+        fk = self.dynamics_engine.compute_forward_kinematics(self.current_joints, use_flange=use_flange)
+        p = fk["position_mm"]
         self._set_gui_ik_coords(p[0], p[1], p[2])
         self.log_label.setText(f"📍 Đã đọc tọa độ thực tế: X={p[0]:.1f}, Y={p[1]:.1f}, Z={p[2]:.1f} mm")
 
@@ -2133,21 +2147,37 @@ class DensoKinematicsGUI(QMainWindow):
         q_sol, ok, iters, err_m = self.dynamics_engine.inverse_kinematics(
             [x, y, z], q_seed=self.current_joints, use_flange=use_flange
         )
-        self.last_gui_ik_sol = list(q_sol)
+        if q_sol is not None:
+            self.last_gui_ik_sol = list(q_sol)
+            is_col, col_reason = self.dynamics_engine.check_collision(q_sol)
+            if is_col:
+                self.gui_ik_status_badge.setText(f"⚠️ {col_reason}")
+                self.gui_ik_status_badge.setStyleSheet("background-color: #fef2f2; color: #991b1b; border: 1.5px solid #ef4444; border-radius: 6px; padding: 8px; font-weight: bold;")
+            elif ok:
+                self.gui_ik_status_badge.setText(f"✅ HỘI TỤ THÀNH CÔNG (Sai số: {err_m*1000.0:.2f} mm | An toàn)")
+                self.gui_ik_status_badge.setStyleSheet("background-color: #ecfdf5; color: #065f46; border: 1.5px solid #10b981; border-radius: 6px; padding: 8px; font-weight: bold;")
+            else:
+                self.gui_ik_status_badge.setText(f"⚠️ NGOÀI TẦM VỚI (Sai số: {err_m*1000.0:.1f} mm)")
+                self.gui_ik_status_badge.setStyleSheet("background-color: #fffbeb; color: #92400e; border: 1.5px solid #f59e0b; border-radius: 6px; padding: 8px; font-weight: bold;")
 
-        is_col, col_reason = self.dynamics_engine.check_collision(q_sol)
-
-        if is_col:
-            self.gui_ik_status_badge.setText(f"⚠️ {col_reason}")
-            self.gui_ik_status_badge.setStyleSheet("background-color: #fef2f2; color: #991b1b; border: 1.5px solid #ef4444; border-radius: 6px; padding: 8px; font-weight: bold;")
-        elif ok:
-            self.gui_ik_status_badge.setText(f"✅ HỘI TỤ THÀNH CÔNG (Sai số: {err_m*1000.0:.2f} mm | An toàn)")
-            self.gui_ik_status_badge.setStyleSheet("background-color: #ecfdf5; color: #065f46; border: 1.5px solid #10b981; border-radius: 6px; padding: 8px; font-weight: bold;")
+            for i in range(len(JOINT_NAMES)):
+                t_deg = math.degrees(q_sol[i])
+                c_deg = math.degrees(self.current_joints[i])
+                d_deg = abs(t_deg - c_deg)
+                set_table_item_text(self.gui_ik_table, i, 1, f"{c_deg:+6.1f}°")
+                set_table_item_text(self.gui_ik_table, i, 2, f"{t_deg:+6.1f}°")
+                set_table_item_text(self.gui_ik_table, i, 3, f"{d_deg:5.1f}°")
+                st = "OK" if not is_col else "CẢNH BÁO"
+                set_table_item_text(self.gui_ik_table, i, 4, st)
         else:
-            self.gui_ik_status_badge.setText(f"⚠️ NGOÀI TẦM VỚI (Sai số: {err_m*1000.0:.1f} mm)")
-            self.gui_ik_status_badge.setStyleSheet("background-color: #fffbeb; color: #92400e; border: 1.5px solid #f59e0b; border-radius: 6px; padding: 8px; font-weight: bold;")
-
-        for i in range(5):
+            self.gui_ik_status_badge.setText(f"⛔ NGOÀI VÙNG LÀM VIỆC (Không tìm thấy nghiệm IK)")
+            self.gui_ik_status_badge.setStyleSheet("background-color: #fee2e2; color: #b91c1c; border: 1.5px solid #ef4444; border-radius: 6px; padding: 8px; font-weight: bold;")
+            for i in range(len(JOINT_NAMES)):
+                c_deg = math.degrees(self.current_joints[i])
+                set_table_item_text(self.gui_ik_table, i, 1, f"{c_deg:+6.1f}°")
+                set_table_item_text(self.gui_ik_table, i, 2, "N/A")
+                set_table_item_text(self.gui_ik_table, i, 3, "N/A")
+                set_table_item_text(self.gui_ik_table, i, 4, "LỖI")
             t_deg = math.degrees(q_sol[i])
             c_deg = math.degrees(self.current_joints[i])
             d_deg = abs(t_deg - c_deg)

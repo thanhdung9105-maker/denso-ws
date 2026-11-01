@@ -69,9 +69,6 @@ def generate_launch_description():
         condition=UnlessCondition(use_gazebo),
     )
 
-    ,
-    )
-
     # Mock Controller Node (only in standalone mock mode)
     mock_controller_node = Node(
         package="denso_vs6556_moveit_config",

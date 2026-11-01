@@ -1,6 +1,6 @@
 # Denso VS-6556 Industrial Robot Arm - ROS 2 Jazzy & MoveIt 2
 
-Hệ thống điều khiển, mô phỏng 3D và tính toán động học cho cánh tay robot công nghiệp **Denso VS-6556** (5 bậc tự do / 5-DOF) chạy trên nền tảng **ROS 2 Jazzy** và **MoveIt 2**, hỗ trợ chạy Native trong WSL2 (Ubuntu 24.04) hoặc cô lập qua **Docker container** kèm đồ họa WSLg.
+Hệ thống điều khiển, mô phỏng 3D và tính toán động học cho cánh tay robot công nghiệp **Denso VS-6556** (6 bậc tự do / 6-DOF) chạy trên nền tảng **ROS 2 Jazzy**, **MoveIt 2** và **Gazebo Sim (Harmonic)**, hỗ trợ chạy Native trong WSL2 (Ubuntu 24.04) với tăng tốc phần cứng GPU DirectX 12 hoặc cô lập qua **Docker container** kèm đồ họa WSLg.
 
 Repository này được liên kết chính thức với GitHub:  
 👉 **[https://github.com/thanhdung9105-maker/denso-ws](https://github.com/thanhdung9105-maker/denso-ws)**
@@ -93,7 +93,7 @@ denso_gazebo_moveit
 ```
 *(Mở đồng thời cả Gazebo Sim và RViz2. Mọi trajectory được MoveIt lập kế hoạch sẽ được gửi trực tiếp và thực thi chính xác trên thế giới vật lý ảo).*
 
-#### 3. Kiểm thử tự động quỹ đạo 5 khớp:
+#### 3. Kiểm thử tự động quỹ đạo 6 khớp:
 Mở một terminal khác và gõ:
 ```bash
 denso_gazebo_test
@@ -111,12 +111,12 @@ Các lệnh này đã được cấu hình sẵn trong `~/.bashrc`:
 | `denso` | Bật toàn bộ hệ thống Robot + MoveIt 2 + RViz2 trên máy thật. |
 | `denso_gazebo` | **Bật mô phỏng vật lý Gazebo Harmonic (gz-sim 8)** với robot Denso VS-6556. |
 | `denso_gazebo_moveit` | **Bật đồng thời Gazebo + MoveIt 2 + RViz2** (đồng bộ điều khiển thời gian thực). |
-| `denso_gazebo_test` | Chạy kịch bản tự động kiểm thử quỹ đạo 5 khớp chuyển động ổn định trên Gazebo. |
+| `denso_gazebo_test` | Chạy kịch bản tự động kiểm thử quỹ đạo 6 khớp chuyển động ổn định trên Gazebo. |
 | `denso_docker` | Bật toàn bộ hệ thống Robot bên trong Docker container độc lập. |
-| `denso_table` / `denso_gui` | Mở **Bảng Thông Số Động Lực Học (Nền Trắng)** và Giám Sát Thời Gian Thực. |
+| `denso_table` / `denso_gui` | Mở **Bảng Thông Số Động Lực Học (Nền Trắng)** và Giám Sát Thời Gian Thực (6-DOF). |
 | `denso_dynamics` | Bật / Tắt (Ẩn / Hiện) tức thì các vector mô-men xoắn trong RViz2. |
-| `denso_joints` | Kích hoạt robot chạy chu trình khớp 1 chiều liên tục (Link 1 $\to$ Link 5). |
-| `denso_once` | Chạy đúng 1 lượt từ Link 1 $\to$ Link 5 (2.0s/link) rồi dừng hẳn ở vị trí đích. |
+| `denso_joints` | Kích hoạt robot chạy chu trình khớp 1 chiều liên tục (Link 1 $\to$ Link 6). |
+| `denso_once` | Chạy đúng 1 lượt từ Link 1 $\to$ Link 6 (2.0s/link) rồi dừng hẳn ở vị trí đích. |
 | `denso_home` | Đưa cánh tay robot trở về tư thế đứng thẳng $0^\circ$. |
 | `denso_stop` | Tạm dừng chuyển động ngay lập tức tại vị trí hiện tại. |
 | `ros_docker` | Mở terminal bash bên trong Docker container ROS 2 Jazzy. |
@@ -172,31 +172,49 @@ Hệ thống được thiết kế tối ưu, tách biệt thành các tab chuy�
 ```
 denso_ws/
 ├── src/
-│   ├── denso_vs6556/                # Gói mô tả robot
-│   │   ├── urdf/                    # denso_vs6556.urdf (đã căn chỉnh chuẩn SolidWorks)
-│   │   ├── meshes/                  # File 3D CAD STL của các link
-│   │   ├── launch/                  # display.launch.py
-│   │   └── rviz/                    # display.rviz (cấu hình giao diện RViz)
+│   ├── denso_vs6556/                # Gói mô tả robot (Robot Description)
+│   │   ├── urdf/                    # denso_vs6556.urdf (chuẩn 6-DOF đã căn chỉnh SolidWorks)
+│   │   ├── meshes/                  # File 3D CAD STL chuẩn cho 6 link + Base
+│   │   │   ├── BASE.STL
+│   │   │   ├── 410590-0080-c001.STL ... c005.STL
+│   │   │   ├── 410590-0080-c006.STL        # Khâu cổ tay (Wrist Knuckle)
+│   │   │   └── 410590-0080-c006_flange.STL # Mặt bích xoay trên đỉnh (Tool Flange)
+│   │   ├── launch/                  # display.launch.py, display_gui.launch.py
+│   │   └── rviz/                    # display.rviz
 │   │
-│   └── denso_vs6556_moveit_config/  # Gói cấu hình MoveIt 2 & điều khiển
-│       ├── config/                  # kinematics.yaml, joint_limits.yaml, srdf
+│   ├── denso_vs6556_moveit_config/  # Gói cấu hình MoveIt 2 & Thuật toán Động học
+│   │   ├── config/                  # kinematics.yaml, joint_limits.yaml, srdf, controllers
+│   │   ├── scripts/
+│   │   │   ├── denso_dynamics_engine.py    # Nhân tính toán RNEA, DH, Jacobian 6x6, IK
+│   │   │   ├── denso_kinematics_gui.py     # Dashboard giám sát Động học & Động lực học
+│   │   │   ├── denso_dh_fk_node.py         # Node ROS 2 tính FK & Marker 3D thời gian thực
+│   │   │   ├── denso_mock_controller.py    # Bộ điều khiển mô phỏng khớp S-curve 10Hz
+│   │   │   ├── denso_animation_demo.py     # Demo quỹ đạo tự động qua MoveGroup Action
+│   │   │   ├── denso_com_visualizer.py     # Trực quan hóa trọng tâm CoM & khối lượng RViz2
+│   │   │   └── verify_denso_dh.py          # Script kiểm chứng sai số D-H (0.000000 mm)
+│   │   └── launch/                  # demo.launch.py, kinematics_gui.launch.py
+│   │
+│   └── denso_gazebo/                # Gói mô phỏng vật lý Gazebo Sim (Harmonic)
+│       ├── worlds/                  # denso_world.sdf (Physics 200Hz, bàn vẽ, ánh sáng)
+│       ├── urdf/                    # denso_vs6556_gazebo.urdf.xacro (Hardware interface gz_ros2_control)
+│       ├── config/                  # denso_controllers.yaml, gz_bridge.yaml, gui.config
 │       ├── scripts/
-│       │   ├── denso_kinematics_gui.py  # Mã nguồn Bảng điều khiển Động học FK/IK
-│       │   └── denso_mock_controller.py # Bộ điều khiển nội suy khớp S-curve 10Hz
-│       └── launch/
-│           └── demo.launch.py
+│       │   ├── denso_gazebo_control_panel.py # Bảng điều khiển Gazebo & Camera
+│       │   ├── denso_gcode_vision_engine.py  # Hệ thống nạp & mô phỏng vẽ G-Code
+│       │   ├── denso_gcode_joint_table.py    # Bảng tra góc 6 bậc theo từng điểm G-Code
+│       │   ├── denso_gcode_catalog.py        # Quản lý danh mục mẫu G-Code
+│       │   └── test_gazebo_motion.py         # Kiểm thử chuyển động tự động
+│       └── launch/                  # denso_gazebo.launch.py, denso_gazebo_moveit.launch.py
 │
-├── docker/                          # Môi trường container hóa
-│   ├── Dockerfile                   # Base image ros:jazzy + MoveIt 2 + CycloneDDS
-│   ├── docker-compose.yml           # Cấu hình map volume và GUI WSLg
-│   ├── entrypoint.sh                # Auto source ROS 2
-│   └── run_denso_docker.sh          # Script chạy container 1 chạm
-│
-├── launch_denso.sh                  # Script chạy nhanh hệ thống
-├── denso_joints.sh                  # Script demo chu trình khớp
-├── denso_gui.sh                     # Script bật Bảng Động Học
-├── .gitignore                       # Bỏ qua build, install, log
-└── README.md                        # Tài liệu hướng dẫn
+├── kinematics_snapshots/            # Lưu trữ lịch sử snapshot và backup an toàn
+├── drawing_samples/                 # Các tệp G-Code mẫu cho bàn vẽ
+├── dh_calculator.py                 # Công cụ tính toán nhanh ma trận DH tương tác
+├── launch_denso_gazebo_moveit.sh    # Khởi chạy tích hợp Gazebo + MoveIt 2 + RViz2 (GPU D3D12)
+├── launch_denso_gazebo.sh           # Khởi chạy riêng Gazebo Harmonic + Panel
+├── launch_denso.sh                  # Khởi chạy RViz2 + MoveIt 2
+├── denso_gcode_joints.sh            # Mở bảng tra góc khớp 6 bậc theo G-Code
+├── denso_table.sh                   # Mở bảng giám sát động lực học
+└── README.md                        # Tài liệu hướng dẫn hệ thống
 ```
 
 ---

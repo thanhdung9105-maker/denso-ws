@@ -1,2 +1,2 @@
-sensors:
-  - none
+sensors: []
+octomap_resolution: 0.05

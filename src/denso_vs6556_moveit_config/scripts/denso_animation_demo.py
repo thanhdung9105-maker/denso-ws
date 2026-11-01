@@ -7,12 +7,12 @@ from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import MotionPlanRequest, Constraints, JointConstraint
 
 POSES = {
-    'Home (Zero Position)': [0.0, 0.0, 0.0, 0.0, 0.0],
-    'Ready (Working Stance)': [0.0, 0.5, 0.8, 0.0, -0.5],
-    'Reach Forward': [0.0, 0.75, 0.5, 0.0, 0.2],
-    'Pick Low (Table Ground)': [0.0, 1.05, 0.25, 0.0, -0.7],
-    'Reach Side Left (90 deg)': [1.2, 0.4, 0.7, 0.0, -0.3],
-    'Reach Side Right (-90 deg)': [-1.2, 0.4, 0.7, 0.0, -0.3],
+    'Home (Zero Position)': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    'Ready (Working Stance)': [0.0, 0.5, 0.8, 0.0, -0.5, 0.0],
+    'Reach Forward': [0.0, 0.75, 0.5, 0.0, 0.2, 0.0],
+    'Pick Low (Table Ground)': [0.0, 1.05, 0.25, 0.0, -0.7, 0.0],
+    'Reach Side Left (90 deg)': [1.2, 0.4, 0.7, 0.0, -0.3, 0.0],
+    'Reach Side Right (-90 deg)': [-1.2, 0.4, 0.7, 0.0, -0.3, 0.0],
 }
 
 SEQUENCE = [
@@ -37,7 +37,7 @@ def plan_and_execute_pose(node, client, pose_name, joint_positions, pipeline='om
     req.max_acceleration_scaling_factor = 0.1
 
     c = Constraints()
-    joint_names = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5']
+    joint_names = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
     for name, val in zip(joint_names, joint_positions):
         jc = JointConstraint()
         jc.joint_name = name

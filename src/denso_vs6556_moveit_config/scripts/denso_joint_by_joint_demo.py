@@ -13,7 +13,7 @@ from std_msgs.msg import String  # pyrefly: ignore [missing-import]
 from sensor_msgs.msg import JointState  # pyrefly: ignore [missing-import]
 
 def main():
-    parser = argparse.ArgumentParser(description="Denso VS-6556 Link 1-5 Joint Demo Controller")
+    parser = argparse.ArgumentParser(description="Denso VS-6556 Link 1-6 Joint Demo Controller")
     parser.add_argument("--stop", action="store_true", help="Stop the automated joint demo")
     parser.add_argument("--home", action="store_true", help="Send the arm to home 0°")
     parser.add_argument("--monitor", action="store_true", default=True, help="Monitor live joint movements in terminal")
@@ -37,7 +37,7 @@ def main():
     pub.publish(msg)
 
     if cmd == "demo":
-        print("[INFO] Da gui lenh: Kich hoat chu trinh Link 1 -> Link 5 (2.0s / link, 25Hz smooth) tren RViz!")
+        print("[INFO] Da gui lenh: Kich hoat chu trinh Link 1 -> Link 6 (2.0s / link, 25Hz smooth) tren RViz!")
     elif cmd == "stop":
         print("[INFO] Da gui lenh: Tam dung tu dong. Giu nguyen vi tri robot.")
     elif cmd == "home":

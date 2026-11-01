@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <robot name="denso_vs6556">
+    <virtual_joint name="virtual_joint" type="fixed" parent_frame="world" child_link="base_link"/>
     <group name="arm">
-        <chain base_link="base_link" tip_link="link_5"/>
+        <chain base_link="base_link" tip_link="link_6"/>
     </group>
 
     <group_state name="home" group="arm">
@@ -10,6 +11,7 @@
         <joint name="joint_3" value="0.0"/>
         <joint name="joint_4" value="0.0"/>
         <joint name="joint_5" value="0.0"/>
+        <joint name="joint_6" value="0.0"/>
     </group_state>
 
     <group_state name="ready" group="arm">
@@ -18,14 +20,25 @@
         <joint name="joint_3" value="0.8"/>
         <joint name="joint_4" value="0.0"/>
         <joint name="joint_5" value="-0.5"/>
+        <joint name="joint_6" value="0.0"/>
     </group_state>
 
     <group_state name="reach_forward" group="arm">
+        <joint name="joint_1" value="0.0"/>
+        <joint name="joint_2" value="-0.75"/>
+        <joint name="joint_3" value="-0.5"/>
+        <joint name="joint_4" value="0.0"/>
+        <joint name="joint_5" value="-0.2"/>
+        <joint name="joint_6" value="0.0"/>
+    </group_state>
+
+    <group_state name="reach_backward" group="arm">
         <joint name="joint_1" value="0.0"/>
         <joint name="joint_2" value="0.75"/>
         <joint name="joint_3" value="0.5"/>
         <joint name="joint_4" value="0.0"/>
         <joint name="joint_5" value="0.2"/>
+        <joint name="joint_6" value="0.0"/>
     </group_state>
 
     <group_state name="reach_side_left" group="arm">
@@ -34,6 +47,7 @@
         <joint name="joint_3" value="0.7"/>
         <joint name="joint_4" value="0.0"/>
         <joint name="joint_5" value="-0.3"/>
+        <joint name="joint_6" value="0.0"/>
     </group_state>
 
     <group_state name="reach_side_right" group="arm">
@@ -42,6 +56,7 @@
         <joint name="joint_3" value="0.7"/>
         <joint name="joint_4" value="0.0"/>
         <joint name="joint_5" value="-0.3"/>
+        <joint name="joint_6" value="0.0"/>
     </group_state>
 
     <group_state name="pick_low" group="arm">
@@ -50,6 +65,7 @@
         <joint name="joint_3" value="0.25"/>
         <joint name="joint_4" value="0.0"/>
         <joint name="joint_5" value="-0.7"/>
+        <joint name="joint_6" value="0.0"/>
     </group_state>
 
     <disable_collisions link1="base_link" link2="link_1" reason="Adjacent"/>
@@ -57,8 +73,19 @@
     <disable_collisions link1="link_2" link2="link_3" reason="Adjacent"/>
     <disable_collisions link1="link_3" link2="link_4" reason="Adjacent"/>
     <disable_collisions link1="link_4" link2="link_5" reason="Adjacent"/>
+    <disable_collisions link1="link_5" link2="link_6" reason="Adjacent"/>
     <disable_collisions link1="base_link" link2="link_2" reason="Never"/>
     <disable_collisions link1="link_1" link2="link_3" reason="Never"/>
     <disable_collisions link1="link_2" link2="link_4" reason="Never"/>
     <disable_collisions link1="link_3" link2="link_5" reason="Never"/>
+    <disable_collisions link1="link_3" link2="link_6" reason="Never"/>
+    <disable_collisions link1="link_4" link2="link_6" reason="Never"/>
+    <disable_collisions link1="link_6" link2="pen_tool_link" reason="Adjacent"/>
+    <disable_collisions link1="link_5" link2="pen_tool_link" reason="Never"/>
+    <disable_collisions link1="link_4" link2="pen_tool_link" reason="Never"/>
+    <disable_collisions link1="link_3" link2="pen_tool_link" reason="Never"/>
+    <disable_collisions link1="link_2" link2="pen_tool_link" reason="Never"/>
+    <disable_collisions link1="link_1" link2="pen_tool_link" reason="Never"/>
+    <disable_collisions link1="base_link" link2="pen_tool_link" reason="Never"/>
+    <disable_collisions link1="base_link" link2="link_6" reason="Never"/>
 </robot>

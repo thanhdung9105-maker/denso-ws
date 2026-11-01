@@ -19,7 +19,7 @@ class DensoGazeboMotionTester(Node):
     def __init__(self):
         super().__init__('denso_gazebo_motion_tester')
         
-        self.joint_names = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5']
+        self.joint_names = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
         self.current_joint_positions = {}
         
         # Subscribe to joint states from Gazebo
@@ -48,7 +48,7 @@ class DensoGazeboMotionTester(Node):
         start = time.time()
         while time.time() - start < timeout:
             rclpy.spin_once(self, timeout_sec=0.1)
-            if len(self.current_joint_positions) >= 5:
+            if len(self.current_joint_positions) >= 6:
                 return True
         return False
 
@@ -109,13 +109,13 @@ def main():
     # Define test motion routine
     waypoints = [
         # Point 1: Home 0 deg
-        ([0.0, 0.0, 0.0, 0.0, 0.0], 2.5),
+        ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2.5),
         # Point 2: Working pose (Reach forward & tilt)
-        ([0.5, 0.4, 0.6, -0.3, 0.3], 5.5),
+        ([0.5, 0.4, 0.6, -0.3, 0.3, 0.5], 5.5),
         # Point 3: Side pose
-        ([-0.6, -0.2, 0.7, 0.4, -0.4], 9.0),
+        ([-0.6, -0.2, 0.7, 0.4, -0.4, -0.5], 9.0),
         # Point 4: Return Home
-        ([0.0, 0.0, 0.0, 0.0, 0.0], 12.5),
+        ([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 12.5),
     ]
 
     success = tester.send_trajectory_goal(waypoints)

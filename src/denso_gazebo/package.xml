@@ -3,7 +3,7 @@
 <package format="3">
   <name>denso_gazebo</name>
   <version>1.0.0</version>
-  <description>Gazebo Harmonic simulation package for Denso VS-6556 5-DOF robot arm with gz_ros2_control</description>
+  <description>Gazebo Harmonic simulation package for Denso VS-6556 6-DOF robot arm with gz_ros2_control</description>
   <maintainer email="dung@maker.vn">thanhdung</maintainer>
   <license>Apache-2.0</license>
 

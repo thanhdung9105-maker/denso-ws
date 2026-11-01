@@ -1,6 +1,6 @@
-# Tài Liệu Khối Lượng, Quán Tính & Động Lực Học - Denso VS-6556 Robot
+# Tài Liệu Khối Lượng, Quán Tính & Động Lực Học - Denso VS-6556 Robot (6-DOF)
 
-Tài liệu này ghi nhận toàn bộ thông số khối lượng, khối tâm (Center of Mass - CoM), tensor quán tính (Inertia Tensor) và các tham số động lực học mô phỏng được cấu hình cho robot công nghiệp **Denso VS-6556** (5 bậc tự do / 5-DOF).
+Tài liệu này ghi nhận toàn bộ thông số khối lượng, khối tâm (Center of Mass - CoM), tensor quán tính (Inertia Tensor) và các tham số động học / động lực học mô phỏng được cấu hình cho robot công nghiệp **Denso VS-6556** (6 bậc tự do / 6-DOF).
 
 ---
 
@@ -18,7 +18,8 @@ Hệ thống tọa độ cơ sở tuân theo chuẩn **URDF ROS 2 / Gazebo Sim**
 | **`link_2`** | `410590-0080-c003.STL` | **4.2** | $(0.000, 0.003, 0.135)$ | $(0.045, 0.040, 0.015)$ | Cánh tay trên (Upper Arm - J2), chịu lực uốn trọng trường lớn nhất |
 | **`link_3`** | `410590-0080-c004.STL` | **3.1** | $(-0.040, 0.020, 0.040)$ | $(0.020, 0.020, 0.010)$ | Cụm khuỷu tay (Elbow Pitch - J3) |
 | **`link_4`** | `410590-0080-c005.STL` | **2.0** | $(-0.100, 0.000, 0.000)$ | $(0.005, 0.015, 0.015)$ | Cánh tay trước xoay tròn (Forearm Roll - J4) |
-| **`link_5`** | `410590-0080-c006.STL` | **1.2** | $(-0.030, 0.000, 0.000)$ | $(0.003, 0.003, 0.003)$ | Mặt bích gắn khâu công tác cuối (Tool Flange / Wrist Pitch - J5) |
+| **`link_5`** | `410590-0080-c006.STL` | **0.95** | $(0.000, 0.000, 0.0163)$ | $(0.000816, 0.000954, 0.000634)$ | Cụm khớp gập cổ tay (Wrist Knuckle / Pitch - J5) |
+| **`link_6`** | `410590-0080-c006_flange.STL` | **0.25** | $(0.000, 0.000, 0.01126)$ | $(0.000072, 0.000072, 0.000120)$ | Nắp bích xoay trên đỉnh (Tool Flange / Wrist Roll - J6) |
 
 **Tổng khối lượng mô hình hiện tại:** **$23.0\text{ kg}$**
 
@@ -46,16 +47,16 @@ Toàn bộ 5 khớp của Denso VS-6556 đều được dẫn động bằng đ�
 
 | Khớp (Joint) | Công suất định mức | Tốc độ động cơ | Vận tốc góc cực đại (Datasheet) | Vận tốc góc cực đại (rad/s) | Tỷ số truyền danh định | Mô-men định mức / Max Effort | Max Acceleration | Phanh giữ cơ khí (Brake) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **`joint_1`** (Shoulder Yaw) | **400 W** | 3000 rpm | $262.5^\circ/	ext{s}$ | **$4.5815	ext{ rad/s}$** | $pprox 80:1$ | **$80	ext{ Nm}$** | $15.0	ext{ rad/s}^2$ | Phanh tùy chọn (Bản BW) |
-| **`joint_2`** (Shoulder Pitch) | **750 W** | 3000 rpm | $240.0^\circ/	ext{s}$ | **$4.1888	ext{ rad/s}$** | $pprox 100:1$ | **$100	ext{ Nm}$** | $12.0	ext{ rad/s}^2$ | **Có** (Tiêu chuẩn chống rơi) |
-| **`joint_3`** (Elbow Pitch) | **400 W** | 3000 rpm | $300.0^\circ/	ext{s}$ | **$5.2360	ext{ rad/s}$** | $pprox 80:1$ | **$60	ext{ Nm}$** | $15.0	ext{ rad/s}^2$ | **Có** (Tiêu chuẩn chống rơi) |
-| **`joint_4`** (Forearm Roll) | **100 W** | 3000 rpm | $300.0^\circ/	ext{s}$ | **$5.2360	ext{ rad/s}$** | $pprox 50:1$ | **$25	ext{ Nm}$** (Allowable $16.2	ext{ Nm}$) | $20.0	ext{ rad/s}^2$ | **Có** (Tiêu chuẩn) |
-| **`joint_5`** (Wrist Pitch) | **100 W** | 3000 rpm | $300.0^\circ/	ext{s}$ | **$5.2360	ext{ rad/s}$** | $pprox 50:1$ | **$20	ext{ Nm}$** (Allowable $16.2	ext{ Nm}$) | $20.0	ext{ rad/s}^2$ | Có (Bản B) |
+| **`joint_1`** (Shoulder Yaw) | **400 W** | 3000 rpm | $262.5^\circ/\text{s}$ | **$4.5815\text{ rad/s}$** | $\approx 80:1$ | **$80\text{ Nm}$** | $15.0\text{ rad/s}^2$ | Phanh tùy chọn (Bản BW) |
+| **`joint_2`** (Shoulder Pitch) | **750 W** | 3000 rpm | $240.0^\circ/\text{s}$ | **$4.1888\text{ rad/s}$** | $\approx 100:1$ | **$100\text{ Nm}$** | $12.0\text{ rad/s}^2$ | **Có** (Tiêu chuẩn chống rơi) |
+| **`joint_3`** (Elbow Pitch) | **400 W** | 3000 rpm | $300.0^\circ/\text{s}$ | **$5.2360\text{ rad/s}$** | $\approx 80:1$ | **$60\text{ Nm}$** | $15.0\text{ rad/s}^2$ | **Có** (Tiêu chuẩn chống rơi) |
+| **`joint_4`** (Forearm Roll) | **100 W** | 3000 rpm | $300.0^\circ/\text{s}$ | **$5.2360\text{ rad/s}$** | $\approx 50:1$ | **$25\text{ Nm}$** (Allowable $16.2\text{ Nm}$) | $20.0\text{ rad/s}^2$ | **Có** (Tiêu chuẩn) |
+| **`joint_5`** (Wrist Pitch) | **100 W** | 3000 rpm | $300.0^\circ/\text{s}$ | **$5.2360\text{ rad/s}$** | $\approx 50:1$ | **$20\text{ Nm}$** (Allowable $16.2\text{ Nm}$) | $20.0\text{ rad/s}^2$ | Có (Bản B) |
 
 > [!NOTE]
 > **Đặc điểm phân bổ công suất:**
-> - **Khớp 2 (Vai / Shoulder):** Đòi hỏi công suất lớn nhất ($750	ext{ W}$) và mô-men lớn nhất ($100	ext{ Nm}$) do phải chịu toàn bộ tải trọng uốn của các khâu 2, 3, 4, 5 cùng vật nâng $7	ext{ kg}$ ở cánh tay đòn cực đại $653	ext{ mm}$.
-> - **Khớp 4 & 5 (Cổ tay / Wrist):** Cụm cổ tay có thiết kế siêu mỏng nhẹ ($110	ext{ mm}$ bề rộng), sử dụng động cơ $100	ext{ W}$ công suất cao với mô-men cho phép giới hạn ở mức $16.2	ext{ Nm}$ (quán tính cho phép $0.413	ext{ kg}\cdot	ext{m}^2$).
+> - **Khớp 2 (Vai / Shoulder):** Đòi hỏi công suất lớn nhất ($750\text{ W}$) và mô-men lớn nhất ($100\text{ Nm}$) do phải chịu toàn bộ tải trọng uốn của các khâu 2, 3, 4, 5 cùng vật nâng $7\text{ kg}$ ở cánh tay đòn cực đại $653\text{ mm}$.
+> - **Khớp 4 & 5 (Cổ tay / Wrist):** Cụm cổ tay có thiết kế siêu mỏng nhẹ ($110\text{ mm}$ bề rộng), sử dụng động cơ $100\text{ W}$ công suất cao với mô-men cho phép giới hạn ở mức $16.2\text{ Nm}$ (quán tính cho phép $0.413\text{ kg}\cdot\text{m}^2$).
 
 ---
 

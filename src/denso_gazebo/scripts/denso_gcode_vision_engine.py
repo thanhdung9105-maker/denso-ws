@@ -56,6 +56,23 @@ except ImportError:
     sys.path.append("/home/dung/denso_ws/src/denso_vs6556_moveit_config/scripts")
     from denso_dynamics_engine import DensoDynamicsEngine, JOINT_NAMES, JOINT_LIMITS
 
+# 5-Link G-code & Joint Table imports
+try:
+    from denso_gcode_joint_table import (
+        GCodeJointAnglesTableWidget,
+        export_records_to_gcode,
+        extract_records_from_strokes,
+        GCodePointRecord
+    )
+except ImportError:
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from denso_gcode_joint_table import (
+        GCodeJointAnglesTableWidget,
+        export_records_to_gcode,
+        extract_records_from_strokes,
+        GCodePointRecord
+    )
+
 
 # =============================================================================
 # DATA STRUCTURES
@@ -136,7 +153,7 @@ class ImageGCodeProcessor:
         mode: str = "contours",
         hatch_spacing_mm: float = 3.0,
         hatch_angle_deg: float = 45.0,
-        center_x: float = 380.0,
+        center_x: float = -380.0,
         center_y: float = 0.0,
         z_draw: float = 180.0,
         z_lift: float = 205.0,
@@ -450,7 +467,7 @@ class ImageGCodeProcessor:
             "",
             "; --- Final Retract & Park ---",
             f"G00 Z{z_lift + 30.0:.2f} F{travel_feed:.1f} ; High clearance",
-            "G00 X350.00 Y0.00 Z250.00 ; Park at safe ready pose",
+            "G00 X-380.00 Y0.00 Z220.00 ; Park at safe ready pose over drawing table",
             "M30 ; Program End",
             ""
         ])
@@ -459,9 +476,11 @@ class ImageGCodeProcessor:
 
     def parse_gcode(self, gcode_str: str, point_spacing_mm: float = 1.5, z_draw_thresh: float = 185.0) -> List[Stroke]:
         strokes: List[Stroke] = []
-        curr_x, curr_y, curr_z = 350.0, 0.0, 220.0
+        curr_x, curr_y, curr_z = -380.0, 0.0, 205.0
         curr_feed = 1200.0
+        modal_cmd = "G00"
         current_stroke: Optional[Stroke] = None
+        spacing = max(float(point_spacing_mm), 0.5)
 
         lines = gcode_str.splitlines()
 
@@ -489,33 +508,129 @@ class ImageGCodeProcessor:
                     except ValueError:
                         pass
 
-            if "X" in params:
-                curr_x = params["X"]
-            if "Y" in params:
-                curr_y = params["Y"]
-            if "Z" in params:
-                curr_z = params["Z"]
+            if cmd in ["G0", "G00", "G1", "G01", "G2", "G02", "G3", "G03"]:
+                modal_cmd = cmd
+            elif cmd != "":
+                # Non-motion G/M command (e.g. G21, G90, M30)
+                if not any(k in params for k in ("X", "Y", "Z", "I", "J", "R")):
+                    continue
+
+            if not any(k in params for k in ("X", "Y", "Z", "I", "J", "R")):
+                continue
+
+            prev_x, prev_y, prev_z = curr_x, curr_y, curr_z
+            target_x = params.get("X", curr_x)
+            target_y = params.get("Y", curr_y)
+            target_z = params.get("Z", curr_z)
             if "F" in params:
                 curr_feed = params["F"]
 
-            is_drawing = (curr_z <= z_draw_thresh)
-            pt = CartesianPoint(curr_x, curr_y, curr_z, is_draw=is_drawing, feedrate=curr_feed)
+            active_cmd = modal_cmd
+            is_drawing = (target_z <= z_draw_thresh)
 
-            if cmd in ["G0", "G00"]:
+            if active_cmd in ["G0", "G00"]:
                 if current_stroke and current_stroke.is_draw:
                     strokes.append(current_stroke)
                     current_stroke = None
                 if current_stroke is None:
                     current_stroke = Stroke(is_draw=False)
-                current_stroke.add_point(pt)
+                current_stroke.add_point(
+                    CartesianPoint(target_x, target_y, target_z, is_draw=False, feedrate=curr_feed)
+                )
 
-            elif cmd in ["G1", "G01"]:
+            elif active_cmd in ["G1", "G01"]:
                 if current_stroke and (current_stroke.is_draw != is_drawing):
                     strokes.append(current_stroke)
                     current_stroke = None
                 if current_stroke is None:
                     current_stroke = Stroke(is_draw=is_drawing)
-                current_stroke.add_point(pt)
+
+                dist_xy = math.hypot(target_x - prev_x, target_y - prev_y)
+                if is_drawing and (prev_z <= z_draw_thresh) and dist_xy > spacing * 1.25:
+                    if not current_stroke.points:
+                        current_stroke.add_point(
+                            CartesianPoint(prev_x, prev_y, prev_z, is_draw=True, feedrate=curr_feed)
+                        )
+                    num_steps = max(1, int(math.ceil(dist_xy / spacing)))
+                    for step in range(1, num_steps + 1):
+                        u = step / float(num_steps)
+                        ix = prev_x + u * (target_x - prev_x)
+                        iy = prev_y + u * (target_y - prev_y)
+                        iz = prev_z + u * (target_z - prev_z)
+                        current_stroke.add_point(
+                            CartesianPoint(ix, iy, iz, is_draw=True, feedrate=curr_feed)
+                        )
+                else:
+                    current_stroke.add_point(
+                        CartesianPoint(target_x, target_y, target_z, is_draw=is_drawing, feedrate=curr_feed)
+                    )
+
+            elif active_cmd in ["G2", "G02", "G3", "G03"]:
+                cw = active_cmd in ["G2", "G02"]
+                if current_stroke and (current_stroke.is_draw != is_drawing):
+                    strokes.append(current_stroke)
+                    current_stroke = None
+                if current_stroke is None:
+                    current_stroke = Stroke(is_draw=is_drawing)
+                if not current_stroke.points:
+                    current_stroke.add_point(
+                        CartesianPoint(prev_x, prev_y, prev_z, is_draw=is_drawing, feedrate=curr_feed)
+                    )
+
+                i_off = params.get("I", 0.0)
+                j_off = params.get("J", 0.0)
+                cx = prev_x + i_off
+                cy = prev_y + j_off
+                radius = math.hypot(prev_x - cx, prev_y - cy)
+
+                if radius < 1e-6 and "R" in params:
+                    r_val = abs(params["R"])
+                    dx = target_x - prev_x
+                    dy = target_y - prev_y
+                    chord = math.hypot(dx, dy)
+                    if 1e-6 < chord <= 2.0 * r_val:
+                        h = math.sqrt(max(0.0, r_val**2 - (chord / 2.0) ** 2))
+                        mx = 0.5 * (prev_x + target_x)
+                        my = 0.5 * (prev_y + target_y)
+                        nx = -dy / chord
+                        ny = dx / chord
+                        sign = -1.0 if cw else 1.0
+                        if params["R"] < 0:
+                            sign = -sign
+                        cx = mx + sign * h * nx
+                        cy = my + sign * h * ny
+                        radius = r_val
+
+                if radius > 1e-6:
+                    start_ang = math.atan2(prev_y - cy, prev_x - cx)
+                    end_ang = math.atan2(target_y - cy, target_x - cx)
+                    full_circle = math.hypot(target_x - prev_x, target_y - prev_y) < 1e-3
+                    if cw:
+                        sweep = -2.0 * math.pi if full_circle else (end_ang - start_ang)
+                        if sweep >= -1e-6:
+                            sweep -= 2.0 * math.pi
+                    else:
+                        sweep = 2.0 * math.pi if full_circle else (end_ang - start_ang)
+                        if sweep <= 1e-6:
+                            sweep += 2.0 * math.pi
+
+                    arc_len = abs(sweep) * radius
+                    num_steps = max(12, int(math.ceil(arc_len / spacing)))
+                    for step in range(1, num_steps + 1):
+                        u = step / float(num_steps)
+                        ang = start_ang + u * sweep
+                        ix = cx + radius * math.cos(ang)
+                        iy = cy + radius * math.sin(ang)
+                        iz = prev_z + u * (target_z - prev_z)
+                        current_stroke.add_point(
+                            CartesianPoint(ix, iy, iz, is_draw=is_drawing, feedrate=curr_feed)
+                        )
+                else:
+                    current_stroke.add_point(
+                        CartesianPoint(target_x, target_y, target_z, is_draw=is_drawing, feedrate=curr_feed)
+                    )
+
+            curr_x, curr_y, curr_z = target_x, target_y, target_z
 
         if current_stroke and current_stroke.points:
             strokes.append(current_stroke)
@@ -543,8 +658,8 @@ class KinematicsValidator:
         collision_pts = 0
         q_solutions: List[Optional[np.ndarray]] = []
 
-        # Khởi tạo góc khớp sẵn sàng với đầu bút hướng vuông góc xuống mặt bàn
-        q_seed = np.array([0.0, 0.908, 1.035, 0.0, 1.199])
+        # Khởi tạo góc khớp sẵn sàng với đầu bút hướng vuông góc xuống mặt bàn (6 khớp)
+        q_seed = np.array([0.0, 0.908, 1.035, 0.0, 1.199, 0.0])
 
         for s in strokes:
             for pt in s.points:
@@ -595,32 +710,47 @@ class KinematicsValidator:
 # =============================================================================
 
 # =============================================================================
-# GAZEBO SIM DIRECT DRAWING TRAIL & INK MANAGER (BOLD & REAL-TIME)
+# GAZEBO SIM DIRECT DRAWING TRAIL & INK MANAGER (LIGHTWEIGHT & REAL-TIME)
 # =============================================================================
 class GazeboDrawingTrailPublisher:
     """
-    Quản lý và xuất bản vệt vẽ lớn, rõ nét và chuyển động trực tiếp trong Gazebo Sim:
-    1. Phát sóng gz.msgs.Marker qua Gazebo Transport topic '/marker' (LINE_STRIP đậm & SPHERE phát sáng).
-    2. Tự động sinh mô hình 3D nét mực phát sáng (Emissive Ink Cylinders, đường kính 8-12mm)
-       trực tiếp trên mặt bàn vẽ trong Gazebo theo thời gian thực (Live Stream Spawning).
-    3. Xóa sạch vệt vẽ và giải phóng mô hình khi bấm Clear Trail.
+    Quản lý và xuất bản vệt vẽ lớn, rõ nét và tức thời trong Gazebo Sim
+    bằng cách phát sóng gz.msgs.Marker_V qua Gazebo Transport service '/marker_array'.
+    Sử dụng luồng nền bất đồng bộ (Non-blocking Async Worker Thread) kết hợp
+    LINE_LIST (nối nét) + POINTS (độ đậm hạt mực) + SPHERE (ngòi bút phát sáng),
+    đảm bảo 100% real-time, không gây giật lag simulation hay nghẽn bộ nhớ.
     """
     def __init__(self, world_name: str = "denso_world"):
         self.world_name = world_name
         self.gz_node = None
-        self.gz_marker_pub = None
-        self.spawned_model_names: List[str] = []
-        self.active_stroke_id = 0
-        self.batch_counter = 0
-        self.last_spawned_idx = 0
+        self.gz_marker_v_pb2 = None
+        self.gz_boolean_pb2 = None
         self.is_gz_connected = False
-        self.stroke_points: List[Tuple[float, float, float]] = []
-        self.trail_thickness_m = 0.004  # 4mm bán kính = 8mm đường kính nét vẽ đậm rõ
+
+        self.completed_strokes: List[List[Tuple[float, float, float]]] = []
+        self.current_stroke: List[Tuple[float, float, float]] = []
+        self.current_tip: Optional[Tuple[float, float, float, bool]] = None
+        
+        self.paper_z = 0.1765  # Cao hơn mặt giấy 0.1745m đúng 2mm, triệt tiêu hoàn toàn z-fighting
+        self.point_size = 2.0  # Kích thước hạt mực mảnh, sắc nét không bị nhòe khối
         self.lock = threading.Lock()
+        
+        self._is_running = True
+        self._need_clear = False
+        self._dirty_event = threading.Event()
+        
         self._init_gz()
+        
+        # Khởi động luồng nền cập nhật Gazebo Sim
+        self._worker_thread = threading.Thread(target=self._gz_worker_loop, daemon=True)
+        self._worker_thread.start()
 
     def _init_gz(self):
         try:
+            if "GZ_PARTITION" not in os.environ:
+                os.environ["GZ_PARTITION"] = "denso_ws"
+            if "GZ_IP" not in os.environ:
+                os.environ["GZ_IP"] = "127.0.0.1" 
             import ctypes
             libs_to_load = [
                 "/opt/ros/jazzy/opt/gz_utils_vendor/lib/libgz-utils2.so.2",
@@ -639,21 +769,18 @@ class GazeboDrawingTrailPublisher:
                 if p not in sys.path:
                     sys.path.append(p)
             from gz.transport13 import Node as GzNode
-            from gz.msgs10 import marker_pb2, entity_factory_pb2, boolean_pb2, entity_pb2
+            from gz.msgs10 import marker_v_pb2, boolean_pb2
             self.gz_node = GzNode()
-            self.gz_marker_pub = self.gz_node.advertise("/marker", marker_pb2.Marker)
-            self.gz_marker_pb2 = marker_pb2
-            self.gz_entity_factory_pb2 = entity_factory_pb2
+            self.gz_marker_v_pb2 = marker_v_pb2
             self.gz_boolean_pb2 = boolean_pb2
-            self.gz_entity_pb2 = entity_pb2
             self.is_gz_connected = True
-        except Exception as e:
+        except Exception:
             self.is_gz_connected = False
 
     def set_thickness(self, thickness_mm: float):
         with self.lock:
-            # Bán kính nét vẽ trong Gazebo (mm -> m)
-            self.trail_thickness_m = max(0.002, (thickness_mm / 2.0) / 1000.0)
+            self.point_size = max(1.5, min(4.0, float(thickness_mm) * 0.8))
+            self._dirty_event.set()
 
     def add_point(self, x_mm: float, y_mm: float, z_mm: float, is_draw: bool):
         if not self.is_gz_connected:
@@ -661,189 +788,132 @@ class GazeboDrawingTrailPublisher:
 
         x_m = float(x_mm / 1000.0)
         y_m = float(y_mm / 1000.0)
-        z_m = float(z_mm / 1000.0)
+        z_m = max(self.paper_z, float(z_mm / 1000.0)) if is_draw else float(z_mm / 1000.0)
 
         with self.lock:
+            self.current_tip = (x_m, y_m, z_m, is_draw)
             if is_draw:
-                self.stroke_points.append((x_m, y_m, z_m))
-                self._publish_live_marker(x_m, y_m, z_m)
-                # Sinh vệt mực thực tế mỗi 4 điểm để nét vẽ xuất hiện ngay lập tức trong Gazebo
-                if len(self.stroke_points) - self.last_spawned_idx >= 4:
-                    self._spawn_live_batch()
+                self.current_stroke.append((x_m, y_m, z_m))
             else:
-                if len(self.stroke_points) - self.last_spawned_idx >= 2:
-                    self._spawn_live_batch()
-                self.stroke_points = []
-                self.last_spawned_idx = 0
+                if len(self.current_stroke) >= 2:
+                    self.completed_strokes.append(list(self.current_stroke))
+                self.current_stroke = []
+            self._dirty_event.set()
 
     def end_stroke(self):
         with self.lock:
-            if len(self.stroke_points) - self.last_spawned_idx >= 2:
-                self._spawn_live_batch()
-            self.stroke_points = []
-            self.last_spawned_idx = 0
-            self.active_stroke_id += 1
-            self.batch_counter = 0
-
-    def _publish_live_marker(self, x_m: float, y_m: float, z_m: float):
-        if not self.gz_marker_pub:
-            return
-        try:
-            m = self.gz_marker_pb2.Marker()
-            m.action = self.gz_marker_pb2.Marker.ADD_MODIFY
-            m.ns = "denso_gazebo_live_trail"
-            m.id = self.active_stroke_id + 1
-            m.type = self.gz_marker_pb2.Marker.LINE_STRIP
-            m.scale.x = max(0.008, self.trail_thickness_m * 2.5)  # Đường nét siêu đậm
-            m.material.ambient.r = 0.0
-            m.material.ambient.g = 0.85
-            m.material.ambient.b = 1.0
-            m.material.ambient.a = 1.0
-            m.material.diffuse.r = 0.0
-            m.material.diffuse.g = 0.95
-            m.material.diffuse.b = 1.0
-            m.material.diffuse.a = 1.0
-
-            for pt in self.stroke_points:
-                p_msg = m.point.add()
-                p_msg.x = float(pt[0])
-                p_msg.y = float(pt[1])
-                p_msg.z = float(pt[2])
-
-            self.gz_marker_pub.publish(m)
-
-            # Con trỏ ngòi bút phát sáng nổi bật
-            m_tip = self.gz_marker_pb2.Marker()
-            m_tip.action = self.gz_marker_pb2.Marker.ADD_MODIFY
-            m_tip.ns = "denso_gazebo_pen_tip"
-            m_tip.id = 9999
-            m_tip.type = self.gz_marker_pb2.Marker.SPHERE
-            m_tip.scale.x = 0.024
-            m_tip.scale.y = 0.024
-            m_tip.scale.z = 0.024
-            m_tip.pose.position.x = x_m
-            m_tip.pose.position.y = y_m
-            m_tip.pose.position.z = z_m
-            m_tip.material.ambient.r = 0.0
-            m_tip.material.ambient.g = 1.0
-            m_tip.material.ambient.b = 0.4
-            m_tip.material.ambient.a = 1.0
-            m_tip.material.diffuse.r = 0.0
-            m_tip.material.diffuse.g = 1.0
-            m_tip.material.diffuse.b = 0.4
-            m_tip.material.diffuse.a = 1.0
-            self.gz_marker_pub.publish(m_tip)
-        except Exception:
-            pass
-
-    def _spawn_live_batch(self):
-        start = self.last_spawned_idx
-        end = len(self.stroke_points)
-        pts = self.stroke_points[start:end]
-        if len(pts) < 2:
-            return
-
-        self.last_spawned_idx = end - 1
-        self.batch_counter += 1
-        model_name = f"gz_ink_{self.active_stroke_id}_{self.batch_counter}"
-        self.spawned_model_names.append(model_name)
-
-        visuals = []
-        radius = max(0.003, self.trail_thickness_m)  # Đậm ít nhất 6mm
-
-        for i in range(len(pts) - 1):
-            p1 = pts[i]
-            p2 = pts[i + 1]
-            dx = p2[0] - p1[0]
-            dy = p2[1] - p1[1]
-            dz = p2[2] - p1[2]
-            length = math.sqrt(dx*dx + dy*dy + dz*dz)
-            if length < 1e-4:
-                continue
-            cx = (p1[0] + p2[0]) / 2.0
-            cy = (p1[1] + p2[1]) / 2.0
-            # Nằm trực tiếp trên mặt giấy Z = 0.1775m
-            cz = max(0.1775, (p1[2] + p2[2]) / 2.0)
-            yaw = math.atan2(dy, dx)
-            pitch = -math.atan2(dz, math.hypot(dx, dy)) + (math.pi / 2.0)
-            roll = 0.0
-
-            vis_xml = f"""
-        <visual name="seg_{i}">
-          <pose>{cx:.4f} {cy:.4f} {cz:.4f} {roll:.4f} {pitch:.4f} {yaw:.4f}</pose>
-          <geometry>
-            <cylinder>
-              <radius>{radius:.4f}</radius>
-              <length>{length:.4f}</length>
-            </cylinder>
-          </geometry>
-          <material>
-            <ambient>0.0 0.85 1.0 1.0</ambient>
-            <diffuse>0.0 0.95 1.0 1.0</diffuse>
-            <emissive>0.0 0.80 1.0 1.0</emissive>
-            <specular>0.8 0.8 0.8 1.0</specular>
-          </material>
-        </visual>"""
-            visuals.append(vis_xml)
-
-        if not visuals:
-            return
-
-        sdf_body = f"""<?xml version="1.0" ?>
-<sdf version="1.8">
-  <model name="{model_name}">
-    <static>true</static>
-    <link name="ink_link">
-      {''.join(visuals)}
-    </link>
-  </model>
-</sdf>"""
-
-        try:
-            req = self.gz_entity_factory_pb2.EntityFactory()
-            req.name = model_name
-            req.sdf = sdf_body
-            req.allow_renaming = False
-            self.gz_node.request(
-                f"/world/{self.world_name}/create",
-                req,
-                self.gz_entity_factory_pb2.EntityFactory,
-                self.gz_boolean_pb2.Boolean,
-                1500
-            )
-        except Exception:
-            pass
+            if len(self.current_stroke) >= 2:
+                self.completed_strokes.append(list(self.current_stroke))
+            self.current_stroke = []
+            self._dirty_event.set()
 
     def clear(self):
         with self.lock:
-            if self.gz_marker_pub:
+            self.completed_strokes = []
+            self.current_stroke = []
+            self.current_tip = None
+            self._need_clear = True
+            self._dirty_event.set()
+
+    def update_pen_tip(self, x_m: float, y_m: float, z_m: float, is_draw: bool = False):
+        with self.lock:
+            self.current_tip = (float(x_m), float(y_m), float(z_m), bool(is_draw))
+            self._dirty_event.set()
+
+    def _gz_worker_loop(self):
+        time.sleep(0.5)
+        while self._is_running:
+            self._dirty_event.wait(timeout=0.033)
+            self._dirty_event.clear()
+
+            if not self.is_gz_connected or not self.gz_node:
+                continue
+
+            with self.lock:
+                need_clear = self._need_clear
+                self._need_clear = False
+                strokes = list(self.completed_strokes)
+                cur_stroke = list(self.current_stroke)
+                tip = self.current_tip
+                pt_size = self.point_size
+
+            if need_clear:
                 try:
-                    m = self.gz_marker_pb2.Marker()
-                    m.action = self.gz_marker_pb2.Marker.DELETE_ALL
-                    self.gz_marker_pub.publish(m)
+                    mv_clear = self.gz_marker_v_pb2.Marker_V()
+                    m_del = mv_clear.marker.add()
+                    m_del.action = m_del.DELETE_ALL
+                    self.gz_node.request("/marker_array", mv_clear, self.gz_marker_v_pb2.Marker_V, self.gz_boolean_pb2.Boolean, 500)
                 except Exception:
                     pass
 
-            if self.is_gz_connected and self.spawned_model_names:
-                try:
-                    for m_name in self.spawned_model_names:
-                        req = self.gz_entity_pb2.Entity()
-                        req.name = m_name
-                        req.type = self.gz_entity_pb2.Entity.MODEL
-                        self.gz_node.request(
-                            f"/world/{self.world_name}/remove",
-                            req,
-                            self.gz_entity_pb2.Entity,
-                            self.gz_boolean_pb2.Boolean,
-                            800
-                        )
-                except Exception:
-                    pass
-            self.spawned_model_names = []
-            self.stroke_points = []
-            self.active_stroke_id = 0
-            self.batch_counter = 0
-            self.last_spawned_idx = 0
+            if not strokes and not cur_stroke and tip is None:
+                continue
+
+            try:
+                mv = self.gz_marker_v_pb2.Marker_V()
+                all_strokes = strokes + ([cur_stroke] if len(cur_stroke) >= 1 else [])
+                total_segments = sum(max(0, len(s) - 1) for s in all_strokes)
+
+                if total_segments > 0:
+                    # 1. Đoạn nối đường (LINE_LIST)
+                    m_line = mv.marker.add()
+                    m_line.ns = "denso_gazebo_trail"
+                    m_line.id = 1
+                    m_line.action = m_line.ADD_MODIFY
+                    m_line.type = m_line.LINE_LIST
+                    m_line.scale.x = 1.0
+                    m_line.scale.y = 1.0
+                    m_line.scale.z = 1.0
+                    for mat in [m_line.material.ambient, m_line.material.diffuse]:
+                        mat.r = 0.0; mat.g = 0.90; mat.b = 1.0; mat.a = 1.0
+
+                    # 2. Hạt mực đậm (POINTS)
+                    m_pts = mv.marker.add()
+                    m_pts.ns = "denso_gazebo_trail"
+                    m_pts.id = 2
+                    m_pts.action = m_pts.ADD_MODIFY
+                    m_pts.type = m_pts.POINTS
+                    m_pts.scale.x = float(pt_size)
+                    m_pts.scale.y = float(pt_size)
+                    m_pts.scale.z = float(pt_size)
+                    for mat in [m_pts.material.ambient, m_pts.material.diffuse]:
+                        mat.r = 0.0; mat.g = 0.90; mat.b = 1.0; mat.a = 1.0
+
+                    for s in all_strokes:
+                        for idx in range(len(s)):
+                            pt_msg = m_pts.point.add()
+                            pt_msg.x, pt_msg.y, pt_msg.z = s[idx]
+                            if idx < len(s) - 1:
+                                pa = m_line.point.add()
+                                pa.x, pa.y, pa.z = s[idx]
+                                pb = m_line.point.add()
+                                pb.x, pb.y, pb.z = s[idx+1]
+
+                # 3. Con trỏ ngòi bút Stylus Pen Tip (SPHERE)
+                if tip is not None:
+                    tx, ty, tz, is_drawing = tip
+                    m_tip = mv.marker.add()
+                    m_tip.ns = "denso_gazebo_trail"
+                    m_tip.id = 9999
+                    m_tip.action = m_tip.ADD_MODIFY
+                    m_tip.type = m_tip.SPHERE
+                    m_tip.scale.x = 0.006
+                    m_tip.scale.y = 0.006
+                    m_tip.scale.z = 0.006
+                    m_tip.pose.position.x = float(tx)
+                    m_tip.pose.position.y = float(ty)
+                    m_tip.pose.position.z = float(tz)
+                    if is_drawing:
+                        for mat in [m_tip.material.ambient, m_tip.material.diffuse]:
+                            mat.r = 0.0; mat.g = 1.0; mat.b = 0.4; mat.a = 1.0
+                    else:
+                        for mat in [m_tip.material.ambient, m_tip.material.diffuse]:
+                            mat.r = 1.0; mat.g = 0.75; mat.b = 0.1; mat.a = 0.9
+
+                if len(mv.marker) > 0:
+                    self.gz_node.request("/marker_array", mv, self.gz_marker_v_pb2.Marker_V, self.gz_boolean_pb2.Boolean, 500)
+            except Exception:
+                pass
 
 
 class DrawingTrailPublisher:
@@ -918,6 +988,8 @@ class DrawingTrailPublisher:
         self.stroke_markers.append(m)
 
     def publish_update(self, current_pos_m: Optional[Tuple[float, float, float]] = None, is_draw: bool = False):
+        if current_pos_m is not None and hasattr(self, 'gz_trail') and self.gz_trail:
+            self.gz_trail.update_pen_tip(current_pos_m[0], current_pos_m[1], current_pos_m[2], is_draw=is_draw)
         if not self.node:
             return
 
@@ -959,9 +1031,9 @@ class DrawingTrailPublisher:
                 m_tip.pose.position.x = float(current_pos_m[0])
                 m_tip.pose.position.y = float(current_pos_m[1])
                 m_tip.pose.position.z = float(current_pos_m[2])
-                m_tip.scale.x = 0.012
-                m_tip.scale.y = 0.012
-                m_tip.scale.z = 0.012
+                m_tip.scale.x = 0.006
+                m_tip.scale.y = 0.006
+                m_tip.scale.z = 0.006
 
                 if is_draw:
                     m_tip.color.r = 0.1
@@ -1003,7 +1075,7 @@ class TrajectoryExecutionWorker(QThread):
     bộ điều khiển /arm_controller/joint_trajectory trong ROS 2,
     cập nhật tiến trình và kích hoạt tạo vệt vẽ thời gian thực.
     """
-    sig_progress = pyqtSignal(int, int, float, float, float, float, bool)  # curr, total, pct, x, y, z, is_draw
+    sig_progress = pyqtSignal(int, int, float, float, float, float, bool, list)  # curr, total, pct, x, y, z, is_draw, q_target
     sig_status = pyqtSignal(str, str)                                       # status_msg, level ('info', 'ok', 'warn', 'error')
     sig_finished = pyqtSignal()
 
@@ -1114,7 +1186,8 @@ class TrajectoryExecutionWorker(QThread):
                 # Cập nhật tiến trình GUI
                 curr_pt_idx += 1
                 pct = (curr_pt_idx / total_pts * 100.0) if total_pts > 0 else 0.0
-                self.sig_progress.emit(curr_pt_idx, total_pts, pct, pt.x, pt.y, pt.z, is_drawing)
+                q_list = [float(v) for v in q_target] if q_target is not None else []
+                self.sig_progress.emit(curr_pt_idx, total_pts, pct, pt.x, pt.y, pt.z, is_drawing, q_list)
 
                 time.sleep(dt_step * 0.85)
 
@@ -1153,7 +1226,7 @@ class InteractiveDrawingCanvas(QWidget):
         self.last_mouse_pos = QPointF()
 
         # Workspace limits (mm)
-        self.ws_center_x = 380.0
+        self.ws_center_x = -380.0
         self.ws_center_y = 0.0
         self.ws_width = 160.0
         self.ws_height = 160.0
@@ -1224,7 +1297,7 @@ class InteractiveDrawingCanvas(QWidget):
         ppm = (min(w, h) / (self.ws_width * 1.6)) * self.scale_factor
 
         def to_canvas(rx: float, ry: float) -> QPointF:
-            px = cx - (ry - self.ws_center_y) * ppm
+            px = cx + (ry - self.ws_center_y) * ppm
             py = cy - (rx - self.ws_center_x) * ppm
             return QPointF(px, py)
 
@@ -1341,10 +1414,12 @@ class ImageGCodeDrawingTab(QWidget):
         self.worker: Optional[TrajectoryExecutionWorker] = None
 
         self.current_strokes: List[Stroke] = []
+        self.joint_table_widget: Optional[GCodeJointAnglesTableWidget] = None
         self.sample_dir = "/home/dung/denso_ws/drawing_samples"
 
         self.init_ui()
-        self._load_initial_sample()
+        # Defer sample processing to let Qt paint window instantly on startup
+        QTimer.singleShot(100, self._load_initial_sample)
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -1459,8 +1534,8 @@ class ImageGCodeDrawingTab(QWidget):
 
         ws_lay.addWidget(QLabel("Tâm X (mm):"), 0, 0)
         self.sp_center_x = QDoubleSpinBox()
-        self.sp_center_x.setRange(280.0, 520.0)
-        self.sp_center_x.setValue(380.0)
+        self.sp_center_x.setRange(-520.0, -280.0)
+        self.sp_center_x.setValue(-380.0)
         self.sp_center_x.setStyleSheet(self._spin_style())
         ws_lay.addWidget(self.sp_center_x, 0, 1)
 
@@ -1551,6 +1626,87 @@ class ImageGCodeDrawingTab(QWidget):
         self.lbl_exec_status.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: bold;")
         ex_lay.addWidget(self.lbl_exec_status)
 
+        # -------------------------------------------------------------
+        # KHUNG THEO DÕI TỌA ĐỘ & 5 GÓC KHỚP TỨC THỜI (5-LINK G-CODE)
+        # -------------------------------------------------------------
+        box_telemetry = QFrame()
+        box_telemetry.setStyleSheet("""
+            QFrame {
+                background-color: #030712;
+                border: 1px solid #1e293b;
+                border-radius: 6px;
+                padding: 6px;
+            }
+        """)
+        t_lay = QVBoxLayout(box_telemetry)
+        t_lay.setContentsMargins(6, 6, 6, 6)
+        t_lay.setSpacing(4)
+
+        # Hàng 1: Điểm tức thời & Trạng thái nét vẽ
+        h_row = QHBoxLayout()
+        self.lbl_live_pt = QLabel("📍 ĐIỂM: #0 / 0 (0.0%)")
+        self.lbl_live_pt.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: bold;")
+        h_row.addWidget(self.lbl_live_pt)
+
+        self.lbl_live_state = QLabel("⚪ CHỜ LỆNH")
+        self.lbl_live_state.setStyleSheet("""
+            background-color: #1e293b; color: #94a3b8; font-size: 10px;
+            font-weight: bold; border-radius: 3px; padding: 2px 6px;
+        """)
+        h_row.addWidget(self.lbl_live_state)
+        t_lay.addLayout(h_row)
+
+        # Hàng 2: Tọa độ Đề-các tức thời (X, Y, Z mm)
+        self.lbl_live_xyz = QLabel("Tọa độ XYZ: X=0.00 mm | Y=0.00 mm | Z=0.00 mm")
+        self.lbl_live_xyz.setStyleSheet("color: #e2e8f0; font-family: monospace; font-size: 11px;")
+        t_lay.addWidget(self.lbl_live_xyz)
+
+        # Hàng 3: 6 Góc Khớp Tức Thời (A, B, C, U, V, W theo độ)
+        self.lbl_live_angles = QLabel("Góc 6-Link: A=0.000° B=0.000° C=0.000° U=0.000° V=0.000° W=0.000°")
+        self.lbl_live_angles.setStyleSheet("color: #fbbf24; font-family: monospace; font-size: 11px; font-weight: bold;")
+        t_lay.addWidget(self.lbl_live_angles)
+
+        # Hàng 4: Dòng lệnh G-code tức thời (terminal style)
+        self.lbl_live_gcode = QLabel("G1 A0 B0 C0 U0 V0 W0 F1200")
+        self.lbl_live_gcode.setStyleSheet("""
+            background-color: #050b14; color: #4ade80; font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px; font-weight: bold; border: 1px solid #14532d; border-radius: 4px;
+            padding: 4px 8px;
+        """)
+        t_lay.addWidget(self.lbl_live_gcode)
+
+        ex_lay.addWidget(box_telemetry)
+
+        # Nút Xuất G-Code 6 Link trực tiếp
+        export_row = QHBoxLayout()
+        self.btn_export_5link = QPushButton("💾 XUẤT 6-LINK G-CODE (A, B, C, U, V, W)...")
+        self.btn_export_5link.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #0369a1);
+                color: #ffffff; font-weight: bold; font-size: 11px; padding: 7px 12px;
+                border: 1px solid #38bdf8; border-radius: 5px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0369a1, stop:1 #075985);
+                border: 1px solid #7dd3fc;
+            }
+        """)
+        self.btn_export_5link.clicked.connect(self._export_5link_gcode)
+        export_row.addWidget(self.btn_export_5link)
+
+        self.btn_open_tab6 = QPushButton("📋 XEM BẢNG 6-LINK (TAB 6) ➔")
+        self.btn_open_tab6.setStyleSheet("""
+            QPushButton {
+                background-color: #1e293b; color: #38bdf8; font-weight: bold; font-size: 11px;
+                padding: 7px 12px; border: 1px solid #0284c7; border-radius: 5px;
+            }
+            QPushButton:hover { background-color: #0c4a6e; border-color: #38bdf8; color: #7dd3fc; }
+        """)
+        self.btn_open_tab6.clicked.connect(self._switch_to_tab6)
+        export_row.addWidget(self.btn_open_tab6)
+
+        ex_lay.addLayout(export_row)
+
         left_layout.addWidget(box_exec)
 
         left_layout.addStretch(1)
@@ -1591,6 +1747,11 @@ class ImageGCodeDrawingTab(QWidget):
         self.btn_reload_gcode.setStyleSheet(self._btn_accent())
         self.btn_reload_gcode.clicked.connect(self._reload_from_editor)
         gcode_top.addWidget(self.btn_reload_gcode)
+
+        self.btn_export_5link_tab = QPushButton("💾 Xuất 5-Link G-Code (A, B, C, U, V)...")
+        self.btn_export_5link_tab.setStyleSheet(self._btn_green())
+        self.btn_export_5link_tab.clicked.connect(self._export_5link_gcode)
+        gcode_top.addWidget(self.btn_export_5link_tab)
         gp_lay.addLayout(gcode_top)
 
         self.txt_gcode = QTextEdit()
@@ -1623,6 +1784,44 @@ class ImageGCodeDrawingTab(QWidget):
         """)
         rp_lay.addWidget(self.txt_report)
         right_tabs.addTab(report_panel, "📊 Báo Cáo An Toàn & Động Học")
+
+        # Sub-tab 4: Thẻ dẫn hướng sang Tab 6 Riêng Biệt
+        tab6_card = QWidget()
+        t6_lay = QVBoxLayout(tab6_card)
+        t6_lay.setContentsMargins(24, 30, 24, 30)
+        t6_lay.setSpacing(14)
+        t6_lay.setAlignment(Qt.AlignCenter)
+
+        t6_title = QLabel("🤖 BẢNG TRA GÓC 5-LINK ĐÃ ĐƯỢC CHUYỂN THÀNH TAB 6 RIÊNG BIỆT")
+        t6_title.setStyleSheet("color: #38bdf8; font-size: 15px; font-weight: bold;")
+        t6_title.setAlignment(Qt.AlignCenter)
+        t6_lay.addWidget(t6_title)
+
+        t6_desc = QLabel(
+            "Để hiển thị đầy đủ và rõ ràng toàn bộ số liệu 5 Link (Link 1..Link 5 / Trục A, B, C, U, V),\n"
+            "tọa độ không gian X, Y, Z, trạng thái IK và sai số mà không bị che khuất,\n"
+            "Bảng Tra Góc 5-Link hiện là Tab 6 độc lập với giao diện toàn màn hình."
+        )
+        t6_desc.setStyleSheet("color: #94a3b8; font-size: 12px; line-height: 1.6;")
+        t6_desc.setAlignment(Qt.AlignCenter)
+        t6_lay.addWidget(t6_desc)
+
+        self.btn_switch_to_tab6 = QPushButton("🚀 BẤM VÀO ĐÂY ĐỂ MỞ TAB 6 (BẢNG TRA GÓC 5-LINK TOÀN MÀN HÌNH) ➔")
+        self.btn_switch_to_tab6.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #0369a1);
+                color: #ffffff; font-size: 13px; font-weight: bold; padding: 12px 24px;
+                border: 2px solid #38bdf8; border-radius: 8px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0369a1, stop:1 #075985);
+                border-color: #7dd3fc;
+            }
+        """)
+        self.btn_switch_to_tab6.clicked.connect(self._switch_to_tab6)
+        t6_lay.addWidget(self.btn_switch_to_tab6)
+
+        right_tabs.addTab(tab6_card, "🤖 Bảng Tra Góc 5-Link (Tab 6 Toàn Màn Hình)")
 
         splitter.addWidget(right_tabs)
         splitter.setStretchFactor(0, 4)
@@ -1769,6 +1968,9 @@ class ImageGCodeDrawingTab(QWidget):
         self.txt_gcode.setPlainText(self.processor.gcode_text)
 
         val_res = self.validator.validate(strokes)
+        if hasattr(self, "joint_table_widget") and self.joint_table_widget is not None:
+            self.joint_table_widget.set_strokes(strokes, item_name=self.lbl_img_path.text())
+        self._init_monitor_from_strokes(strokes)
         sm = self.processor.summary
 
         rep = [
@@ -1837,11 +2039,18 @@ class ImageGCodeDrawingTab(QWidget):
             self.btn_start.setEnabled(True)
             self.btn_pause.setText("⏸️ Tạm Dừng")
 
-    def _on_worker_progress(self, curr, total, pct, x, y, z, is_draw):
+    def _on_worker_progress(self, curr, total, pct, x, y, z, is_draw, q_target=None):
         self.progress_bar.setValue(int(pct))
         st = "ĐANG VẼ (Hạ bút)" if is_draw else "NHẤC BÚT (Di chuyển)"
         self.lbl_exec_status.setText(f"Điểm {curr}/{total} ({pct:.1f}%) | [{x:.1f}, {y:.1f}, {z:.1f}] - {st}")
         self.canvas.update_cursor_progress(x, y, z, is_draw)
+
+        # Cập nhật khung hiển thị tọa độ & 5 góc tức thời
+        self._update_live_monitor(curr, total, pct, x, y, z, is_draw, q_target)
+
+        # Tự động highlight và cuộn theo thời gian thực trên Bảng Tra Góc 5-Link
+        if hasattr(self, "joint_table_widget") and self.joint_table_widget is not None:
+            self.joint_table_widget.highlight_point(curr)
 
     def _on_worker_status(self, msg, level):
         col = "#38bdf8"
@@ -1864,8 +2073,8 @@ class ImageGCodeDrawingTab(QWidget):
 
     def _go_home(self):
         if self.bridge:
-            # Vị trí sẵn sàng trên tâm bàn vẽ Z = 230mm, đầu bút hướng thẳng đứng vuông góc xuống mặt giấy
-            q_ready = [0.0, 0.9083, 1.0345, 0.0, 1.1988]
+            # Vị trí sẵn sàng trên tâm bàn vẽ Z = 230mm, đầu bút hướng thẳng đứng vuông góc xuống mặt giấy (6 khớp)
+            q_ready = [0.0, 0.9083, 1.0345, 0.0, 1.1988, 0.0]
             self.bridge.send_trajectory(q_ready, duration_sec=2.0)
             self.lbl_exec_status.setText("Robot đang ở vị trí sẵn sàng trên bàn vẽ (Đầu bút hướng vuông góc xuống)...")
 
@@ -1904,5 +2113,151 @@ class ImageGCodeDrawingTab(QWidget):
 
         self.canvas.set_data(strokes, cx, cy, tw, th)
         val_res = self.validator.validate(strokes)
+        if hasattr(self, "joint_table_widget") and self.joint_table_widget is not None:
+            self.joint_table_widget.set_strokes(strokes, item_name="G-Code Editor")
+        self._init_monitor_from_strokes(strokes)
         self.lbl_exec_status.setText(f"Đã nạp {len(strokes)} nét từ G-code | {val_res['valid_points']} điểm hợp lệ.")
         QMessageBox.information(self, "Thông báo", f"Đã phân tích thành công {len(strokes)} nét vẽ từ mã G-code!")
+
+    def _init_monitor_from_strokes(self, strokes: List[Stroke]):
+        """Khởi tạo giá trị trên khung giám sát tức thời từ điểm đầu tiên của quỹ đạo."""
+        if not strokes:
+            self._update_live_monitor(0, 0, 0.0, 0.0, 0.0, 0.0, False, None)
+            return
+        total = sum(len(s.points) for s in strokes)
+        first_pt = None
+        for s in strokes:
+            if s.points:
+                first_pt = s.points[0]
+                break
+        if first_pt:
+            self._update_live_monitor(1, total, (1.0 / total * 100.0) if total > 0 else 0.0,
+                                      first_pt.x, first_pt.y, first_pt.z, first_pt.is_draw, first_pt.q_sol)
+
+    def _update_live_monitor(self, curr: int, total: int, pct: float, x: float, y: float, z: float, is_draw: bool, q_target=None):
+        """Cập nhật giao diện hiển thị tọa độ & góc khớp 5 Link tức thời."""
+        if not hasattr(self, 'lbl_live_pt'):
+            return
+
+        self.lbl_live_pt.setText(f"📍 ĐIỂM: #{curr} / {total} ({pct:.1f}%)" if total > 0 else "📍 ĐIỂM: #0 / 0 (0.0%)")
+        if total > 0:
+            if is_draw:
+                self.lbl_live_state.setText("✏️ ĐANG VẼ (HẠ BÚT)")
+                self.lbl_live_state.setStyleSheet("""
+                    background-color: #14532d; color: #4ade80; font-size: 10px;
+                    font-weight: bold; border-radius: 3px; padding: 2px 6px;
+                """)
+            else:
+                self.lbl_live_state.setText("✈️ NHẤC BÚT (BAY)")
+                self.lbl_live_state.setStyleSheet("""
+                    background-color: #854d0e; color: #fde047; font-size: 10px;
+                    font-weight: bold; border-radius: 3px; padding: 2px 6px;
+                """)
+        else:
+            self.lbl_live_state.setText("⚪ CHỜ LỆNH")
+            self.lbl_live_state.setStyleSheet("""
+                background-color: #1e293b; color: #94a3b8; font-size: 10px;
+                font-weight: bold; border-radius: 3px; padding: 2px 6px;
+            """)
+
+        self.lbl_live_xyz.setText(f"Tọa độ XYZ: X={x:+.2f} mm | Y={y:+.2f} mm | Z={z:+.2f} mm")
+
+        # Định dạng 6 góc khớp A, B, C, U, V, W theo độ
+        if q_target is not None and len(q_target) >= 6:
+            deg = [math.degrees(float(q)) for q in q_target[:6]]
+            def fmt(v):
+                rv = round(v, 3)
+                if abs(rv) < 1e-6:
+                    rv = 0.0
+                return str(int(rv)) if rv == int(rv) else str(rv)
+
+            A_s, B_s, C_s, U_s, V_s, W_s = [fmt(d) for d in deg]
+            self.lbl_live_angles.setText(f"Góc 6-Link: A={A_s}° B={B_s}° C={C_s}° U={U_s}° V={V_s}° W={W_s}°")
+            feed_s = " F1200" if curr <= 1 else ""
+            self.lbl_live_gcode.setText(f"G1 A{A_s} B{B_s} C{C_s} U{U_s} V{V_s} W{W_s}{feed_s}")
+        elif q_target is not None and len(q_target) >= 5:
+            deg = [math.degrees(float(q)) for q in q_target[:5]]
+            def fmt(v):
+                rv = round(v, 3)
+                if abs(rv) < 1e-6:
+                    rv = 0.0
+                return str(int(rv)) if rv == int(rv) else str(rv)
+
+            A_s, B_s, C_s, U_s, V_s = [fmt(d) for d in deg]
+            self.lbl_live_angles.setText(f"Góc 6-Link: A={A_s}° B={B_s}° C={C_s}° U={U_s}° V={V_s}° W=0°")
+            feed_s = " F1200" if curr <= 1 else ""
+            self.lbl_live_gcode.setText(f"G1 A{A_s} B{B_s} C{C_s} U{U_s} V{V_s} W0{feed_s}")
+        else:
+            self.lbl_live_angles.setText("Góc 6-Link: A=--- B=--- C=--- U=--- V=--- W=---")
+            self.lbl_live_gcode.setText("G1 A--- B--- C--- U--- V--- W---")
+
+    def _on_table_point_selected(self, index: int, x: float, y: float, z: float):
+        """Khi người dùng nhấp chọn 1 hàng trong Bảng Tra Góc 6-Link, đồng bộ con trỏ và màn hình tức thời."""
+        if hasattr(self, 'canvas') and self.canvas:
+            self.canvas.update_cursor_progress(x, y, z, is_draw=True)
+        if hasattr(self, 'joint_table_widget') and self.joint_table_widget:
+            records = getattr(self.joint_table_widget, 'records', [])
+            if 0 <= index - 1 < len(records):
+                r = records[index - 1]
+                total = len(records)
+                pct = (r.index / total * 100.0) if total > 0 else 0.0
+                self._update_live_monitor(r.index, total, pct, r.x, r.y, r.z, r.is_draw, r.q_rad)
+
+    def _export_5link_gcode(self):
+        """Xuất G-code 6 Link (A=J1, B=J2, C=J3, U=J4, V=J5, W=J6) theo định dạng chuẩn ra thư mục OneDrive Denso."""
+        if not self.current_strokes:
+            QMessageBox.warning(self, "Xuất G-Code 6 Link", "Chưa có dữ liệu quỹ đạo! Vui lòng nạp ảnh hoặc G-code trước.")
+            return
+
+        records = extract_records_from_strokes(self.current_strokes, self.engine)
+        if not records:
+            QMessageBox.warning(self, "Xuất G-Code 6 Link", "Không thể trích xuất các điểm quỹ đạo!")
+            return
+
+        # Thư mục đích: OneDrive > Máy tính > Denso (như trong ảnh của người dùng)
+        onedrive_dir = "/mnt/c/Users/thanh/OneDrive/Máy tính/Denso"
+        if os.path.isdir(onedrive_dir):
+            gcode_dir = onedrive_dir
+        else:
+            gcode_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "gcode"))
+            os.makedirs(gcode_dir, exist_ok=True)
+
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        default_filename = f"gcode_6link_{ts}.gcode"
+        default_path = os.path.join(gcode_dir, default_filename)
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Xuất File G-Code 6 Link Robot Denso VS-6556",
+            default_path,
+            "G-Code Files (*.gcode *.nc);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        if export_records_to_gcode(records, file_path):
+            valid_cnt = sum(1 for r in records if r.q_deg)
+            skipped = len(records) - valid_cnt
+            info = (
+                f"✅ Xuất thành công tệp G-code 6 Link chuẩn Denso!\n\n"
+                f"📁 Đường dẫn tệp:\n{file_path}\n\n"
+                f"📊 Thống kê quỹ đạo:\n"
+                f"   • Tổng số điểm: {len(records)} điểm\n"
+                f"   • Số điểm IK khả thi: {valid_cnt}\n"
+                f"   • Số điểm bỏ qua (IK lỗi): {skipped}\n"
+                f"   • Cấu trúc 6 trục: A=Link1(J1), B=Link2(J2), C=Link3(J3), U=Link4(J4), V=Link5(J5), W=Link6(J6)\n"
+                f"   • Trục W (Khớp xoay mặt bích Link 6): Đã tích hợp đầy đủ\n"
+                f"   • Tốc độ chạy dao: F1200 ở dòng đầu tiên"
+            )
+            QMessageBox.information(self, "Xuất G-Code 6 Link Thành Công", info)
+        else:
+            QMessageBox.critical(self, "Lỗi", f"Không thể ghi tệp G-code ra:\n{file_path}")
+
+    def _switch_to_tab6(self):
+        """Chuyển ngay sang Tab 6 (Bảng Tra Góc 6-Link)."""
+        p = self.parent()
+        while p is not None:
+            if hasattr(p, "tabs") and isinstance(p.tabs, QTabWidget):
+                p.tabs.setCurrentIndex(5)
+                return
+            p = p.parent()

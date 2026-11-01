@@ -5,10 +5,10 @@ Panels:
   Property Tree Widget:
     Expanded:
     - /Global Options1
-    - /MotionPlanning1
-    - /MotionPlanning1/Planning Request1
+    - /Link Centers of Mass & Masses (Trọng tâm & Khối lượng)1
+    - /Link Centers of Mass & Masses (Trọng tâm & Khối lượng)1/Namespaces1
     Splitter Ratio: 0.5
-  Tree Height: 400
+  Tree Height: 480
 - Class: rviz_common/Views
   Expanded:
   - /Current View1
@@ -35,7 +35,7 @@ Visualization Manager:
     Plane Cell Count: 10
     Reference Frame: world
     Value: true
-  - Alpha: 1
+  - Alpha: 0.6
     Class: rviz_default_plugins/RobotModel
     Collision Enabled: false
     Description File: ''
@@ -71,17 +71,38 @@ Visualization Manager:
     Value: true
   - Class: rviz_default_plugins/MarkerArray
     Enabled: true
-    Name: Joint Dynamics (Torque & Accel)
+    Name: Link Centers of Mass & Masses (Trọng tâm & Khối lượng)
     Namespaces:
-      dynamics_dashboard: true
-      joint_dynamics_labels: true
-      joint_torques: true
+      1. Điểm Trọng tâm (Xanh Neon): true
+      2. Khung ngắm Hồng tâm (Vòng Trắng): true
+      3. Hệ trục tọa độ 3D (X-Y-Z): true
+      4. Đường chỉ dẫn ra ngoài: true
+      5. Nhãn khối lượng & Trọng tâm: true
+      Part 0 - Base (Đế) (8.0 kg): true
+      Part 1 - Link 1 (4.5 kg): true
+      Part 2 - Link 2 (Bắp tay) (4.2 kg): true
+      Part 3 - Link 3 (Khuỷu) (3.1 kg): true
+      Part 4 - Link 4 (Cánh tay) (2.0 kg): true
+      Part 5 - Link 5 (Cổ tay) (0.95 kg): true
+      Part 6 - Link 6 (Nắp bích xoay) (0.25 kg): true
     Topic:
-      Depth: 5
+      Depth: 10
       Durability Policy: Volatile
       History Policy: Keep Last
       Reliability Policy: Reliable
-      Value: /denso/joint_dynamics_markers
+      Value: /denso/com_markers
+    Value: true
+  - Class: rviz_default_plugins/MarkerArray
+    Enabled: true
+    Name: Denso Drawing Trail (Vệt Vẽ Cánh Tay)
+    Namespaces:
+      drawing_trail: true
+    Topic:
+      Depth: 10
+      Durability Policy: Volatile
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Value: /denso/drawing_trail
     Value: true
   - Class: moveit_rviz_plugin/MotionPlanning
     Enabled: true
@@ -99,10 +120,10 @@ Visualization Manager:
       Interactive Marker Size: 0.2
       Joint Violation Color: 255; 0; 255
       Planning Group: arm
-      Query Goal State: true
+      Query Goal State: false
       Query Start State: false
-      Show Goal State: true
-      Show Interactive Marker: true
+      Show Goal State: false
+      Show Interactive Marker: false
       Show Start State: false
       Show Workspace: false
       Start State Alpha: 0.5
@@ -121,11 +142,11 @@ Visualization Manager:
     Scene Robot:
       Attached Body Color: 150; 50; 150
       Clear Metrics: false
-      Robot Alpha: 1
+      Robot Alpha: 0
       Show Additional Samples: false
       Show As Scene Geometry: false
       Show Robot Collision: false
-      Show Robot Visual: true
+      Show Robot Visual: false
     Trajectory:
       Display Trajectory Topic: /display_planned_path
       Interrupt Trajectory Display: false

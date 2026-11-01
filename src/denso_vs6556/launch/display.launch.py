@@ -54,6 +54,7 @@ def generate_launch_description():
         package='moveit_ros_move_group',
         executable='move_group',
         output='screen',
+        arguments=['--ros-args', '--log-level', 'kdl_parser:=ERROR', '--log-level', 'move_group.moveit.moveit.ros.occupancy_map_monitor:=FATAL'],
         parameters=[
             moveit_config.to_dict(),
             {'use_sim_time': use_sim_time}
@@ -66,6 +67,7 @@ def generate_launch_description():
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
+        arguments=['--ros-args', '--log-level', 'kdl_parser:=ERROR'],
         parameters=[
             moveit_config.robot_description,
             {'use_sim_time': use_sim_time}
@@ -78,7 +80,7 @@ def generate_launch_description():
         executable="static_transform_publisher",
         name="static_transform_publisher",
         output="log",
-        arguments=["0", "0", "0", "0", "0", "0", "world", "base_link"],
+        arguments=["--x", "0.0", "--y", "0.0", "--z", "0.0", "--yaw", "0.0", "--pitch", "0.0", "--roll", "0.0", "--frame-id", "world", "--child-frame-id", "base_link"],
         parameters=[{"use_sim_time": use_sim_time}],
         condition=IfCondition(launch_rsp)
     )
@@ -92,13 +94,22 @@ def generate_launch_description():
         condition=IfCondition(use_mock)
     )
 
+    # Center of Mass and Link Masses Visualizer Node for RViz2
+    com_visualizer_node = Node(
+        package='denso_vs6556_moveit_config',
+        executable='denso_com_visualizer.py',
+        name='denso_com_visualizer',
+        output='screen',
+        parameters=[{'use_sim_time': False}],
+    )
+
     # RViz2 Node with MotionPlanning
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
         name='rviz2',
         output='screen',
-        arguments=['-d', rviz_config],
+        arguments=['-d', rviz_config, '--ros-args', '--log-level', 'kdl_parser:=ERROR', '--log-level', 'rviz2.moveit.ros.motion_planning_frame:=FATAL', '--log-level', 'rcl.logging_rosout:=ERROR'],
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
@@ -117,6 +128,7 @@ def generate_launch_description():
         robot_state_publisher,
         static_transform_publisher,
         mock_controller_node,
+        com_visualizer_node,
         move_group_node,
         rviz_node,
     ])

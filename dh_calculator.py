@@ -118,13 +118,14 @@ if __name__ == '__main__':
         if dh_table:
             calculate_fk_dh(dh_table, angle_unit='deg', length_unit='m')
     else:
-        # BẢNG THAM SỐ D-H MẪU (DENSO VS-6556):
+        # BẢNG THAM SỐ D-H MẪU (DENSO VS-6556 - 6 DOF):
         # Mỗi dòng: [theta (độ), d (m), a (m), alpha (độ)]
         dh_table = [
             [   0.0,  0.335, -0.075, -90.0],  # Khâu 1: Đế -> Vai J2
             [ -90.0,  0.000,  0.270,   0.0],  # Khâu 2: Cánh tay trên (J2 -> J3)
             [  90.0,  0.000,  0.090,  90.0],  # Khâu 3: Khuỷu lệch (J3 -> Cẳng tay)
             [   0.0,  0.295,  0.000, -90.0],  # Khâu 4: Cẳng tay ( -> Point P)
-            [ -90.0,  0.000,  0.080,   0.0],  # Khâu 5: Khâu cuối (Point P -> Flange)
+            [   0.0,  0.000,  0.000,  90.0],  # Khâu 5: Cổ tay (Wrist Pitch)
+            [   0.0,  0.09004, 0.000,   0.0],  # Khâu 6: Mặt bích xoay trên đỉnh (Wrist Roll / Flange: 62.04mm + 28mm)
         ]
         calculate_fk_dh(dh_table, angle_unit='deg', length_unit='m')

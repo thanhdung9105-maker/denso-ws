@@ -21,6 +21,8 @@ install(
     scripts/denso_kinematics_gui.py
     scripts/denso_dynamics_engine.py
     scripts/denso_dh_fk_node.py
+    scripts/denso_com_visualizer.py
+    scripts/verify_denso_dh.py
   DESTINATION lib/denso_vs6556_moveit_config
 )
 

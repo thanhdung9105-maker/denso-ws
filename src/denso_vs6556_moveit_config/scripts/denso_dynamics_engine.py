@@ -12,66 +12,70 @@ import numpy as np
 # -------------------------------------------------------------
 # ROBOT CONSTANTS & DYNAMICS SPECIFICATIONS
 # -------------------------------------------------------------
-JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5']
+JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
 JOINT_LIMITS = [
     (-2.967, 2.967),   # Joint 1: Base Z [-170°, +170°]
     (-2.094, 2.356),   # Joint 2: Shoulder Y [-120°, +135°]
     (-2.077, 2.897),   # Joint 3: Elbow Y [-119°, +166°]
     (-3.316, 3.316),   # Joint 4: Forearm X [-190°, +190°]
     (-2.094, 2.094),   # Joint 5: Wrist Y [-120°, +120°]
+    (-6.283, 6.283),   # Joint 6: Flange Z [-360°, +360°]
 ]
 
 # Torque limits (N*m) for Denso VS-6556 industrial motors
-TORQUE_LIMITS = np.array([80.0, 100.0, 60.0, 25.0, 20.0])
+TORQUE_LIMITS = np.array([80.0, 100.0, 60.0, 25.0, 20.0, 15.0])
 
 # DENSO VS-6556 AC Servomotor Specifications (Denso Manual No. 410590-0080)
 # Rated Power (Watts) per joint
-MOTOR_POWER_WATTS = np.array([400.0, 750.0, 400.0, 100.0, 100.0])
+MOTOR_POWER_WATTS = np.array([400.0, 750.0, 400.0, 100.0, 100.0, 100.0])
 
 # Rated Motor Speed (RPM)
 MOTOR_RATED_RPM = 3000.0
 
 # Harmonic Drive / RV Gear Reduction Ratios
-GEAR_RATIOS = np.array([80.0, 100.0, 80.0, 50.0, 50.0])
+GEAR_RATIOS = np.array([80.0, 100.0, 80.0, 50.0, 50.0, 50.0])
 
-# Maximum joint angular velocities (rad/s) from Denso datasheet (262.5°, 240.0°, 300.0°, 300.0°, 300.0°/s)
-VELOCITY_LIMITS = np.array([4.5815, 4.1888, 5.2360, 5.2360, 5.2360])
+# Maximum joint angular velocities (rad/s) from Denso datasheet (262.5°, 240.0°, 300.0°, 300.0°, 300.0°, 420.0°/s)
+VELOCITY_LIMITS = np.array([4.5815, 4.1888, 5.2360, 5.2360, 5.2360, 7.3304])
 
 # Maximum joint angular accelerations (rad/s^2) for standard 0.49s cycle time
-ACCELERATION_LIMITS = np.array([15.0, 12.0, 15.0, 20.0, 20.0])
+ACCELERATION_LIMITS = np.array([15.0, 12.0, 15.0, 20.0, 20.0, 25.0])
 
 # Friction parameters: viscous friction B (N*m*s/rad) and Coulomb friction Fc (N*m)
-FRICTION_B = np.array([0.8, 1.2, 0.9, 0.3, 0.2])
-FRICTION_FC = np.array([0.5, 0.8, 0.6, 0.2, 0.15])
+FRICTION_B = np.array([0.8, 1.2, 0.9, 0.3, 0.2, 0.1])
+FRICTION_FC = np.array([0.5, 0.8, 0.6, 0.2, 0.15, 0.05])
 
 # Link masses (kg)
-LINK_MASSES = np.array([4.5, 4.2, 3.1, 2.0, 1.2])
+LINK_MASSES = np.array([4.5, 4.2, 3.1, 2.0, 0.95, 0.25])
 
-# Centers of mass (m) in each link frame
+# Centers of mass (m) in each link frame (synchronized with calibrated denso_vs6556.urdf)
 COMS = [
-    np.array([-0.04, 0.0, 0.08]),    # link_1
-    np.array([0.0, 0.003, 0.135]),   # link_2
-    np.array([-0.04, 0.02, 0.04]),   # link_3
-    np.array([-0.10, 0.0, 0.0]),     # link_4
-    np.array([-0.03, 0.0, 0.0]),     # link_5
+    np.array([-0.04, 0.0, 0.08]),     # link_1
+    np.array([0.0, -0.041, 0.120]),   # link_2
+    np.array([0.045, 0.075, 0.010]),  # link_3
+    np.array([0.0, 0.0, 0.10]),       # link_4 (along +Z forearm axis)
+    np.array([0.0, 0.0, 0.0163]),     # link_5 (wrist pitch knuckle)
+    np.array([0.0, 0.0, 0.01126]),    # link_6 (flange roll, flipped with bolt circle facing +Z)
 ]
 
 # Inertia tensors (kg*m^2) at CoM
 INERTIAS = [
-    np.diag([0.035, 0.035, 0.025]),  # link_1
-    np.diag([0.045, 0.040, 0.015]),  # link_2
-    np.diag([0.020, 0.020, 0.010]),  # link_3
-    np.diag([0.005, 0.015, 0.015]),  # link_4
-    np.diag([0.003, 0.003, 0.003]),  # link_5
+    np.diag([0.035, 0.035, 0.025]),           # link_1
+    np.diag([0.045, 0.040, 0.015]),           # link_2
+    np.diag([0.020, 0.020, 0.010]),           # link_3
+    np.diag([0.015, 0.015, 0.005]),           # link_4
+    np.diag([0.000816, 0.000954, 0.000634]),   # link_5
+    np.diag([0.000072, 0.000072, 0.000120]),   # link_6
 ]
 
 # Joint axes in local joint frames
 AXES = [
-    np.array([0.0, 0.0, 1.0]),  # J1: Z (Yaw)
-    np.array([0.0, 1.0, 0.0]),  # J2: Y (Pitch)
-    np.array([0.0, 1.0, 0.0]),  # J3: Y (Pitch)
-    np.array([0.0, 0.0, 1.0]),  # J4: Z (Forearm Roll along arm axis)
-    np.array([0.0, 1.0, 0.0]),  # J5: Y (Wrist Pitch)
+    np.array([0.0, 0.0, 1.0]),   # J1: Z (Yaw)
+    np.array([0.0, -1.0, 0.0]),  # J2: -Y (Pitch, Denso inverted)
+    np.array([0.0, -1.0, 0.0]),  # J3: -Y (Pitch, Denso inverted)
+    np.array([0.0, 0.0, 1.0]),   # J4: Z (Forearm Roll along arm axis)
+    np.array([0.0, -1.0, 0.0]),  # J5: -Y (Wrist Pitch, Denso inverted)
+    np.array([0.0, 0.0, 1.0]),   # J6: Z (Flange Roll)
 ]
 
 # Origins of joint i in frame i-1 (matching SolidWorks VS-6556-B_asm.STL & calibrated URDF)
@@ -80,11 +84,12 @@ P_ORIGINS = [
     np.array([-0.075, -0.0745, 0.130]),   # Link 1 -> Joint 2 (X=-75mm, Y=-74.5mm, Z=130mm, total h=335mm)
     np.array([0.0, 0.0065, 0.270]),       # Link 2 -> Joint 3 (Y=+6.5mm, Z=270mm upper arm, total h=605mm)
     np.array([0.090, 0.068, 0.109]),      # Link 3 -> Joint 4 (X=+90mm, Y=+68mm -> Y=0, Z=109mm, total h=714mm)
-    np.array([0.0, 0.0, 0.186]),          # Link 4 -> Joint 5 (Z=186mm forearm length to wrist (Z_total=900mm matching SolidWorks))
+    np.array([0.0, 0.0, 0.186]),          # Link 4 -> Joint 5 (Z=186mm forearm length to wrist)
+    np.array([0.0, 0.0, 0.06204]),        # Link 5 -> Joint 6 (Wrist pitch knuckle to Flange top)
 ]
 
-# Tool flange & gripper TCP offset (m) from Joint 5 wrist axis along tool link (Denso Drawing View A: 80mm)
-TOOL_TCP_OFFSET = np.array([0.0, 0.0, 0.080])
+# Tool flange & gripper TCP offset (m) from Joint 6 flange axis along tool link
+TOOL_TCP_OFFSET = np.array([0.0, 0.0, 0.028])
 
 # Official technical drawing dimensions (Denso VS-6556 catalog)
 POINT_P_MAX_REACH = 653.42   # mm: Workable space defined by point P
@@ -103,21 +108,26 @@ def rot_y(th):
     c, s = np.cos(th), np.sin(th)
     return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
 
+def rot_y_neg(th):
+    # Rotation around -Y axis is rot_y(-th)
+    c, s = np.cos(-th), np.sin(-th)
+    return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
+
 def rot_z(th):
     c, s = np.cos(th), np.sin(th)
     return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
 
-ROT_FUNCS = [rot_z, rot_y, rot_y, rot_z, rot_y]
+ROT_FUNCS = [rot_z, rot_y_neg, rot_y_neg, rot_z, rot_y_neg, rot_z]
 
-# Standard Denavit-Hartenberg (D-H) Parameters for Denso VS-6556
+# Standard Denavit-Hartenberg (D-H) Parameters for Denso VS-6556 (6-DOF)
 # Format: [a_i (m), alpha_i (rad), d_i (m), theta_offset (rad), joint_sign]
-# Validated with zero error (Delta = 0.0000 mm) against URDF and 2D planar trigonometry
 DH_PARAMS = [
     [-0.075, -np.pi / 2, 0.335,  0.0,        1.0],  # Joint 1: Base -> Shoulder J2 (Z0 vertical, Z1 horizontal)
-    [ 0.270,  0.0,       0.000, -np.pi / 2,  1.0],  # Joint 2: Upper Arm (J2 -> J3, L=270mm)
-    [ 0.090,  np.pi / 2, 0.000,  np.pi / 2,  1.0],  # Joint 3: Elbow Offset (J3 -> Forearm axis, offset=90mm)
-    [ 0.000, -np.pi / 2, 0.295,  0.0,        1.0],  # Joint 4: Forearm Roll (Fixed sign +1.0 for 100% RViz/URDF alignment) (L=295mm to Point P)
-    [ 0.080,  0.0,       0.000, -np.pi / 2,  1.0],  # Joint 5: Tool Flange (Point P -> TCP, L=80mm)
+    [ 0.270,  0.0,       0.000, -np.pi / 2, -1.0],  # Joint 2: Upper Arm (J2 -> J3, L=270mm, sign=-1 for -Y axis)
+    [ 0.090,  np.pi / 2, 0.000,  np.pi / 2, -1.0],  # Joint 3: Elbow Offset (J3 -> Forearm axis, offset=90mm, sign=-1)
+    [ 0.000, -np.pi / 2, 0.295,  0.0,        1.0],  # Joint 4: Forearm Roll (L=295mm to Point P)
+    [ 0.000,  np.pi / 2, 0.000,  0.0,       -1.0],  # Joint 5: Wrist Pitch
+    [ 0.000,  0.0,       0.09004, 0.0,       1.0],  # Joint 6: Tool Flange Roll (offset to TCP: 62.04mm + 28mm)
 ]
 
 def standard_dh_matrix(a, alpha, d, theta):
@@ -142,11 +152,12 @@ def standard_dh_matrix(a, alpha, d, theta):
 # =============================================================================
 EXTENDED_DH_PARAMS = [
     ("link_1", 0.2050,  0.0000,  0.0000, "Z", 0, "Base -> Link 1 (Flange quay J1 h=205mm)"),
-    ("link_2", 0.1300, -0.0750, -0.0745, "Y", 1, "Link 1 -> Link 2 (Vai J2, lệch motor Y=-74.5mm)"),
-    ("link_3", 0.2700,  0.0000,  0.0065, "Y", 2, "Link 2 -> Link 3 (Khuỷu J3, lệch khớp Y=+6.5mm)"),
+    ("link_2", 0.1300, -0.0750, -0.0745, "-Y", 1, "Link 1 -> Link 2 (Vai J2, lệch motor Y=-74.5mm, -Y axis)"),
+    ("link_3", 0.2700,  0.0000,  0.0065, "-Y", 2, "Link 2 -> Link 3 (Khuỷu J3, lệch khớp Y=+6.5mm, -Y axis)"),
     ("link_4", 0.1090,  0.0900,  0.0680, "Z", 3, "Link 3 -> Link 4 (Cẳng tay J4, bù triệt tiêu Y)"),
-    ("link_5", 0.1860,  0.0000,  0.0000, "Y", 4, "Link 4 -> Link 5 (Tâm cổ tay Point P)"),
-    ("flange", 0.0800,  0.0000,  0.0000, "Fixed", -1, "Link 5 -> Flange TCP (Mặt bích +80mm)"),
+    ("link_5", 0.1860,  0.0000,  0.0000, "-Y", 4, "Link 4 -> Link 5 (Tâm cổ tay Point P, -Y axis)"),
+    ("link_6", 0.06204, 0.0000,  0.0000, "Z", 5, "Link 5 -> Link 6 (Cổ tay xoay J6 h=62.04mm, Z axis)"),
+    ("flange", 0.0280,  0.0000,  0.0000, "Fixed", -1, "Link 6 -> Flange Tool TCP (+28mm)"),
 ]
 
 def extended_dh_matrix(d, a, b, q_angle=0.0, axis="Z"):
@@ -164,6 +175,9 @@ def extended_dh_matrix(d, a, b, q_angle=0.0, axis="Z"):
     elif axis == "Y":
         c, s = np.cos(q_angle), np.sin(q_angle)
         T_rot[:3, :3] = np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
+    elif axis == "-Y":
+        c, s = np.cos(q_angle), np.sin(q_angle)
+        T_rot[:3, :3] = np.array([[c, 0.0, -s], [0.0, 1.0, 0.0], [s, 0.0, c]])
     elif axis == "X":
         c, s = np.cos(q_angle), np.sin(q_angle)
         T_rot[:3, :3] = np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
@@ -171,13 +185,14 @@ def extended_dh_matrix(d, a, b, q_angle=0.0, axis="Z"):
     return T_trans @ T_rot
 
 
-# Fixed rotation of joint origins matching calibrated URDF (all standard rpy=0 0 0)
+# Fixed rotation of joint origins matching calibrated URDF
 R_ORIGINS = [
     np.eye(3),                         # Base -> Joint 1 (rpy=0 0 0)
     np.eye(3),                         # Link 1 -> Joint 2 (rpy=0 0 0)
     np.eye(3),                         # Link 2 -> Joint 3 (rpy=0 0 0)
     np.eye(3),                         # Link 3 -> Joint 4 (rpy=0 0 0)
     np.eye(3),                         # Link 4 -> Joint 5 (rpy=0 0 0)
+    np.eye(3),                         # Link 5 -> Joint 6 (rpy=0 0 0)
 ]
 
 
@@ -235,7 +250,7 @@ class DensoDynamicsEngine:
 
     def __init__(self):
         self.gravity = np.array([0.0, 0.0, -9.81])
-        self.num_joints = 5
+        self.num_joints = 6
 
     def get_joint_transforms(self, q):
         """
@@ -348,7 +363,7 @@ class DensoDynamicsEngine:
             - reach_radius_f_mm: distance from base Z-axis to Flange
         """
         transforms, _ = self.get_dh_transforms(q)
-        target_idx = 5 if use_flange else 4
+        target_idx = self.num_joints if use_flange else (self.num_joints - 1)
         T_target = transforms[target_idx]
         pos_m = T_target[:3, 3]
         pos_mm = pos_m * 1000.0
@@ -358,8 +373,8 @@ class DensoDynamicsEngine:
         quat = rot_matrix_to_quaternion(R_target)
 
         link_positions_mm = [T[:3, 3] * 1000.0 for T in transforms]
-        r_p = float(math.hypot(link_positions_mm[4][0], link_positions_mm[4][1]))
-        r_f = float(math.hypot(link_positions_mm[5][0], link_positions_mm[5][1]))
+        r_p = float(math.hypot(link_positions_mm[self.num_joints - 1][0], link_positions_mm[self.num_joints - 1][1]))
+        r_f = float(math.hypot(link_positions_mm[self.num_joints][0], link_positions_mm[self.num_joints][1]))
 
         return {
             "position_m": pos_m,
@@ -376,11 +391,11 @@ class DensoDynamicsEngine:
 
     def compute_jacobian(self, q, use_flange=False, eps=1e-6):
         """
-        Computes 3x5 position Jacobian J_p = d(pos)/dq (numerical differentiation).
+        Computes 3x6 position Jacobian J_p = d(pos)/dq (numerical differentiation).
         """
         J = np.zeros((3, self.num_joints))
         transforms, _ = self.get_dh_transforms(q)
-        idx = 5 if use_flange else 4
+        idx = self.num_joints if use_flange else (self.num_joints - 1)
         p0 = transforms[idx][:3, 3]
         for j in range(self.num_joints):
             q_eps = np.array(q, dtype=float).copy()
@@ -390,9 +405,59 @@ class DensoDynamicsEngine:
             J[:, j] = (pj - p0) / eps
         return J
 
-    def solve_ik_analytical_point_p(self, target_pos_m, elbow_up=True):
+    def compute_geometric_jacobian(self, q, use_flange=False):
         """
-        Closed-Form Analytical Geometric IK for Point P (Link 5 Wrist Center).
+        Computes exact 6x6 Geometric Jacobian J = [J_v; J_w] in base_link frame:
+          - J_v (3x6): linear velocity Jacobian z_i x (p_e - p_i)
+          - J_w (3x6): angular velocity Jacobian z_i
+        """
+        T = np.eye(4)
+        joint_origins = []
+        joint_axes = []
+        for i in range(self.num_joints):
+            p_joint = T[:3, 3] + T[:3, :3] @ P_ORIGINS[i]
+            z_joint = T[:3, :3] @ R_ORIGINS[i] @ AXES[i]
+            joint_origins.append(p_joint)
+            joint_axes.append(z_joint)
+
+            R_rot = ROT_FUNCS[i](q[i])
+            T_step = np.eye(4)
+            T_step[:3, 3] = P_ORIGINS[i]
+            T_step[:3, :3] = R_ORIGINS[i] @ R_rot
+            T = T @ T_step
+
+        p_e = (T[:3, 3] + T[:3, :3] @ TOOL_TCP_OFFSET) if use_flange else joint_origins[4]
+        J = np.zeros((6, self.num_joints))
+        for i in range(self.num_joints):
+            J[:3, i] = np.cross(joint_axes[i], p_e - joint_origins[i])
+            J[3:, i] = joint_axes[i]
+        return J
+
+    def compute_manipulability(self, q, use_flange=False):
+        """
+        Computes Yoshikawa's translational manipulability index w(q) = sqrt(det(J_v * J_v^T)),
+        singular values (sigma_1, sigma_2, sigma_3), and condition number kappa = sigma_max / sigma_min.
+        """
+        J_v = self.compute_jacobian(q, use_flange=use_flange)
+        singular_vals = np.linalg.svd(J_v, compute_uv=False)
+        w = float(np.prod(singular_vals))
+        s_min = float(singular_vals[-1])
+        s_max = float(singular_vals[0])
+        cond = (s_max / s_min) if s_min > 1e-9 else float('inf')
+        return {
+            "manipulability": w,
+            "condition_number": cond,
+            "singular_values": singular_vals,
+            "is_near_singularity": (w < 1e-3 or cond > 50.0),
+        }
+
+    def solve_ik_analytical_point_p(self, target_pos_m, elbow_up=True, q_seed=None):
+        """
+        Closed-Form Analytical Geometric IK for Point P (Link 5 Wrist Center)
+        with inverted pitch axes (Joint 2, 3 around -Y).
+        Supports full 360-degree reach:
+          - Mode 1: Backward reach (arm pitches backward, primary for drawing table)
+          - Mode 2: Forward reach (arm pitches forward, primary for front workspaces)
         Exact solution in < 1 microsecond with 0 iteration and zero mathematical error.
         Returns:
             q_sol (np.ndarray): [q1, q2, q3, 0.0, 0.0] in radians
@@ -408,43 +473,70 @@ class DensoDynamicsEngine:
 
         L_eff = math.hypot(L3, a3)
         phi = math.atan2(a3, L3)
-
-        q1 = math.atan2(y, x)
         r_xy = math.hypot(x, y)
-        dx = r_xy - x2
+
+        # 2 candidate modes for q1 and longitudinal arm coordinate x5:
+        q1_back = math.atan2(-y, -x) if r_xy > 1e-6 else 0.0
+        q1_back = (q1_back + math.pi) % (2.0 * math.pi) - math.pi
+        q1_fwd = math.atan2(y, x) if r_xy > 1e-6 else 0.0
+        q1_fwd = (q1_fwd + math.pi) % (2.0 * math.pi) - math.pi
+
+        modes = [(q1_back, -r_xy), (q1_fwd, r_xy)]
         dz = z - z2
-        D_sq = dx**2 + dz**2
-        D = math.sqrt(D_sq)
+        candidates = []
 
-        if D > (L2 + L_eff) or D < abs(L2 - L_eff):
-            return None, False, float(D - (L2 + L_eff))
+        for q1, x5 in modes:
+            # Check Joint 1 limits
+            if q1 < JOINT_LIMITS[0][0] - 1e-4 or q1 > JOINT_LIMITS[0][1] + 1e-4:
+                continue
 
-        cos_beta = np.clip((L2**2 + L_eff**2 - D_sq) / (2.0 * L2 * L_eff), -1.0, 1.0)
-        beta = math.acos(cos_beta)
-        q3_eff = (math.pi - beta) if elbow_up else -(math.pi - beta)
-        q3 = q3_eff - phi
+            dx = x2 - x5
+            D_sq = dx**2 + dz**2
+            D = math.sqrt(D_sq)
 
-        gamma = math.atan2(dx, dz)
-        cos_alpha = np.clip((L2**2 + D_sq - L_eff**2) / (2.0 * L2 * D), -1.0, 1.0)
-        alpha = math.acos(cos_alpha)
-        q2 = (gamma - alpha) if elbow_up else (gamma + alpha)
+            if D > (L2 + L_eff) or D < abs(L2 - L_eff):
+                continue
 
-        q_sol = np.array([q1, q2, q3, 0.0, 0.0], dtype=float)
+            cos_beta = np.clip((L2**2 + L_eff**2 - D_sq) / (2.0 * L2 * L_eff), -1.0, 1.0)
+            beta = math.acos(cos_beta)
+            q3_eff = (math.pi - beta) if elbow_up else -(math.pi - beta)
+            q3 = q3_eff + phi
 
-        # Check joint limits
-        in_limits = True
-        for i in range(3):
-            if q_sol[i] < JOINT_LIMITS[i][0] - 1e-4 or q_sol[i] > JOINT_LIMITS[i][1] + 1e-4:
-                in_limits = False
-                break
+            gamma = math.atan2(dx, dz)
+            cos_alpha = np.clip((L2**2 + D_sq - L_eff**2) / (2.0 * L2 * D), -1.0, 1.0)
+            alpha = math.acos(cos_alpha)
+            q2 = (gamma - alpha) if elbow_up else (gamma + alpha)
 
-        tfs, _ = self.get_dh_transforms(q_sol)
-        err_m = float(np.linalg.norm(np.array(target_pos_m) - tfs[4][:3, 3]))
-        return q_sol, in_limits, err_m
+            q_sol = np.zeros(self.num_joints, dtype=float)
+            q_sol[:3] = [q1, q2, q3]
 
-    def solve_ik_analytical_flange(self, target_pos_m, tool_pitch_rad=None, elbow_up=True):
+            # Check joint limits
+            in_limits = True
+            for i in range(3):
+                if q_sol[i] < JOINT_LIMITS[i][0] - 1e-4 or q_sol[i] > JOINT_LIMITS[i][1] + 1e-4:
+                    in_limits = False
+                    break
+
+            if in_limits:
+                tfs, _ = self.get_dh_transforms(q_sol)
+                err_m = float(np.linalg.norm(np.array(target_pos_m) - tfs[5][:3, 3]))
+                candidates.append((q_sol, err_m))
+
+        if not candidates:
+            D_min = math.sqrt((abs(r_xy - 0.075))**2 + dz**2)
+            return None, False, float(max(0.0, D_min - (L2 + L_eff)))
+
+        if q_seed is not None and len(candidates) > 1:
+            candidates.sort(key=lambda item: float(np.linalg.norm(item[0][:3] - np.array(q_seed)[:3])))
+
+        best_q, best_err = candidates[0]
+        return best_q, True, best_err
+
+    def solve_ik_analytical_flange(self, target_pos_m, tool_pitch_rad=None, elbow_up=True, q_seed=None):
         """
-        Closed-Form Analytical Geometric IK for Flange (+80mm offset).
+        Closed-Form Analytical Geometric IK for Flange (+80mm offset)
+        with inverted pitch axes (Joint 2, 3, 5 around -Y).
+        Supports full 360-degree reach in both forward and backward modes.
         - If tool_pitch_rad is None: uses aligned neutral wrist pose (q5 = 0, L3_eff = 375mm).
         - If tool_pitch_rad is specified: computes Point P offset and exact wrist pitch q5.
         Returns:
@@ -456,68 +548,216 @@ class DensoDynamicsEngine:
         L2 = 0.270
         x2 = -0.075
         z2 = 0.335
-        L_tool = 0.080
+        L_tool = 0.09004
+        r_xy = math.hypot(xf, yf)
 
         if tool_pitch_rad is None:
             # Aligned forearm + tool pose (wrist neutral q5 = 0)
-            L3_tool = 0.295 + L_tool  # 375mm
+            L3_tool = 0.295 + L_tool  # Forearm to Flange TCP
             a3 = 0.090
             L_eff_tool = math.hypot(L3_tool, a3)
             phi_tool = math.atan2(a3, L3_tool)
 
-            q1 = math.atan2(yf, xf)
-            r_xy = math.hypot(xf, yf)
-            dx = r_xy - x2
+            q1_back = math.atan2(-yf, -xf) if r_xy > 1e-6 else 0.0
+            q1_back = (q1_back + math.pi) % (2.0 * math.pi) - math.pi
+            q1_fwd = math.atan2(yf, xf) if r_xy > 1e-6 else 0.0
+            q1_fwd = (q1_fwd + math.pi) % (2.0 * math.pi) - math.pi
+
+            modes = [(q1_back, -r_xy), (q1_fwd, r_xy)]
             dz = zf - z2
-            D_sq = dx**2 + dz**2
-            D = math.sqrt(D_sq)
+            candidates = []
 
-            if D > (L2 + L_eff_tool) or D < abs(L2 - L_eff_tool):
-                return None, False, float(D - (L2 + L_eff_tool))
+            for q1, x5 in modes:
+                if q1 < JOINT_LIMITS[0][0] - 1e-4 or q1 > JOINT_LIMITS[0][1] + 1e-4:
+                    continue
+                dx = x2 - x5
+                D_sq = dx**2 + dz**2
+                D = math.sqrt(D_sq)
+                if D > (L2 + L_eff_tool) or D < abs(L2 - L_eff_tool):
+                    continue
 
-            cos_beta = np.clip((L2**2 + L_eff_tool**2 - D_sq) / (2.0 * L2 * L_eff_tool), -1.0, 1.0)
-            beta = math.acos(cos_beta)
-            q3_eff = (math.pi - beta) if elbow_up else -(math.pi - beta)
-            q3 = q3_eff - phi_tool
+                cos_beta = np.clip((L2**2 + L_eff_tool**2 - D_sq) / (2.0 * L2 * L_eff_tool), -1.0, 1.0)
+                beta = math.acos(cos_beta)
+                q3_eff = (math.pi - beta) if elbow_up else -(math.pi - beta)
+                q3 = q3_eff + phi_tool
 
-            gamma = math.atan2(dx, dz)
-            cos_alpha = np.clip((L2**2 + D_sq - L_eff_tool**2) / (2.0 * L2 * D), -1.0, 1.0)
-            alpha = math.acos(cos_alpha)
-            q2 = (gamma - alpha) if elbow_up else (gamma + alpha)
-            q_sol = np.array([q1, q2, q3, 0.0, 0.0], dtype=float)
-        else:
-            # Specified tool pitch angle
-            q1 = math.atan2(yf, xf)
-            r_f = math.hypot(xf, yf)
-            r_5 = r_f - L_tool * math.sin(tool_pitch_rad)
-            z_5 = zf - L_tool * math.cos(tool_pitch_rad)
-            x_5 = r_5 * math.cos(q1)
-            y_5 = r_5 * math.sin(q1)
-            q_p, ok, _ = self.solve_ik_analytical_point_p([x_5, y_5, z_5], elbow_up=elbow_up)
-            if not ok or q_p is None:
+                gamma = math.atan2(dx, dz)
+                cos_alpha = np.clip((L2**2 + D_sq - L_eff_tool**2) / (2.0 * L2 * D), -1.0, 1.0)
+                alpha = math.acos(cos_alpha)
+                q2 = (gamma - alpha) if elbow_up else (gamma + alpha)
+
+                q_sol = np.zeros(self.num_joints, dtype=float)
+                q_sol[:3] = [q1, q2, q3]
+
+                in_limits = True
+                for i in range(3):
+                    if q_sol[i] < JOINT_LIMITS[i][0] - 1e-4 or q_sol[i] > JOINT_LIMITS[i][1] + 1e-4:
+                        in_limits = False
+                        break
+                if in_limits:
+                    tfs, _ = self.get_dh_transforms(q_sol)
+                    err_m = float(np.linalg.norm(np.array(target_pos_m) - tfs[6][:3, 3]))
+                    candidates.append((q_sol, err_m))
+
+            if not candidates:
                 return None, False, 1.0
-            q1, q2, q3, _, _ = q_p
-            q5 = tool_pitch_rad - (q2 + q3)
-            q_sol = np.array([q1, q2, q3, 0.0, q5], dtype=float)
+            if q_seed is not None and len(candidates) > 1:
+                candidates.sort(key=lambda item: float(np.linalg.norm(item[0][:3] - np.array(q_seed)[:3])))
+            return candidates[0][0], True, candidates[0][1]
+        else:
+            # Specified tool pitch angle (e.g. for drawing table)
+            # Evaluate in both backward (-r_xy) and forward (+r_xy) radial planes
+            L3 = 0.295
+            a3 = 0.090
+            L_eff = math.hypot(L3, a3)
+            phi = math.atan2(a3, L3)
 
-        in_limits = True
-        for i in range(5):
-            if q_sol[i] < JOINT_LIMITS[i][0] - 1e-4 or q_sol[i] > JOINT_LIMITS[i][1] + 1e-4:
-                in_limits = False
-                break
+            q1_back = math.atan2(-yf, -xf) if r_xy > 1e-6 else 0.0
+            q1_back = (q1_back + math.pi) % (2.0 * math.pi) - math.pi
+            q1_fwd = math.atan2(yf, xf) if r_xy > 1e-6 else 0.0
+            q1_fwd = (q1_fwd + math.pi) % (2.0 * math.pi) - math.pi
 
-        tfs, _ = self.get_dh_transforms(q_sol)
-        err_m = float(np.linalg.norm(np.array(target_pos_m) - tfs[5][:3, 3]))
-        return q_sol, in_limits, err_m
+            modes = [(q1_back, -r_xy), (q1_fwd, r_xy)]
+            z5 = zf - L_tool * math.cos(tool_pitch_rad)
+            dz = z5 - z2
+            candidates = []
+
+            for q1, xf_planar in modes:
+                if q1 < JOINT_LIMITS[0][0] - 1e-4 or q1 > JOINT_LIMITS[0][1] + 1e-4:
+                    continue
+                x5_planar = xf_planar + L_tool * math.sin(tool_pitch_rad)
+                dx = x2 - x5_planar
+                D_sq = dx**2 + dz**2
+                D = math.sqrt(D_sq)
+                if D > (L2 + L_eff) or D < abs(L2 - L_eff):
+                    continue
+
+                cos_beta = np.clip((L2**2 + L_eff**2 - D_sq) / (2.0 * L2 * L_eff), -1.0, 1.0)
+                beta = math.acos(cos_beta)
+                q3_eff = (math.pi - beta) if elbow_up else -(math.pi - beta)
+                q3 = q3_eff + phi
+
+                gamma = math.atan2(dx, dz)
+                cos_alpha = np.clip((L2**2 + D_sq - L_eff**2) / (2.0 * L2 * D), -1.0, 1.0)
+                alpha = math.acos(cos_alpha)
+                q2 = (gamma - alpha) if elbow_up else (gamma + alpha)
+
+                q5 = (tool_pitch_rad - (q2 + q3) + math.pi) % (2.0 * math.pi) - math.pi
+                q_sol = np.zeros(self.num_joints, dtype=float)
+                q_sol[:5] = [q1, q2, q3, 0.0, q5]
+
+                in_limits = True
+                for i in range(self.num_joints):
+                    if q_sol[i] < JOINT_LIMITS[i][0] - 1e-4 or q_sol[i] > JOINT_LIMITS[i][1] + 1e-4:
+                        in_limits = False
+                        break
+                if in_limits:
+                    tfs, _ = self.get_dh_transforms(q_sol)
+                    err_m = float(np.linalg.norm(np.array(target_pos_m) - tfs[6][:3, 3]))
+                    if err_m < 1e-3:
+                        candidates.append((q_sol, err_m))
+
+            if not candidates:
+                return None, False, 1.0
+            if q_seed is not None and len(candidates) > 1:
+                candidates.sort(key=lambda item: float(np.linalg.norm(item[0][:3] - np.array(q_seed)[:3])))
+            return candidates[0][0], True, candidates[0][1]
+
+    def solve_ik_analytical_6dof(self, target_pos_m, target_rot_matrix, elbow_up=True, q_seed=None):
+        """
+        Closed-Form Analytical Geometric IK for Full 6-DOF Pose (Position + SO(3) Orientation)
+        via Pieper's Spherical Wrist Decoupling (Tâm cổ tay cầu khâu 4-5-6 giao nhau tại Point P).
+        Returns:
+            q_sol (np.ndarray): [q1, q2, q3, q4, q5, q6] in radians within joint limits.
+            success (bool): whether pose is physically reachable within limits.
+            pos_err (float): final position residual in meters.
+            rot_err (float): final rotation matrix residual norm.
+        """
+        R_tgt = np.array(target_rot_matrix, dtype=float)
+        p_tgt = np.array(target_pos_m, dtype=float)
+
+        # Step 1: Decouple spherical wrist center (Point P)
+        # Flange normal along tool Z-axis: column 2 of R_tgt
+        d6 = 0.09004
+        z_flange = R_tgt[:, 2]
+        p_wrist = p_tgt - d6 * z_flange
+
+        # Step 2: Solve Joint 1, 2, 3 using closed-form Point P solver
+        q_seed_123 = q_seed[:3] if q_seed is not None else None
+        q123_sol, ok123, _ = self.solve_ik_analytical_point_p(p_wrist, elbow_up=elbow_up, q_seed=q_seed_123)
+        if not ok123 or q123_sol is None:
+            return None, False, 1.0, 1.0
+
+        # Step 3: Compute R_03(q1, q2, q3) and relative wrist rotation R_36 = R_03^T @ R_tgt
+        tfs123, _ = self.get_dh_transforms([q123_sol[0], q123_sol[1], q123_sol[2], 0.0, 0.0, 0.0])
+        R_03 = tfs123[3][:3, :3]
+        R_36 = R_03.T @ R_tgt
+
+        r11, r12, r13 = R_36[0]
+        r21, r22, r23 = R_36[1]
+        r31, r32, r33 = R_36[2]
+
+        q_seed_4 = float(q_seed[3]) if q_seed is not None and len(q_seed) > 3 else 0.0
+        cos_q5 = np.clip(r33, -1.0, 1.0)
+        sin_q5_pos = math.sqrt(max(0.0, 1.0 - cos_q5**2))
+
+        candidates = []
+        for s5 in [sin_q5_pos, -sin_q5_pos]:
+            q5 = math.atan2(s5, cos_q5)
+            if abs(s5) > 1e-4:
+                q4 = math.atan2(-r23 / s5, -r13 / s5)
+                q6 = math.atan2(-r32 / s5, r31 / s5)
+            else:
+                # Wrist Singularity: J4 and J6 axes become collinear
+                if cos_q5 > 0:
+                    q4_plus_q6 = math.atan2(r21, r11)
+                    q4 = q_seed_4
+                    q6 = (q4_plus_q6 - q4 + math.pi) % (2.0 * math.pi) - math.pi
+                else:
+                    q4_minus_q6 = math.atan2(-r21, -r11)
+                    q4 = q_seed_4
+                    q6 = (q4 - q4_minus_q6 + math.pi) % (2.0 * math.pi) - math.pi
+
+            q4 = (q4 + math.pi) % (2.0 * math.pi) - math.pi
+            q5 = (q5 + math.pi) % (2.0 * math.pi) - math.pi
+            q6 = (q6 + math.pi) % (2.0 * math.pi) - math.pi
+
+            q_cand = np.array([q123_sol[0], q123_sol[1], q123_sol[2], q4, q5, q6], dtype=float)
+
+            # Check joint limits
+            in_limits = True
+            for i in range(self.num_joints):
+                if q_cand[i] < JOINT_LIMITS[i][0] - 1e-4 or q_cand[i] > JOINT_LIMITS[i][1] + 1e-4:
+                    in_limits = False
+                    break
+            if in_limits:
+                fk_cand = self.compute_forward_kinematics(q_cand, use_flange=True)
+                pos_err = float(np.linalg.norm(fk_cand["position_m"] - p_tgt))
+                rot_err = float(np.linalg.norm(fk_cand["T_target"][:3, :3] - R_tgt))
+                if pos_err < 2e-3 and rot_err < 5e-3:
+                    is_col, _ = self.check_collision(q_cand)
+                    if not is_col:
+                        candidates.append((q_cand, pos_err, rot_err))
+
+        if not candidates:
+            return None, False, 1.0, 1.0
+
+        if q_seed is not None and len(candidates) > 1:
+            q_seed_arr = np.array(q_seed, dtype=float)[:6]
+            candidates.sort(key=lambda c: float(np.linalg.norm(c[0] - q_seed_arr)))
+
+        best_cand, best_pos_err, best_rot_err = candidates[0]
+        return best_cand, True, best_pos_err, best_rot_err
 
     def inverse_kinematics(self, target_pos_m, q_seed=None, use_flange=False,
                            elbow_up=True, mode="hybrid", max_iter=25, tol=1e-4,
-                           tool_pitch_rad=None):
+                           tool_pitch_rad=None, target_rot_matrix=None):
         """
         Upgraded Hybrid / Analytical / DLS Inverse Kinematics for Denso VS-6556.
         - mode="analytical": Exact closed-form geometric solution in 0 iterations (Point P & Flange).
         - mode="hybrid": Analytical initial seed + high-speed Damped Least Squares (1-3 iters, < 0.001mm).
         - mode="dls": Multi-seed numerical optimization with collision avoidance.
+        - target_rot_matrix: Optional 3x3 SO(3) orientation matrix for full 6-DOF pose IK.
         Returns:
             q_sol (np.ndarray): Target joint angles (rad) within limits.
             success (bool): Whether tolerance was achieved.
@@ -525,20 +765,29 @@ class DensoDynamicsEngine:
             err_m (float): Final position error in meters.
         """
         target = np.array(target_pos_m, dtype=float)
-        idx = 5 if use_flange else 4
+        idx = self.num_joints if use_flange else (self.num_joints - 1)
         lam = 0.012
 
         # -----------------------------------------------------------------
-        # 1. ANALYTICAL SOLVER ATTEMPT (Instant & Machine Precision)
+        # 0. FULL 6-DOF ANALYTICAL ATTEMPT (if target orientation provided)
+        # -----------------------------------------------------------------
+        if target_rot_matrix is not None:
+            branches = [elbow_up, not elbow_up] if elbow_up is not None else [True, False]
+            for branch in branches:
+                q_6d, ok_6d, pos_e, rot_e = self.solve_ik_analytical_6dof(
+                    target, target_rot_matrix, elbow_up=branch, q_seed=q_seed
+                )
+                if ok_6d and q_6d is not None and pos_e < tol:
+                    return q_6d, True, 0, pos_e
         # -----------------------------------------------------------------
         last_err_ana = 1.0
         if mode in ("analytical", "hybrid"):
             branches = [elbow_up, not elbow_up] if elbow_up is not None else [True, False]
             for branch in branches:
                 if not use_flange:
-                    q_ana, ok, err_ana = self.solve_ik_analytical_point_p(target, elbow_up=branch)
+                    q_ana, ok, err_ana = self.solve_ik_analytical_point_p(target, elbow_up=branch, q_seed=q_seed)
                 else:
-                    q_ana, ok, err_ana = self.solve_ik_analytical_flange(target, tool_pitch_rad=tool_pitch_rad, elbow_up=branch)
+                    q_ana, ok, err_ana = self.solve_ik_analytical_flange(target, tool_pitch_rad=tool_pitch_rad, elbow_up=branch, q_seed=q_seed)
                 last_err_ana = err_ana
 
                 if ok and q_ana is not None and err_ana < 1e-3:
@@ -556,7 +805,9 @@ class DensoDynamicsEngine:
         # 2. HYBRID OR NUMERICAL DLS STEP
         # -----------------------------------------------------------------
         def _dls_step(q_init, num_iters):
-            q = np.array(q_init, dtype=float).copy()
+            q = np.zeros(self.num_joints, dtype=float)
+            q_arr = np.array(q_init, dtype=float)
+            q[:min(len(q_arr), self.num_joints)] = q_arr[:self.num_joints]
             for it in range(num_iters):
                 transforms, _ = self.get_dh_transforms(q)
                 cur_p = transforms[idx][:3, 3]
@@ -603,18 +854,20 @@ class DensoDynamicsEngine:
                 candidate_seeds.append(qa)
 
         candidate_seeds.extend([
-            [yaw, 0.0, 0.0, 0.0, 0.0],
-            [yaw, -0.4, 0.8, 0.0, 0.0],
-            [yaw, 0.5, -0.5, 0.0, 0.0],
-            [yaw, 0.8, -1.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.3, 0.5, 0.0, 0.0],
-            [alt_yaw, -0.5, -0.5, 0.0, 0.0],
+            [yaw, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [yaw, -0.4, 0.8, 0.0, 0.0, 0.0],
+            [yaw, 0.5, -0.5, 0.0, 0.0, 0.0],
+            [yaw, 0.8, -1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.3, 0.5, 0.0, 0.0, 0.0],
+            [alt_yaw, -0.5, -0.5, 0.0, 0.0, 0.0],
         ])
 
         valid_candidates = []
         for s in candidate_seeds:
-            s_arr = np.array(s, dtype=float).copy()
+            s_arr = np.zeros(self.num_joints, dtype=float)
+            s_raw = np.array(s, dtype=float)
+            s_arr[:min(len(s_raw), self.num_joints)] = s_raw[:self.num_joints]
             for i in range(self.num_joints):
                 s_arr[i] = np.clip(s_arr[i], JOINT_LIMITS[i][0], JOINT_LIMITS[i][1])
             q_cand, ok, it_c, err_c = _dls_step(s_arr, max_iter)
@@ -656,9 +909,10 @@ class DensoDynamicsEngine:
         coms = [np.array(c, dtype=float) for c in COMS]
         masses = np.array(LINK_MASSES, dtype=float)
         if payload_mass > 0.0:
-            m_tot = masses[4] + payload_mass
-            coms[4] = (masses[4] * coms[4] + payload_mass * TOOL_TCP_OFFSET) / m_tot
-            masses[4] = m_tot
+            last_idx = self.num_joints - 1
+            m_tot = masses[last_idx] + payload_mass
+            coms[last_idx] = (masses[last_idx] * coms[last_idx] + payload_mass * TOOL_TCP_OFFSET) / m_tot
+            masses[last_idx] = m_tot
 
         # Forward recursion: Kinematics and inertial forces
         for i in range(n):
@@ -767,9 +1021,11 @@ class DensoDynamicsEngine:
 
     def forward_dynamics(self, q, qd, tau, payload_mass=0.0, f_ext=None, include_friction=True):
         """
-        Solves Forward Dynamics: returns joint acceleration vector qdd (5,).
+        Solves Forward Dynamics: returns joint acceleration vector qdd (6,).
         qdd = M(q)^-1 * (tau - C(q, qd)*qd - g(q) - tau_payload - tau_friction)
         """
+        if isinstance(tau, dict):
+            tau = tau.get('tau', tau.get('tau_total', tau))
         q = np.array(q, dtype=float)
         qd = np.array(qd, dtype=float)
         tau = np.array(tau, dtype=float)
@@ -849,7 +1105,7 @@ class DensoDynamicsEngine:
         marker_array = MarkerArray()
         transforms = self.get_joint_transforms(q)
 
-        joint_names_display = ["J1 (Base)", "J2 (Vai)", "J3 (Khuỷu)", "J4 (Cẳng tay)", "J5 (Cổ tay)"]
+        joint_names_display = ["J1 (Base)", "J2 (Vai)", "J3 (Khuỷu)", "J4 (Cẳng tay)", "J5 (Cổ tay)", "J6 (Mặt bích)"]
 
         for i in range(self.num_joints):
             T_joint = transforms[i + 1]
@@ -1020,9 +1276,9 @@ if __name__ == '__main__':
     print("=== DENSO VS-6556 DYNAMICS ENGINE TEST ===")
     engine = DensoDynamicsEngine()
 
-    q_home = np.zeros(5)
-    qd_zero = np.zeros(5)
-    qdd_zero = np.zeros(5)
+    q_home = np.zeros(engine.num_joints)
+    qd_zero = np.zeros(engine.num_joints)
+    qdd_zero = np.zeros(engine.num_joints)
 
     print("\n--- DENSO MOTOR SPECIFICATIONS ---")
     for i, name in enumerate(JOINT_NAMES):
@@ -1042,9 +1298,9 @@ if __name__ == '__main__':
     assert np.all(eigvals > 0), "Error: Mass matrix is not positive definite!"
 
     print("\n3. Consistency Check (FD of ID torque):")
-    q_test = np.array([0.2, 0.4, -0.3, 0.5, -0.2])
-    qd_test = np.array([0.1, -0.2, 0.3, -0.1, 0.2])
-    qdd_desired = np.array([0.5, -0.8, 1.2, -0.4, 0.6])
+    q_test = np.array([0.2, 0.4, -0.3, 0.5, -0.2, 0.1])
+    qd_test = np.array([0.1, -0.2, 0.3, -0.1, 0.2, -0.05])
+    qdd_desired = np.array([0.5, -0.8, 1.2, -0.4, 0.6, 0.3])
 
     tau_id = engine.rnea(q_test, qd_test, qdd_desired)
     qdd_recovered = engine.forward_dynamics(q_test, qd_test, tau_id, include_friction=False)

@@ -28,7 +28,6 @@ def generate_launch_description():
             default_planning_pipeline="ompl",
         )
         .trajectory_execution(file_path="config/moveit_controllers.yaml")
-        .sensors_3d(file_path="config/sensors_3d.yaml")
         .to_moveit_configs()
     )
 
@@ -59,16 +58,38 @@ def generate_launch_description():
         package="moveit_ros_move_group",
         executable="move_group",
         output="screen",
+        arguments=[
+            "--ros-args",
+            "--log-level", "kdl_parser:=ERROR",
+            "--log-level", "move_group.moveit.moveit.ros.occupancy_map_monitor:=FATAL",
+        ],
         parameters=move_group_params,
+    )
+
+    # Center of Mass and Link Masses Visualizer Node for RViz2
+    com_visualizer_node = Node(
+        package='denso_vs6556_moveit_config',
+        executable='denso_com_visualizer.py',
+        name='denso_com_visualizer',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
     )
 
     # RViz2 Node (with use_sim_time)
     rviz_node = Node(
         package="rviz2",
         executable="rviz2",
-        name="rviz2",
+        name="rviz_visualizer",
         output="screen",
-        arguments=["-d", rviz_config],
+        arguments=[
+            "-d", rviz_config,
+            "--ros-args",
+            "--log-level", "rcl.logging_rosout:=ERROR",
+            "--log-level", "rviz_visualizer.moveit.ros.motion_planning_frame:=FATAL",
+            "--log-level", "kdl_parser:=ERROR",
+            "--log-level", "class_loader:=ERROR",
+            "--log-level", "class_loader.impl:=ERROR",
+        ],
         parameters=[
             moveit_config.robot_description,
             moveit_config.robot_description_semantic,
@@ -83,5 +104,6 @@ def generate_launch_description():
         headless_arg,
         gazebo_launch,
         move_group_node,
+        com_visualizer_node,
         rviz_node,
     ])

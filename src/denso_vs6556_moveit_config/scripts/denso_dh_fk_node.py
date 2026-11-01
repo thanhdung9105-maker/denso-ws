@@ -34,11 +34,12 @@ except ImportError:
     # Fallback definition if run standalone
     EXTENDED_DH_PARAMS = [
         ("link_1", 0.2050,  0.0000,  0.0000, "Z", 0, "Base -> Link 1 (Flange quay J1 h=205mm)"),
-        ("link_2", 0.1300, -0.0750, -0.0745, "Y", 1, "Link 1 -> Link 2 (Vai J2, lệch motor Y=-74.5mm)"),
-        ("link_3", 0.2700,  0.0000,  0.0065, "Y", 2, "Link 2 -> Link 3 (Khuỷu J3, lệch khớp Y=+6.5mm)"),
+        ("link_2", 0.1300, -0.0750, -0.0745, "-Y", 1, "Link 1 -> Link 2 (Vai J2, lệch motor Y=-74.5mm, -Y axis)"),
+        ("link_3", 0.2700,  0.0000,  0.0065, "-Y", 2, "Link 2 -> Link 3 (Khuỷu J3, lệch khớp Y=+6.5mm, -Y axis)"),
         ("link_4", 0.1090,  0.0900,  0.0680, "Z", 3, "Link 3 -> Link 4 (Cẳng tay J4, bù triệt tiêu Y)"),
-        ("link_5", 0.1860,  0.0000,  0.0000, "Y", 4, "Link 4 -> Link 5 (Tâm cổ tay Point P)"),
-        ("flange", 0.0800,  0.0000,  0.0000, "Fixed", -1, "Link 5 -> Flange TCP (Mặt bích +80mm)"),
+        ("link_5", 0.1860,  0.0000,  0.0000, "-Y", 4, "Link 4 -> Link 5 (Tâm cổ tay Point P, -Y axis)"),
+        ("link_6", 0.06204, 0.0000,  0.0000, "Z", 5, "Link 5 -> Link 6 (Cổ tay xoay J6 h=62.04mm, Z axis)"),
+        ("flange", 0.0280,  0.0000,  0.0000, "Fixed", -1, "Link 6 -> Flange Tool TCP (+28mm)"),
     ]
     def extended_dh_matrix(d, a, b, q_angle=0.0, axis="Z"):
         T_trans = np.eye(4)
@@ -50,6 +51,12 @@ except ImportError:
         elif axis == "Y":
             c, s = np.cos(q_angle), np.sin(q_angle)
             T_rot[:3, :3] = np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
+        elif axis == "-Y":
+            c, s = np.cos(q_angle), np.sin(q_angle)
+            T_rot[:3, :3] = np.array([[c, 0.0, -s], [0.0, 1.0, 0.0], [s, 0.0, c]])
+        elif axis == "X":
+            c, s = np.cos(q_angle), np.sin(q_angle)
+            T_rot[:3, :3] = np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
         return T_trans @ T_rot
 
 
@@ -93,8 +100,8 @@ class DensoExtendedDHFKNode(Node):
         self.publish_rate = self.get_parameter('publish_rate').value
         self.verbose = self.get_parameter('verbose').value
         
-        self.current_joints = [0.0, 0.0, 0.0, 0.0, 0.0]
-        self.joint_names = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5']
+        self.current_joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        self.joint_names = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
         
         # Publishers
         self.pose_array_pub = self.create_publisher(PoseArray, '/denso/dh_link_poses', 10)

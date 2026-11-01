@@ -38,3 +38,10 @@ joint_limits:
     max_acceleration: 20.0     # rad/s^2
     has_effort_limits: true
     max_effort: 20.0           # Nm (Allowable: 16.2 Nm)
+  joint_6:
+    has_velocity_limits: true
+    max_velocity: 7.3304       # 420.0 deg/s (AC Servo 100W, Ratio 50:1)
+    has_acceleration_limits: true
+    max_acceleration: 25.0     # rad/s^2
+    has_effort_limits: true
+    max_effort: 15.0           # Nm (Allowable: 11.8 Nm)

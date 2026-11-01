@@ -14,6 +14,7 @@ moveit_simple_controller_manager:
       - joint_3
       - joint_4
       - joint_5
+      - joint_6
 
 trajectory_execution:
   execution_duration_monitoring: true

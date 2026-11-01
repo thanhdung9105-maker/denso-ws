@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Denso VS-6556 Mock Controller:
 - 10Hz stable publishing, synchronized with ROS clock.
@@ -35,21 +35,22 @@ from denso_dynamics_engine import DensoDynamicsEngine, TORQUE_LIMITS
 # Each link moves in 1 direction for 2.0s without any link reversing back and forth
 DEMO_STEPS = [
     # (joint_index, description, target_positions)
-    (0, "Link 1 (Base / Truc Z): Xoay sang +45 deg [1 chieu]", [0.785, 0.0, 0.0, 0.0, 0.0]),
-    (1, "Link 2 (Vai / Truc Y): Gap nghieng toi truoc +45 deg [1 chieu]", [0.785, 0.785, 0.0, 0.0, 0.0]),
-    (2, "Link 3 (Khuu tay / Truc Y): Gap khuu tay xuong +45 deg [1 chieu]", [0.785, 0.785, 0.785, 0.0, 0.0]),
-    (3, "Link 4 (Cang tay / Forearm Roll): Xoay truc doc +90 deg [1 chieu]", [0.785, 0.785, 0.785, 1.57, 0.0]),
-    (4, "Link 5 (Co tay / Wrist Pitch): Gap ngua co tay len +50 deg [1 chieu]", [0.785, 0.785, 0.785, 1.57, 0.87]),
-    (-1, "Toan bo canh tay: Dong bo thu ve Home (0 deg)", [0.0, 0.0, 0.0, 0.0, 0.0]),
+    (0, "Link 1 (Base / Truc Z): Xoay sang +45 deg [1 chieu]", [0.785, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    (1, "Link 2 (Vai / Truc Y): Gap nghieng toi truoc +45 deg [1 chieu]", [0.785, 0.785, 0.0, 0.0, 0.0, 0.0]),
+    (2, "Link 3 (Khuu tay / Truc Y): Gap khuu tay xuong +45 deg [1 chieu]", [0.785, 0.785, 0.785, 0.0, 0.0, 0.0]),
+    (3, "Link 4 (Cang tay / Forearm Roll): Xoay truc doc +90 deg [1 chieu]", [0.785, 0.785, 0.785, 1.57, 0.0, 0.0]),
+    (4, "Link 5 (Co tay / Wrist Pitch): Gap ngua co tay len +50 deg [1 chieu]", [0.785, 0.785, 0.785, 1.57, 0.87, 0.0]),
+    (5, "Link 6 (Mat bich / Flange Roll): Xoay bích +90 deg [1 chieu]", [0.785, 0.785, 0.785, 1.57, 0.87, 1.57]),
+    (-1, "Toan bo canh tay: Dong bo thu ve Home (0 deg)", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
 ]
 
 class DensoController(Node):
     def __init__(self):
         super().__init__('denso_mock_controller')
 
-        self.joint_names = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5']
+        self.joint_names = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
         # Fixed at 0.0 degrees on launch
-        self.current_positions = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self.current_positions = [0.0] * len(self.joint_names)
 
         # Timing parameters
         self.link_duration = 2.0   # Exactly 2.0s movement per link
@@ -61,7 +62,7 @@ class DensoController(Node):
         self.demo_step_idx = 0
         self.demo_state = "IDLE"
         self.demo_state_start_time = time.monotonic()
-        self.demo_start_pos = [0.0, 0.0, 0.0, 0.0, 0.0]
+        self.demo_start_pos = [0.0] * len(self.joint_names)
         self.demo_target_pos = list(DEMO_STEPS[0][2])
         self.external_active = False
 
@@ -74,7 +75,7 @@ class DensoController(Node):
         self.payload_mass = 0.0
         self.dynamics_markers_visible = True
         self.prev_positions = list(self.current_positions)
-        self.prev_velocities = [0.0] * 5
+        self.prev_velocities = [0.0] * len(self.joint_names)
         self.prev_time = time.monotonic()
 
         # Visual Marker publisher for RViz2 dynamics visualization
@@ -151,13 +152,15 @@ class DensoController(Node):
                 self.demo_enabled = False
                 self.demo_state = "MOVE"
                 self.demo_start_pos = list(self.current_positions)
-                self.demo_target_pos = [0.0, 0.0, 0.0, 0.0, 0.0]
+                self.demo_target_pos = [0.0] * len(self.joint_names)
                 self.demo_state_start_time = time.monotonic()
                 self.get_logger().info('Canh tay dang ve Home 0 deg...')
             elif cmd.startswith('goto'):
                 try:
                     parts = [float(x) for x in cmd.split()[1:]]
-                    if len(parts) == 5:
+                    if len(parts) in (5, 6):
+                        while len(parts) < len(self.joint_names):
+                            parts.append(0.0)
                         self.demo_enabled = False
                         self.demo_state = "MOVE"
                         self.demo_start_pos = list(self.current_positions)

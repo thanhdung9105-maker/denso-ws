@@ -19,7 +19,7 @@ class DensoCartesianController(Node):
     def __init__(self):
         super().__init__('denso_cartesian_controller')
         self.engine = DensoDynamicsEngine()
-        self.current_joints = np.zeros(5)
+        self.current_joints = np.zeros(len(JOINT_NAMES))
         self.received_js = False
 
         self.js_sub = self.create_subscription(
@@ -38,9 +38,8 @@ class DensoCartesianController(Node):
         self.received_js = True
 
     def get_current_cartesian(self, use_flange=False):
-        transforms, _ = self.engine.get_dh_transforms(self.current_joints)
-        idx = 5 if use_flange else 4
-        return transforms[idx][:3, 3] * 1000.0
+        fk = self.engine.compute_forward_kinematics(self.current_joints, use_flange=use_flange)
+        return fk["position_mm"]
 
     def solve_ik(self, target_xyz_mm, use_flange=False):
         target_m = np.array(target_xyz_mm) / 1000.0
@@ -60,22 +59,24 @@ class DensoCartesianController(Node):
         traj.points = [pt]
         self.traj_pub.publish(traj)
 
-def print_table(current_q, target_q, title='BANG GOC CAC JOINT CUA ROBOT'):
+def print_table(current_q, target_q, title='BANG GOC CAC JOINT CUA ROBOT (6-DOF)'):
     JOINT_DISPLAY_NAMES = [
         'J1 De (Yaw - Z)',
         'J2 Vai (Pitch - Y)',
         'J3 Khuyu (Pitch - Y)',
         'J4 Cang tay (Roll - Z)',
-        'J5 Co tay (Pitch - Y)'
+        'J5 Co tay (Pitch - Y)',
+        'J6 Mat bich (Roll - Z)'
     ]
     sep = '=' * 90
     print('')
     print(sep)
     print(f' {title:^88}')
     print(sep)
-    print(f'{'Khop (Joint)':<22} | {'Hien Tai (deg)':<14} | {'Hien Tai (rad)':<15} | {'Muc Tieu (deg)':<14} | {'Do Lech Dq (deg)':<15}')
+    print(f'{"Khop (Joint)":<22} | {"Hien Tai (deg)":<14} | {"Hien Tai (rad)":<15} | {"Muc Tieu (deg)":<14} | {"Do Lech Dq (deg)":<15}')
     print('-' * 90)
-    for i in range(5):
+    num_j = min(len(current_q), len(target_q), len(JOINT_DISPLAY_NAMES))
+    for i in range(num_j):
         cur_deg = math.degrees(current_q[i])
         cur_rad = current_q[i]
         tar_deg = math.degrees(target_q[i])

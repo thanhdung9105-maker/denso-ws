@@ -45,11 +45,8 @@ except ImportError:
         JOINT_LIMITS, JOINT_NAMES
     )
 
-try:
-    from denso_gcode_vision_engine import ImageGCodeDrawingTab, DrawingTrailPublisher
-except ImportError:
-    sys.path.append(os.path.dirname(__file__))
-    from denso_gcode_vision_engine import ImageGCodeDrawingTab, DrawingTrailPublisher
+# Vision & G-code engine is loaded on-demand or preloaded in background for sub-second startup
+ImageGCodeDrawingTab = None
 
 from PyQt5.QtWidgets import (
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QGridLayout,
@@ -60,7 +57,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QFont
 
-JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5']
+JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
+JOINT_NAME_TO_IDX = {name: i for i, name in enumerate(JOINT_NAMES)}
 
 JOINT_INFO = [
     {
@@ -96,7 +94,7 @@ JOINT_INFO = [
     {
         'id': 'joint_4',
         'name': 'Khớp 4 (Forearm Roll)',
-        'axis': 'Trục X',
+        'axis': 'Trục Z',
         'rad_min': -3.316,
         'rad_max': 3.316,
         'deg_min': -190.0,
@@ -112,6 +110,16 @@ JOINT_INFO = [
         'deg_min': -120.0,
         'deg_max': 120.0,
         'effort_limit': 20.0
+    },
+    {
+        'id': 'joint_6',
+        'name': 'Khớp 6 (Mặt bích / Roll)',
+        'axis': 'Trục Z',
+        'rad_min': -6.283,
+        'rad_max': 6.283,
+        'deg_min': -360.0,
+        'deg_max': 360.0,
+        'effort_limit': 15.0
     }
 ]
 
@@ -120,15 +128,16 @@ JOINT_NAMES_VI = [
     "J2 Vai (Shoulder Pitch)",
     "J3 Khuỷu (Elbow Pitch)",
     "J4 Cẳng tay (Roll)",
-    "J5 Cổ tay (Wrist Pitch)"
+    "J5 Cổ tay (Wrist Pitch)",
+    "J6 Mặt bích (Flange Roll)"
 ]
 
 PRESETS = {
-    '🏠 Về Home (0°)': [0.0, 0.0, 0.0, 0.0, 0.0],
-    '🎯 Sẵn sàng (Ready)': [0.0, 30.0, 45.0, 0.0, 30.0],
-    '📦 Vị trí Gắp (Pick)': [45.0, 45.0, 60.0, 0.0, -30.0],
-    '📥 Vị trí Đặt (Place)': [-45.0, 30.0, 75.0, 0.0, -15.0],
-    '🔭 Vươn xa (Reach)': [0.0, 15.0, 30.0, 0.0, 0.0],
+    '🏠 Về Home (0°)': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    '🎯 Sẵn sàng (Ready)': [0.0, 30.0, 45.0, 0.0, 30.0, 0.0],
+    '📦 Vị trí Gắp (Pick)': [45.0, 45.0, 60.0, 0.0, -30.0, 0.0],
+    '📥 Vị trí Đặt (Place)': [-45.0, 30.0, 75.0, 0.0, -15.0, 0.0],
+    '🔭 Vươn xa (Reach)': [0.0, 15.0, 30.0, 0.0, 0.0, 0.0],
 }
 
 
@@ -144,9 +153,9 @@ class GazeboRosBridge:
         self.marker_pub = None
         self.tf_broadcaster = None
 
-        self.latest_positions = [0.0] * 5
-        self.latest_velocities = [0.0] * 5
-        self.latest_efforts = [0.0] * 5
+        self.latest_positions = [0.0] * len(JOINT_NAMES)
+        self.latest_velocities = [0.0] * len(JOINT_NAMES)
+        self.latest_efforts = [0.0] * len(JOINT_NAMES)
         self.last_msg_time = 0.0
         self.lock = threading.Lock()
         self.pending_cartesian_target = None
@@ -237,11 +246,10 @@ class GazeboRosBridge:
         threading.Thread(target=_spin_worker, daemon=True).start()
 
     def _joint_state_cb(self, msg: JointState):
-        name_to_idx = {name: i for i, name in enumerate(JOINT_NAMES)}
         with self.lock:
             for i, name in enumerate(msg.name):
-                if name in name_to_idx:
-                    idx = name_to_idx[name]
+                idx = JOINT_NAME_TO_IDX.get(name)
+                if idx is not None:
                     if i < len(msg.position):
                         self.latest_positions[idx] = float(msg.position[i])
                     if i < len(msg.velocity):
@@ -249,6 +257,13 @@ class GazeboRosBridge:
                     if i < len(msg.effort):
                         self.latest_efforts[idx] = float(msg.effort[i])
             self.last_msg_time = time.time()
+
+    def stop(self):
+        if self.node:
+            try:
+                self.node.destroy_node()
+            except Exception:
+                pass
 
     def _cartesian_target_cb(self, msg: PoseStamped):
         with self.lock:
@@ -282,7 +297,7 @@ class GazeboRosBridge:
                 self.last_msg_time
             )
 
-    def send_trajectory(self, target_rads, duration_sec=2.0):
+    def send_trajectory(self, target_rads, duration_sec=2.0, zero_velocity=True):
         if not self.traj_pub:
             return
         traj = JointTrajectory()
@@ -290,7 +305,8 @@ class GazeboRosBridge:
 
         point = JointTrajectoryPoint()
         point.positions = [float(r) for r in target_rads]
-        point.velocities = [0.0] * len(target_rads)
+        if zero_velocity:
+            point.velocities = [0.0] * len(target_rads)
 
         sec = int(duration_sec)
         nanosec = int((duration_sec - sec) * 1e9)
@@ -388,8 +404,8 @@ class GazeboRosBridge:
             js.header.stamp = now
             js.name = JOINT_NAMES
             js.position = [float(v) for v in q_sol]
-            js.velocity = [float(iters)] * 5  # pass iteration count in velocity field
-            js.effort = [float(err_m * 1000.0)] * 5  # pass error in mm in effort field
+            js.velocity = [float(iters)] * len(JOINT_NAMES)  # pass iteration count in velocity field
+            js.effort = [float(err_m * 1000.0)] * len(JOINT_NAMES)  # pass error in mm in effort field
             self.ik_sol_pub.publish(js)
 
         # 3. Broadcast TF base_link -> denso_ik_target
@@ -502,12 +518,12 @@ class DensoGazeboPanel(QMainWindow):
         self.bridge = bridge
         self.is_deg_mode = True
         self.live_drag = False
-        self.target_rads = [0.0] * 5
-        self.actual_rads = [0.0] * 5
-        self.actual_efforts = [0.0] * 5
-        self.filtered_efforts = [0.0] * 5
-        self._prev_eff_colors = [None] * 5
-        self._prev_act_colors = [None] * 5
+        self.target_rads = [0.0] * len(JOINT_NAMES)
+        self.actual_rads = [0.0] * len(JOINT_NAMES)
+        self.actual_efforts = [0.0] * len(JOINT_NAMES)
+        self.filtered_efforts = [0.0] * len(JOINT_NAMES)
+        self._prev_eff_colors = [None] * len(JOINT_NAMES)
+        self._prev_act_colors = [None] * len(JOINT_NAMES)
         self.updating_widgets = False
         self.engine = DensoDynamicsEngine()
         self.ik_target_pos = [15.0, 0.0, 900.0]
@@ -517,8 +533,13 @@ class DensoGazeboPanel(QMainWindow):
         self.matrix_view_idx = 5
         self.latest_fk_data = None
         self.telemetry_payload = 0.0
-        self.prev_velocities = [0.0] * 5
-        self.actual_accels = [0.0] * 5
+        self.prev_velocities = [0.0] * len(JOINT_NAMES)
+        self.actual_accels = [0.0] * len(JOINT_NAMES)
+        self.filtered_vels = [0.0] * len(JOINT_NAMES)
+        self.filtered_taus = [0.0] * len(JOINT_NAMES)
+        self.filtered_loads = [0.0] * len(JOINT_NAMES)
+        self._tab4_prev_load_levels = [-1] * len(JOINT_NAMES)
+        self._tab4_prev_badge_levels = [-1] * len(JOINT_NAMES)
         self.prev_time = time.time()
 
         self.init_ui()
@@ -662,11 +683,39 @@ class DensoGazeboPanel(QMainWindow):
         tab_telemetry = self.create_telemetry_tab()
         self.tabs.addTab(tab_telemetry, "📊 4. BẢNG THÔNG SỐ ĐỘNG LỰC HỌC (TELEMETRY)")
 
-        # Tab 5: G-code & Image Vision Trajectory Drawing
+        # Tab 5: G-code & Image Vision Trajectory Drawing (Nạp trực tiếp không chờ)
+        from denso_gcode_vision_engine import ImageGCodeDrawingTab
         self.tab_gcode = ImageGCodeDrawingTab(self.bridge, self.engine, self)
         self.tabs.addTab(self.tab_gcode, "🎨 5. KHẮC / VẼ HÌNH ẢNH & G-CODE")
+        self.tabs.currentChanged.connect(self._on_tab_changed_lazy)
+
+        # Tab 6: BẢNG TRA GÓC 6-LINK (A, B, C, U, V, W) RIÊNG BIỆT - HIỂN THỊ ĐẦY ĐỦ TOÀN BỘ SỐ LIỆU CÁC LINK
+        from denso_gcode_joint_table import GCodeJointAnglesTableWidget
+        self.tab_joint_table = GCodeJointAnglesTableWidget(
+            bridge=self.bridge,
+            engine=self.engine,
+            is_embedded=False,
+            parent=self
+        )
+        self.tabs.addTab(self.tab_joint_table, "🤖 6. BẢNG TRA GÓC 6-LINK (A, B, C, U, V, W)")
+
+        if self.tab_gcode is not None:
+            self.tab_gcode.joint_table_widget = self.tab_joint_table
+            self.tab_joint_table.sig_point_selected.connect(self.tab_gcode._on_table_point_selected)
+            if getattr(self.tab_gcode, "current_strokes", None):
+                self.tab_joint_table.set_strokes(
+                    self.tab_gcode.current_strokes,
+                    item_name=self.tab_gcode.lbl_img_path.text()
+                )
 
         main_layout.addWidget(self.tabs, 1)
+
+    def _on_tab_changed_lazy(self, index):
+        if index in [0, 1]:
+            self._refresh_ik_table()
+
+    def _ensure_tab_gcode_loaded(self):
+        pass
 
     def _make_kpi_card(self, title, initial_val, color="#38bdf8"):
         box = QFrame()
@@ -782,7 +831,7 @@ class DensoGazeboPanel(QMainWindow):
             ("➡️ Phía Trước", self._preset_front),
             ("➡️ Bên Phải", self._preset_right),
             ("⬅️ Bên Trái", self._preset_left),
-            ("🛠️ Bàn Gắp (Thấp)", self._preset_table),
+            ("🎨 Bàn Vẽ (Phía Sau)", self._preset_table),
             ("🔭 Vươn Cao", self._preset_reach)
         ]
         for pi, (pname, pfn) in enumerate(presets):
@@ -855,7 +904,7 @@ class DensoGazeboPanel(QMainWindow):
         right_layout.addLayout(cards_layout)
 
         # 2. Bảng Góc Quay Của 5 Khớp / Link
-        self.table_link_angles = QTableWidget(5, 7)
+        self.table_link_angles = QTableWidget(len(JOINT_NAMES), 7)
         self.table_link_angles.setHorizontalHeaderLabels([
             "Khớp & Khâu", "Trục Quay", "Góc Hiện Tại (Gazebo)", "Góc Mục Tiêu (Target)", "Góc Cần Quay (Δq)", "Giới Hạn An Toàn", "Trạng Thái Khớp"
         ])
@@ -984,8 +1033,8 @@ class DensoGazeboPanel(QMainWindow):
         dh_box = QGroupBox("📘 THÔNG SỐ DH DENSO VS-6556")
         dh_box.setStyleSheet("background-color: #0b1120; border: 1px solid #1e293b; border-radius: 6px; padding: 8px;")
         dh_layout = QVBoxLayout(dh_box)
-        dh_table = QTableWidget(5, 4)
-        dh_table.setHorizontalHeaderLabels(["Khâu (i)", "a_i (mm)", "α_i (deg)", "d_i (mm)"])
+        dh_table = QTableWidget(len(JOINT_NAMES), 5)
+        dh_table.setHorizontalHeaderLabels(["Khâu (i)", "a_i (mm)", "α_i (deg)", "d_i (mm)", "θ_i / Trục"])
         dh_table.verticalHeader().setVisible(False)
         dh_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         dh_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -995,7 +1044,7 @@ class DensoGazeboPanel(QMainWindow):
                 background-color: #020617;
                 color: #94a3b8;
                 font-family: Consolas, monospace;
-                font-size: 11px;
+                font-size: 10px;
                 border: 1px solid #1e293b;
             }
             QHeaderView::section {
@@ -1007,14 +1056,15 @@ class DensoGazeboPanel(QMainWindow):
             }
         """)
         dh_data = [
-            ("1 (Base->L1)", "0", "-90°", "335"),
-            ("2 (Vai->L2)", "270", "0°", "0"),
-            ("3 (Khuỷu->L3)", "-90", "-90°", "0"),
-            ("4 (Cẳng tay)", "0", "90°", "295"),
-            ("5 (Cổ tay)", "0", "0°", "80 (Flange)")
+            ("1 (Base->L1)", "-75", "-90°", "335", "q1 (Z)"),
+            ("2 (Vai->L2)", "270", "0°", "0", "-q2 - 90° (-Y)"),
+            ("3 (Khuỷu->L3)", "90", "+90°", "0", "-q3 + 90° (-Y)"),
+            ("4 (Cẳng tay)", "0", "-90°", "295", "q4 (Z)"),
+            ("5 (Cổ tay)", "0", "+90°", "0", "-q5 (-Y)"),
+            ("6 (Mặt bích)", "0", "0°", "90", "q6 (Z)")
         ]
-        for row_i, (k, a, alp, d) in enumerate(dh_data):
-            for col_i, txt in enumerate([k, a, alp, d]):
+        for row_i, (k, a, alp, d, th) in enumerate(dh_data):
+            for col_i, txt in enumerate([k, a, alp, d, th]):
                 it = QTableWidgetItem(txt)
                 it.setTextAlignment(Qt.AlignCenter)
                 dh_table.setItem(row_i, col_i, it)
@@ -1042,7 +1092,7 @@ class DensoGazeboPanel(QMainWindow):
         cards_layout.addWidget(self.card_dist)
         right_layout.addLayout(cards_layout)
 
-        self.ik_table = QTableWidget(5, 6)
+        self.ik_table = QTableWidget(len(JOINT_NAMES), 6)
         self.ik_table.setHorizontalHeaderLabels([
             "Khớp", "Trục & Tên", "Hiện Tại Gazebo (FK)", "Mục Tiêu (IK)", "Sai Lệch Δq", "Tọa Độ Link [X, Y, Z] (mm)"
         ])
@@ -1171,7 +1221,7 @@ class DensoGazeboPanel(QMainWindow):
         self._calc_ik()
 
     def _preset_table(self):
-        self._set_spin_values_silently(350.0, 0.0, 200.0)
+        self._set_spin_values_silently(-380.0, 0.0, 180.0)
         self._calc_ik()
 
     def _preset_reach(self):
@@ -1207,9 +1257,11 @@ class DensoGazeboPanel(QMainWindow):
             it.setTextAlignment(Qt.AlignCenter if col > 0 else Qt.AlignLeft | Qt.AlignVCenter)
             table.setItem(row, col, it)
         else:
-            it.setText(text)
+            if it.text() != text:
+                it.setText(text)
         if color:
-            it.setForeground(color)
+            if it.foreground().color() != color:
+                it.setForeground(color)
 
     def _calc_ik(self):
         tx = self.spin_ik_x.value()
@@ -1287,7 +1339,7 @@ class DensoGazeboPanel(QMainWindow):
         # Cập nhật target_rads và đồng bộ giao diện Tab 3 (Joint Sliders)
         self.target_rads = list(q_sol)
         self.updating_widgets = True
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             self._sync_slider_from_target(i)
             if self.is_deg_mode:
                 self.spin_boxes[i].setValue(math.degrees(q_sol[i]))
@@ -1324,7 +1376,7 @@ class DensoGazeboPanel(QMainWindow):
 
         # Cập nhật Bảng Góc Quay Khớp ở Tab 1
         if hasattr(self, "table_link_angles"):
-            for i in range(5):
+            for i in range(len(JOINT_NAMES)):
                 cur_deg = math.degrees(self.actual_rads[i])
                 cur_rad = self.actual_rads[i]
 
@@ -1378,7 +1430,7 @@ class DensoGazeboPanel(QMainWindow):
         # Cập nhật Bảng Động Học Thuận Tab 2
         if hasattr(self, "ik_table"):
             link_pts = fk["link_positions_mm"]
-            for i in range(5):
+            for i in range(len(JOINT_NAMES)):
                 cur_deg = math.degrees(self.actual_rads[i])
                 cur_rad = self.actual_rads[i]
 
@@ -1467,7 +1519,7 @@ class DensoGazeboPanel(QMainWindow):
                 writer.writerow([])
                 writer.writerow(["Joint_ID", "Joint_Name", "Actual_Deg", "Actual_Rad", "Target_Deg", "Target_Rad", "Diff_Deg", "Limit_Min_Deg", "Limit_Max_Deg", "Link_X_mm", "Link_Y_mm", "Link_Z_mm"])
 
-                for i in range(5):
+                for i in range(len(JOINT_NAMES)):
                     act_deg = math.degrees(self.actual_rads[i])
                     tar_deg = math.degrees(sol[i])
                     lp = fk["link_positions_mm"][i + 1]
@@ -1518,7 +1570,7 @@ class DensoGazeboPanel(QMainWindow):
                         "target_deg": round(math.degrees(sol[i]), 2),
                         "target_rad": round(sol[i], 4),
                         "link_pos_mm": [round(float(v), 1) for v in fk["link_positions_mm"][i + 1]]
-                    } for i in range(5)
+                    } for i in range(len(JOINT_NAMES))
                 ],
                 "transforms_T0": [
                     [[round(float(val), 4) for val in row] for row in T]
@@ -1616,7 +1668,7 @@ class DensoGazeboPanel(QMainWindow):
         tbl_layout = QVBoxLayout(tbl_container)
         tbl_layout.setContentsMargins(6, 10, 6, 6)
 
-        self.telemetry_table = QTableWidget(5, 10)
+        self.telemetry_table = QTableWidget(len(JOINT_NAMES), 10)
         self.telemetry_table.setHorizontalHeaderLabels([
             "Khớp", "Trục & Vai Trò", "Vị Trí Góc q", "Vận Tốc q̇", "Gia Tốc q̈",
             "Mô-Men τ (N·m)", "Giới Hạn τ_max", "Tải Động Cơ (%)", "Công Suất P (W)", "Trạng Thái"
@@ -1642,7 +1694,7 @@ class DensoGazeboPanel(QMainWindow):
         self.telemetry_table.setFixedHeight(275)
         self.telemetry_table.setAlternatingRowColors(True)
 
-        for row in range(5):
+        for row in range(len(JOINT_NAMES)):
             self.telemetry_table.setRowHeight(row, 46)
 
         self.telemetry_table.setStyleSheet("""
@@ -1678,7 +1730,7 @@ class DensoGazeboPanel(QMainWindow):
         self.tab3_progress_bars = []
         self.tab3_status_badges = []
 
-        for row in range(5):
+        for row in range(len(JOINT_NAMES)):
             it_name = QTableWidgetItem(f"Joint {row+1}")
             it_name.setFont(QFont("Segoe UI", 11, QFont.Bold))
             it_name.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1878,7 +1930,7 @@ class DensoGazeboPanel(QMainWindow):
                     "Torque_RNEA_Nm", "Effort_Gazebo_Nm", "Limit_Nm", "Load_Percent",
                     "Power_Watts", "Payload_kg"
                 ])
-                for i in range(5):
+                for i in range(len(JOINT_NAMES)):
                     writer.writerow([
                         JOINT_NAMES[i],
                         JOINT_NAMES_VI[i],
@@ -1913,95 +1965,203 @@ class DensoGazeboPanel(QMainWindow):
         dt = max(1e-3, now - self.prev_time)
         self.prev_time = now
 
-        for i in range(5):
-            raw_acc = (vel[i] - self.prev_velocities[i]) / dt
-            # Exponential moving average filter
-            self.actual_accels[i] = 0.8 * self.actual_accels[i] + 0.2 * raw_acc
-        self.prev_velocities = list(vel)
+        # Khử rung vị trí quanh mốc 0 (Deadband < 0.05 độ để triệt tiêu hiện tượng "-0.0°")
+        clean_pos = list(pos)
+        for i in range(len(JOINT_NAMES)):
+            if abs(math.degrees(clean_pos[i])) < 0.05:
+                clean_pos[i] = 0.0
 
-        # Inverse Dynamics Calculation via RNEA
+        # Lọc thông thấp EMA cho vận tốc và Deadband khi robot đứng yên
+        alpha_vel = 0.20
+        clean_vel = [0.0] * len(JOINT_NAMES)
+        for i in range(len(JOINT_NAMES)):
+            self.filtered_vels[i] = (1.0 - alpha_vel) * self.filtered_vels[i] + alpha_vel * vel[i]
+            # Vận tốc dưới 0.002 rad/s (~0.11°/s) xem như robot đứng yên hoàn toàn
+            if abs(self.filtered_vels[i]) < 0.002:
+                self.filtered_vels[i] = 0.0
+            clean_vel[i] = self.filtered_vels[i]
+
+        # Tính gia tốc số học từ vận tốc đã lọc mịn, kèm phân rã khi dừng chuyển động
+        for i in range(len(JOINT_NAMES)):
+            if clean_vel[i] == 0.0 and self.prev_velocities[i] == 0.0:
+                raw_acc = 0.0
+                self.actual_accels[i] = 0.6 * self.actual_accels[i]
+            else:
+                raw_acc = (clean_vel[i] - self.prev_velocities[i]) / dt
+                self.actual_accels[i] = 0.85 * self.actual_accels[i] + 0.15 * raw_acc
+
+            # Deadband gia tốc dưới 0.01 rad/s² (~0.5°/s²) cố định về 0.0
+            if abs(self.actual_accels[i]) < 0.01:
+                self.actual_accels[i] = 0.0
+        self.prev_velocities = list(clean_vel)
+
+        # Tính toán động lực học ngược RNEA bằng bộ trạng thái đã khử nhiễu
         dyn_res = self.engine.inverse_dynamics(
-            pos, vel, self.actual_accels, payload_mass=self.telemetry_payload
+            clean_pos, clean_vel, self.actual_accels, payload_mass=self.telemetry_payload
         )
-        taus = dyn_res['tau']
-        pct_loads = dyn_res['percent_load']
+        raw_taus = dyn_res['tau']
+
+        # Lọc thông thấp EMA cho Mô-men lực và Tải động cơ, khử giật số
+        alpha_tau = 0.15
+        taus = [0.0] * len(JOINT_NAMES)
+        pct_loads = [0.0] * len(JOINT_NAMES)
+        for i in range(len(JOINT_NAMES)):
+            self.filtered_taus[i] = (1.0 - alpha_tau) * self.filtered_taus[i] + alpha_tau * raw_taus[i]
+            # Deadband lực dưới 0.02 N·m cố định về 0.0 (khử -0.00 N·m cho trục 1 Base Yaw)
+            if abs(self.filtered_taus[i]) < 0.02:
+                self.filtered_taus[i] = 0.0
+            taus[i] = self.filtered_taus[i]
+
+            limit = JOINT_INFO[i]['effort_limit']
+            raw_pct = (abs(taus[i]) / limit) * 100.0
+            self.filtered_loads[i] = 0.85 * self.filtered_loads[i] + 0.15 * raw_pct
+            if self.filtered_loads[i] < 0.05:
+                self.filtered_loads[i] = 0.0
+            pct_loads[i] = min(100.0, self.filtered_loads[i])
 
         # Self-collision check
-        is_col, col_reason = self.engine.check_collision(pos)
+        is_col, col_reason = self.engine.check_collision(clean_pos)
 
-        # Update Top KPI Cards
-        max_tau = float(max(abs(taus)))
-        max_load = float(max(pct_loads))
-        total_power = sum(abs(taus[i] * vel[i]) for i in range(5))
+        # Cập nhật Top KPI Cards (chống nhấp nháy giao diện)
+        max_tau = float(max(abs(taus[j]) for j in range(len(JOINT_NAMES))))
+        if max_tau < 0.05:
+            max_tau = 0.0
+        max_load = float(max(pct_loads[j] for j in range(len(JOINT_NAMES))))
+        if max_load < 0.05:
+            max_load = 0.0
+        total_power = sum(abs(taus[j] * clean_vel[j]) for j in range(len(JOINT_NAMES)))
+        if total_power < 0.05:
+            total_power = 0.0
 
-        self.kpi_tau_val.setText(f"{max_tau:.1f} N·m")
-        self.kpi_load_val.setText(f"{max_load:.1f}%")
-        self.kpi_power_val.setText(f"{total_power:.1f} W")
+        new_tau_text = f"{max_tau:.1f} N·m"
+        if self.kpi_tau_val.text() != new_tau_text:
+            self.kpi_tau_val.setText(new_tau_text)
+
+        new_load_text = f"{max_load:.1f}%"
+        if self.kpi_load_val.text() != new_load_text:
+            self.kpi_load_val.setText(new_load_text)
+
+        new_power_text = f"{total_power:.1f} W"
+        if self.kpi_power_val.text() != new_power_text:
+            self.kpi_power_val.setText(new_power_text)
 
         if is_col:
-            self.kpi_safety_val.setText("⚠️ VA CHẠM TỰ THÂN")
-            self.kpi_safety_val.setStyleSheet("color: #dc2626; font-size: 16px; font-weight: bold;")
-            self.kpi_safety_sub.setText(col_reason)
+            if self.kpi_safety_val.text() != "⚠️ VA CHẠM TỰ THÂN":
+                self.kpi_safety_val.setText("⚠️ VA CHẠM TỰ THÂN")
+                self.kpi_safety_val.setStyleSheet("color: #dc2626; font-size: 16px; font-weight: bold;")
+                self.kpi_safety_sub.setText(col_reason)
         elif max_load > 85.0:
-            self.kpi_safety_val.setText("🔥 QUÁ TẢI MOTOR")
-            self.kpi_safety_val.setStyleSheet("color: #dc2626; font-size: 18px; font-weight: bold;")
-            self.kpi_safety_sub.setText("Tải động cơ vượt ngưỡng 85%")
+            if self.kpi_safety_val.text() != "🔥 QUÁ TẢI MOTOR":
+                self.kpi_safety_val.setText("🔥 QUÁ TẢI MOTOR")
+                self.kpi_safety_val.setStyleSheet("color: #dc2626; font-size: 18px; font-weight: bold;")
+                self.kpi_safety_sub.setText("Tải động cơ vượt ngưỡng 85%")
         elif max_load > 60.0:
-            self.kpi_safety_val.setText("⚡ TẢI CAO")
-            self.kpi_safety_val.setStyleSheet("color: #d97706; font-size: 18px; font-weight: bold;")
-            self.kpi_safety_sub.setText("Đang hoạt động mức tải trung bình")
+            if self.kpi_safety_val.text() != "⚡ TẢI CAO":
+                self.kpi_safety_val.setText("⚡ TẢI CAO")
+                self.kpi_safety_val.setStyleSheet("color: #d97706; font-size: 18px; font-weight: bold;")
+                self.kpi_safety_sub.setText("Đang hoạt động mức tải trung bình")
         else:
-            self.kpi_safety_val.setText("● AN TOÀN")
-            self.kpi_safety_val.setStyleSheet("color: #059669; font-size: 19px; font-weight: bold;")
-            self.kpi_safety_sub.setText("Tất cả khớp hoạt động trong định mức")
+            if self.kpi_safety_val.text() != "● AN TOÀN":
+                self.kpi_safety_val.setText("● AN TOÀN")
+                self.kpi_safety_val.setStyleSheet("color: #059669; font-size: 19px; font-weight: bold;")
+                self.kpi_safety_sub.setText("Tất cả khớp hoạt động trong định mức")
 
-        # Update 5 Table Rows
-        for i in range(5):
+        # Cập nhật 5 hàng dữ liệu bảng telemetry (chống giật, triệt tiêu -0.0)
+        for i in range(len(JOINT_NAMES)):
             # Pos
-            deg_val = math.degrees(pos[i])
-            self.telemetry_table.item(i, 2).setText(f"{deg_val:+.1f}° ({pos[i]:+.3f})")
+            deg_val = math.degrees(clean_pos[i])
+            if abs(deg_val) < 0.05:
+                deg_val = 0.0
+            rad_val = 0.0 if abs(clean_pos[i]) < 0.0005 else clean_pos[i]
+            pos_str = f"{deg_val:+.1f}° ({rad_val:+.3f})"
+
             # Vel
-            deg_s = math.degrees(vel[i])
-            self.telemetry_table.item(i, 3).setText(f"{deg_s:+.1f}°/s ({vel[i]:+.2f})")
+            deg_s = math.degrees(clean_vel[i])
+            if abs(deg_s) < 0.05:
+                deg_s = 0.0
+            rad_s = 0.0 if abs(clean_vel[i]) < 0.005 else clean_vel[i]
+            vel_str = f"{deg_s:+.1f}°/s ({rad_s:+.2f})"
+
             # Acc
             deg_s2 = math.degrees(self.actual_accels[i])
-            self.telemetry_table.item(i, 4).setText(f"{deg_s2:+.1f}°/s²")
-            # Torque
-            self.telemetry_table.item(i, 5).setText(f"{taus[i]:+.2f} N·m")
-            # Motor load gauge
-            pb, lbl_pct = self.tab3_progress_bars[i]
-            cur_pct = min(100, max(0, int(pct_loads[i])))
-            pb.setValue(cur_pct)
-            lbl_pct.setText(f"{pct_loads[i]:.1f}%")
+            if abs(deg_s2) < 0.05:
+                deg_s2 = 0.0
+            acc_str = f"{deg_s2:+.1f}°/s²"
 
-            if pct_loads[i] > 85:
-                pb.setStyleSheet("QProgressBar { background-color: #fee2e2; border: 1px solid #fca5a5; border-radius: 4px; } QProgressBar::chunk { background-color: #ef4444; border-radius: 3px; }")
-                lbl_pct.setStyleSheet("color: #ef4444; font-weight: bold;")
-            elif pct_loads[i] > 60:
-                pb.setStyleSheet("QProgressBar { background-color: #fef3c7; border: 1px solid #fde68a; border-radius: 4px; } QProgressBar::chunk { background-color: #f59e0b; border-radius: 3px; }")
-                lbl_pct.setStyleSheet("color: #d97706; font-weight: bold;")
-            else:
-                pb.setStyleSheet("QProgressBar { background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; } QProgressBar::chunk { background-color: #10b981; border-radius: 3px; }")
-                lbl_pct.setStyleSheet("color: #059669; font-weight: bold;")
+            # Torque
+            t_val = 0.0 if abs(taus[i]) < 0.005 else taus[i]
+            tau_str = f"{t_val:+.2f} N·m"
 
             # Power
-            p_joint = abs(taus[i] * vel[i])
-            self.telemetry_table.item(i, 8).setText(f"{p_joint:.1f} W")
+            p_joint = abs(taus[i] * clean_vel[i])
+            if p_joint < 0.05:
+                p_joint = 0.0
+            p_str = f"{p_joint:.1f} W"
+
+            # Cập nhật ô chỉ khi chuỗi văn bản thay đổi để tránh Qt re-render liên tục
+            it_pos = self.telemetry_table.item(i, 2)
+            if it_pos and it_pos.text() != pos_str:
+                it_pos.setText(pos_str)
+
+            it_vel = self.telemetry_table.item(i, 3)
+            if it_vel and it_vel.text() != vel_str:
+                it_vel.setText(vel_str)
+
+            it_acc = self.telemetry_table.item(i, 4)
+            if it_acc and it_acc.text() != acc_str:
+                it_acc.setText(acc_str)
+
+            it_tau = self.telemetry_table.item(i, 5)
+            if it_tau and it_tau.text() != tau_str:
+                it_tau.setText(tau_str)
+
+            it_pwr = self.telemetry_table.item(i, 8)
+            if it_pwr and it_pwr.text() != p_str:
+                it_pwr.setText(p_str)
+
+            # Motor load gauge
+            pb, lbl_pct = self.tab3_progress_bars[i]
+            cur_pct = min(100, max(0, int(round(pct_loads[i]))))
+            if pb.value() != cur_pct:
+                pb.setValue(cur_pct)
+            pct_str = f"{pct_loads[i]:.1f}%"
+            if lbl_pct.text() != pct_str:
+                lbl_pct.setText(pct_str)
+
+            load_level = 2 if pct_loads[i] > 85 else (1 if pct_loads[i] > 60 else 0)
+            if not hasattr(self, '_tab4_prev_load_levels'):
+                self._tab4_prev_load_levels = [-1] * len(JOINT_NAMES)
+            if self._tab4_prev_load_levels[i] != load_level:
+                if load_level == 2:
+                    pb.setStyleSheet("QProgressBar { background-color: #fee2e2; border: 1px solid #fca5a5; border-radius: 4px; } QProgressBar::chunk { background-color: #ef4444; border-radius: 3px; }")
+                    lbl_pct.setStyleSheet("color: #ef4444; font-weight: bold;")
+                elif load_level == 1:
+                    pb.setStyleSheet("QProgressBar { background-color: #fef3c7; border: 1px solid #fde68a; border-radius: 4px; } QProgressBar::chunk { background-color: #f59e0b; border-radius: 3px; }")
+                    lbl_pct.setStyleSheet("color: #d97706; font-weight: bold;")
+                else:
+                    pb.setStyleSheet("QProgressBar { background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; } QProgressBar::chunk { background-color: #10b981; border-radius: 3px; }")
+                    lbl_pct.setStyleSheet("color: #059669; font-weight: bold;")
+                self._tab4_prev_load_levels[i] = load_level
 
             # Badge
             badge = self.tab3_status_badges[i]
-            if is_col:
-                badge.setText("⚠️ VA CHẠM")
-                badge.setStyleSheet("background-color: #fee2e2; color: #991b1b; border: 1.5px solid #ef4444; border-radius: 12px; font-weight: bold; font-size: 11px;")
-            elif pct_loads[i] > 85:
-                badge.setText("🔥 QUÁ TẢI")
-                badge.setStyleSheet("background-color: #fee2e2; color: #991b1b; border: 1.5px solid #ef4444; border-radius: 12px; font-weight: bold; font-size: 11px;")
-            elif pct_loads[i] > 60:
-                badge.setText("⚠️ CẢNH BÁO")
-                badge.setStyleSheet("background-color: #fef3c7; color: #92400e; border: 1.5px solid #f59e0b; border-radius: 12px; font-weight: bold; font-size: 11px;")
-            else:
-                badge.setText("● AN TOÀN")
-                badge.setStyleSheet("background-color: #ecfdf5; color: #065f46; border: 1.5px solid #10b981; border-radius: 12px; font-weight: bold; font-size: 11px;")
+            badge_level = 3 if is_col else (2 if pct_loads[i] > 85 else (1 if pct_loads[i] > 60 else 0))
+            if not hasattr(self, '_tab4_prev_badge_levels'):
+                self._tab4_prev_badge_levels = [-1] * len(JOINT_NAMES)
+            if self._tab4_prev_badge_levels[i] != badge_level:
+                if badge_level == 3:
+                    badge.setText("⚠️ VA CHẠM")
+                    badge.setStyleSheet("background-color: #fee2e2; color: #991b1b; border: 1.5px solid #ef4444; border-radius: 12px; font-weight: bold; font-size: 11px;")
+                elif badge_level == 2:
+                    badge.setText("🔥 QUÁ TẢI")
+                    badge.setStyleSheet("background-color: #fee2e2; color: #991b1b; border: 1.5px solid #ef4444; border-radius: 12px; font-weight: bold; font-size: 11px;")
+                elif badge_level == 1:
+                    badge.setText("⚠️ CẢNH BÁO")
+                    badge.setStyleSheet("background-color: #fef3c7; color: #92400e; border: 1.5px solid #f59e0b; border-radius: 12px; font-weight: bold; font-size: 11px;")
+                else:
+                    badge.setText("● AN TOÀN")
+                    badge.setStyleSheet("background-color: #ecfdf5; color: #065f46; border: 1.5px solid #10b981; border-radius: 12px; font-weight: bold; font-size: 11px;")
+                self._tab4_prev_badge_levels[i] = badge_level
 
     def create_joints_tab(self):
         panel = QWidget()
@@ -2157,7 +2317,7 @@ class DensoGazeboPanel(QMainWindow):
         self.btn_read.clicked.connect(self.read_actual_as_target)
         self.btn_stop.clicked.connect(self.stop_and_hold)
 
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             self.spin_boxes[i].valueChanged.connect(lambda val, idx=i: self._on_spin_changed(idx, val))
             self.sliders[i].valueChanged.connect(lambda val, idx=i: self._on_slider_changed(idx, val))
 
@@ -2235,7 +2395,7 @@ class DensoGazeboPanel(QMainWindow):
 
     def apply_preset(self, deg_angles):
         self.updating_widgets = True
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             rad = math.radians(deg_angles[i])
             self.target_rads[i] = rad
             spin = self.spin_boxes[i]
@@ -2256,7 +2416,7 @@ class DensoGazeboPanel(QMainWindow):
 
     def read_actual_as_target(self):
         self.updating_widgets = True
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             rad = self.actual_rads[i]
             self.target_rads[i] = rad
             spin = self.spin_boxes[i]
@@ -2292,15 +2452,22 @@ class DensoGazeboPanel(QMainWindow):
 
         # Cập nhật telemetry Tab 3 (Joints: Sliders & Smooth Effort)
         alpha_eff = 0.12  # Hệ số lọc thông thấp EMA: làm mượt rung lắc lực trong Gazebo
-        for i in range(5):
+        for i in range(len(JOINT_NAMES)):
             if self.is_deg_mode:
-                pos_str = f'Gazebo: {math.degrees(pos[i]):+.2f}°'
+                cur_deg = math.degrees(pos[i])
+                if abs(cur_deg) < 0.05:
+                    cur_deg = 0.0
+                pos_str = f'Gazebo: {cur_deg:+.2f}°'
             else:
-                pos_str = f'Gazebo: {pos[i]:+.3f} rad'
+                cur_rad = pos[i]
+                if abs(cur_rad) < 0.0005:
+                    cur_rad = 0.0
+                pos_str = f'Gazebo: {cur_rad:+.3f} rad'
 
             err = abs(self.target_rads[i] - pos[i])
             color = '#4ade80' if err < 0.02 else '#38bdf8'
-            self.actual_labels[i].setText(pos_str)
+            if self.actual_labels[i].text() != pos_str:
+                self.actual_labels[i].setText(pos_str)
             if self._prev_act_colors[i] != color:
                 self.actual_labels[i].setStyleSheet(f'color: {color}; font-weight: bold; font-size: 12px;')
                 self._prev_act_colors[i] = color
@@ -2324,7 +2491,8 @@ class DensoGazeboPanel(QMainWindow):
             else:
                 eff_text = f'Lực: {smoothed_eff:+.1f} Nm ({eff_pct:.0f}%)'
 
-            self.effort_labels[i].setText(eff_text)
+            if self.effort_labels[i].text() != eff_text:
+                self.effort_labels[i].setText(eff_text)
             # Chỉ cập nhật stylesheet khi đổi màu để tránh Qt re-parse CSS 20 lần/giây gây lag
             if self._prev_eff_colors[i] != eff_color:
                 self.effort_labels[i].setStyleSheet(f'color: {eff_color}; font-size: 11px;')
@@ -2332,12 +2500,42 @@ class DensoGazeboPanel(QMainWindow):
 
         self.actual_efforts = list(self.filtered_efforts)
 
-        # Cập nhật telemetry Tab 1 & Tab 2 (Cartesian IK & Table)
-        self._refresh_ik_table()
+        # Cập nhật telemetry Tab 1 & Tab 2 (Cartesian IK & Table) chỉ khi đang xem Tab 1 hoặc Tab 2
+        if hasattr(self, 'tabs') and self.tabs.currentIndex() in [0, 1]:
+            self._refresh_ik_table()
 
         # Chỉ tính toán động lực học ngược RNEA khi đang xem Tab 4 (Telemetry) để tránh ngốn CPU gây lag
         if hasattr(self, 'tabs') and self.tabs.currentIndex() == 3:
             self._refresh_telemetry_table()
+        # Cập nhật nét vẽ tức thời trong Gazebo Sim theo chuyển động thực tế
+        if hasattr(self, 'tab_gcode') and self.tab_gcode is not None:
+            trail_pub = getattr(self.tab_gcode, 'trail_pub', None)
+            worker = getattr(self.tab_gcode, 'worker', None)
+            is_worker_running = worker is not None and worker.isRunning()
+            
+            # Khi không chạy luồng G-Code tự động, theo dõi ngòi bút khi người dùng điều khiển thủ công
+            if trail_pub is not None and not is_worker_running and is_conn:
+                try:
+                    tfs, _ = self.engine.get_dh_transforms(pos)
+                    # Flange TCP / Stylus Nib
+                    tcp = tfs[5][:3, 3]
+                    x_m, y_m, z_m = float(tcp[0]), float(tcp[1]), float(tcp[2])
+                    
+                    # Kiểm tra ngòi bút chạm bàn vẽ (X: -0.56~-0.20m phía sau, Y: -0.18~0.18m, Z <= 0.182m)
+                    on_board = (-0.56 <= x_m <= -0.20) and (-0.18 <= y_m <= 0.18)
+                    is_touching = on_board and (z_m <= 0.182)
+
+                    if is_touching:
+                        trail_pub.add_point(x_m * 1000.0, y_m * 1000.0, z_m * 1000.0, is_draw=True)
+                    else:
+                        if getattr(self, '_was_manual_touching', False):
+                            trail_pub.end_stroke()
+                        if hasattr(trail_pub, 'gz_trail') and trail_pub.gz_trail:
+                            trail_pub.gz_trail.update_pen_tip(x_m, y_m, z_m, is_draw=False)
+                    self._was_manual_touching = is_touching
+                except Exception:
+                    pass
+
 
 
 def main():
@@ -2366,6 +2564,7 @@ def main():
     window.show()
     ret = app.exec_()
     try:
+        bridge.stop()
         rclpy.shutdown()
     except Exception:
         pass
