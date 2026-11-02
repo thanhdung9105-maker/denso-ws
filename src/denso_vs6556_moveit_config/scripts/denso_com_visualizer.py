@@ -14,6 +14,7 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPo
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 from std_msgs.msg import ColorRGBA
+from tf2_ros import Buffer, TransformListener
 import math
 
 LINK_COM_DATA = [
@@ -83,12 +84,14 @@ class DensoCoMVisualizer(Node):
 
         self.marker_pub = self.create_publisher(MarkerArray, '/denso/com_markers', qos)
         
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
         # Xóa các marker thừa ở link_5/tool (id 6 trước đây)
         self._clear_legacy_markers()
         
-        # Phát ngay một lần lúc khởi động và duy trì phát chu kỳ 0.2s (5 Hz)
+        # Duy trì phát chu kỳ 0.2s (5 Hz) khi TF đã sẵn sàng
         # Giúp RViz2 nhận biểu tượng trọng tâm tức thì, mượt mà khi di chuyển khớp và triệt tiêu tải CPU
-        self.publish_markers()
         self.timer = self.create_timer(0.2, self.publish_markers)
         self.get_logger().info('Denso CoM Visualizer: Da bat dau phat bieu tuong Trong tam Chuan Xac 6 Link.')
 
@@ -114,6 +117,13 @@ class DensoCoMVisualizer(Node):
         self.marker_pub.publish(clear_array)
 
     def publish_markers(self):
+        # Đảm bảo TF tree đã có link_6 trước khi xuất bản marker để triệt tiêu 100% lỗi RViz 'Frame does not exist'
+        try:
+            if not self.tf_buffer.can_transform('world', 'link_6', rclpy.time.Time()):
+                return
+        except Exception:
+            return
+
         marker_array = MarkerArray()
         zero_stamp = rclpy.time.Time(seconds=0, nanoseconds=0).to_msg()
 

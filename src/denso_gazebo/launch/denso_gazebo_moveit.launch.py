@@ -1,7 +1,14 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable, TimerAction
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    SetEnvironmentVariable,
+    TimerAction,
+    RegisterEventHandler,
+)
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -100,24 +107,27 @@ def generate_launch_description():
         ],
     )
 
-    # Khởi động tuần tự có kiểm soát để đảm bảo TF & Controllers sẵn sàng 100%:
-    # 1. move_group_node: Trì hoãn 7.0s để Gazebo và controller_manager tải xong
-    delayed_move_group_node = TimerAction(
-        period=7.0,
-        actions=[move_group_node]
+    # Đồng bộ chính xác: Chờ Gazebo controllers và TF tree [world -> link_6] sẵn sàng 100%
+    wait_node = Node(
+        package="denso_gazebo",
+        executable="denso_wait_for_controllers.py",
+        name="denso_wait_for_controllers",
+        output="screen",
     )
 
-    # 2. com_visualizer_node: Trì hoãn 9.5s để /joint_states và TF link_1..link_6 hoạt động hoàn toàn
-    delayed_com_visualizer_node = TimerAction(
-        period=9.5,
-        actions=[com_visualizer_node]
-    )
-
-    # 3. rviz_node: Trì hoãn 10.0s để toàn bộ hệ thống (Gazebo + Controllers + TF + MoveIt) sẵn sàng
-    # Đảm bảo RViz2 luôn mở lên với 100% trạng thái OK, KHÔNG BAO GIỜ bị lỗi 'No transform from link_1 to world'
-    delayed_rviz_node = TimerAction(
-        period=10.0,
-        actions=[rviz_node]
+    # Kích hoạt MoveIt và RViz2 ngay khi Controllers & TF đã sẵn sàng, triệt tiêu 100% race conditions
+    start_moveit_and_rviz = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=wait_node,
+            on_exit=[
+                move_group_node,
+                com_visualizer_node,
+                TimerAction(
+                    period=0.5,
+                    actions=[rviz_node]
+                ),
+            ],
+        )
     )
 
     gz_partition_env = SetEnvironmentVariable(name="GZ_PARTITION", value="denso_ws")
@@ -128,7 +138,6 @@ def generate_launch_description():
         gz_ip_env,
         headless_arg,
         gazebo_launch,
-        delayed_move_group_node,
-        delayed_com_visualizer_node,
-        delayed_rviz_node,
+        wait_node,
+        start_moveit_and_rviz,
     ])

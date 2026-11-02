@@ -24,6 +24,7 @@ install(PROGRAMS
   scripts/denso_gcode_joint_table.py
   scripts/denso_gcode_catalog.py
   scripts/denso_log_cleaner.py
+  scripts/denso_wait_for_controllers.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
