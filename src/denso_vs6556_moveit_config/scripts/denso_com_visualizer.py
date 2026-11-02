@@ -86,8 +86,10 @@ class DensoCoMVisualizer(Node):
         # Xóa các marker thừa ở link_5/tool (id 6 trước đây)
         self._clear_legacy_markers()
         
-        # Phat song chu ky 1.0 giay (1 Hz) de tiet kiem CPU triet de, van dam bao RViz giu marker on dinh
-        self.timer = self.create_timer(1.0, self.publish_markers)
+        # Phát ngay một lần lúc khởi động và duy trì phát chu kỳ 0.2s (5 Hz)
+        # Giúp RViz2 nhận biểu tượng trọng tâm tức thì, mượt mà khi di chuyển khớp và triệt tiêu tải CPU
+        self.publish_markers()
+        self.timer = self.create_timer(0.2, self.publish_markers)
         self.get_logger().info('Denso CoM Visualizer: Da bat dau phat bieu tuong Trong tam Chuan Xac 6 Link.')
 
     def _clear_legacy_markers(self):
