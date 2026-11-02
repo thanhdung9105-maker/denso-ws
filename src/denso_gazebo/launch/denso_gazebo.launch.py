@@ -112,7 +112,7 @@ def generate_launch_description():
         executable="robot_state_publisher",
         name="robot_state_publisher",
         output="screen",
-        arguments=["--ros-args", "--log-level", "kdl_parser:=ERROR"],
+        ros_arguments=["--log-level", "kdl_parser:=ERROR"],
         parameters=[robot_description, {"use_sim_time": True}],
         condition=IfCondition(launch_rsp)
     )

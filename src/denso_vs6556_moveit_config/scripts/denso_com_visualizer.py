@@ -20,7 +20,7 @@ import math
 LINK_COM_DATA = [
     {
         'link': 'base_link',
-        'name': 'Base (Đế)',
+        'name': 'Base',
         'mass': 8.0,
         'xyz': [0.0, 0.0, 0.09],
         'label_offset': [0.12, 0.0, 0.06],
@@ -34,7 +34,7 @@ LINK_COM_DATA = [
     },
     {
         'link': 'link_2',
-        'name': 'Link 2 (Bắp tay)',
+        'name': 'Link 2',
         'mass': 4.2,
         # Tọa độ khối tâm CAD chính xác trong lòng thân cánh tay trên
         'xyz': [0.0, -0.041, 0.120],
@@ -42,7 +42,7 @@ LINK_COM_DATA = [
     },
     {
         'link': 'link_3',
-        'name': 'Link 3 (Khuỷu)',
+        'name': 'Link 3',
         'mass': 3.1,
         # Tọa độ khối tâm CAD chính xác trong lòng thân khuỷu tay
         'xyz': [0.045, 0.075, 0.010],
@@ -50,21 +50,21 @@ LINK_COM_DATA = [
     },
     {
         'link': 'link_4',
-        'name': 'Link 4 (Cánh tay)',
+        'name': 'Link 4',
         'mass': 2.0,
         'xyz': [0.0, 0.0, 0.10],
         'label_offset': [0.0, 0.09, 0.04],
     },
     {
         'link': 'link_5',
-        'name': 'Link 5 (Cổ tay)',
+        'name': 'Link 5',
         'mass': 0.95,
         'xyz': [0.0, 0.0, 0.0163],
         'label_offset': [0.0, 0.08, 0.03],
     },
     {
         'link': 'link_6',
-        'name': 'Link 6 (Nắp bích xoay)',
+        'name': 'Link 6',
         'mass': 0.25,
         'xyz': [0.0, 0.0, 0.01126],
         'label_offset': [0.0, 0.08, 0.02],

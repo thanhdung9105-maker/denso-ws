@@ -796,10 +796,11 @@ class DensoDynamicsEngine:
                     if not is_col:
                         return q_ana, True, 0, err_ana
 
-            # Đối với Point P (Khâu 5), vị trí chỉ phụ thuộc vào J1-J3 và hình học giải tích
-            # đã bao quát toàn bộ không gian làm việc. Nếu cả 2 nhánh cùi chỏ đều không tới,
-            # điểm này nằm ngoài tầm vươn vật lý. Trả về ngay lập tức (0.001ms) tránh chạy 720 vòng lặp DLS gây đơ giao diện!
-            if not use_flange or mode == "analytical":
+            # Đối với Point P (Khâu 5) hoặc Flange có góc chúc bút tool_pitch_rad cố định,
+            # giải tích hình học đã bao quát toàn bộ không gian làm việc chính xác 100%.
+            # Nếu cả 2 nhánh cùi chỏ đều không tới, điểm này nằm ngoài tầm vươn vật lý.
+            # Trả về ngay lập tức (0.001ms) tránh chạy vòng lặp DLS 3-DOF làm lệch góc nghiêng cổ tay!
+            if not use_flange or mode == "analytical" or tool_pitch_rad is not None:
                 return None, False, 0, last_err_ana
 
         # -----------------------------------------------------------------

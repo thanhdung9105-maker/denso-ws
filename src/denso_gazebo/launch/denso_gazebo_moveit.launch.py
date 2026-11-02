@@ -65,8 +65,7 @@ def generate_launch_description():
         package="moveit_ros_move_group",
         executable="move_group",
         output="screen",
-        arguments=[
-            "--ros-args",
+        ros_arguments=[
             "--log-level", "kdl_parser:=ERROR",
             "--log-level", "move_group.moveit.moveit.ros.occupancy_map_monitor:=FATAL",
         ],
@@ -88,9 +87,8 @@ def generate_launch_description():
         executable="rviz2",
         name="rviz_visualizer",
         output="screen",
-        arguments=[
-            "-d", rviz_config,
-            "--ros-args",
+        arguments=["-d", rviz_config],
+        ros_arguments=[
             "--log-level", "rcl.logging_rosout:=ERROR",
             "--log-level", "rviz_visualizer.moveit.ros.motion_planning_frame:=FATAL",
             "--log-level", "kdl_parser:=ERROR",

@@ -51,7 +51,7 @@ Visualization Manager:
       All Links Enabled: true
     Name: RobotModel
     TF Prefix: ''
-    Update Interval: 0.05
+    Update Interval: 0
     Value: true
     Visual Enabled: true
   - Class: rviz_default_plugins/TF

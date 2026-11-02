@@ -1,0 +1,34 @@
+[
+  {
+    "id": "starter_square_80",
+    "name": "Hình vuông chuẩn (Square 80x80)",
+    "icon": "📐",
+    "filename": "starter_square_80x80.gcode",
+    "created_at": "Mặc định hệ thống",
+    "description": "Quỹ đạo hình vuông 80x80mm tại tâm bàn vẽ X=-380, Y=0"
+  },
+  {
+    "id": "starter_circle_r40",
+    "name": "Vòng tròn kỹ thuật (Circle R=40)",
+    "icon": "⭕",
+    "filename": "starter_circle_r40.gcode",
+    "created_at": "Mặc định hệ thống",
+    "description": "Quỹ đạo vòng tròn bán kính 40mm nội suy cung G02"
+  },
+  {
+    "id": "starter_triangle_80",
+    "name": "Hình tam giác đều (Triangle 80mm)",
+    "icon": "🔺",
+    "filename": "starter_triangle_80.gcode",
+    "created_at": "Mặc định hệ thống",
+    "description": "Tam giác đều cạnh 80mm cân đối tại tâm bàn vẽ"
+  },
+  {
+    "id": "starter_denso_text",
+    "name": "Khắc chữ DENSO (Lettering)",
+    "icon": "⚡",
+    "filename": "starter_denso_lettering.gcode",
+    "created_at": "Mặc định hệ thống",
+    "description": "Khắc chữ DENSO nét đơn giản trên bề mặt gia công"
+  }
+]
