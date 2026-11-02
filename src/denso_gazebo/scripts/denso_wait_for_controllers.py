@@ -26,7 +26,7 @@ class DensoWaitNode(Node):
             10
         )
 
-        self.timer = self.create_timer(0.2, self._check_readiness)
+        self.timer = self.create_timer(0.04, self._check_readiness)
         self.attempts = 0
         self.max_attempts = 300  # 60 seconds timeout
         self.get_logger().info('Đang chờ Gazebo controllers và TF tree sẵn sàng...')

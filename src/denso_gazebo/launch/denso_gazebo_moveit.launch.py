@@ -31,7 +31,7 @@ def generate_launch_description():
         .joint_limits(file_path="config/joint_limits.yaml")
         .pilz_cartesian_limits(file_path="config/pilz_cartesian_limits.yaml")
         .planning_pipelines(
-            pipelines=["ompl", "chomp", "stomp", "pilz_industrial_motion_planner"],
+            pipelines=["ompl", "pilz_industrial_motion_planner"],
             default_planning_pipeline="ompl",
         )
         .trajectory_execution(file_path="config/moveit_controllers.yaml")
@@ -123,7 +123,7 @@ def generate_launch_description():
                 move_group_node,
                 com_visualizer_node,
                 TimerAction(
-                    period=0.5,
+                    period=0.1,
                     actions=[rviz_node]
                 ),
             ],

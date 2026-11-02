@@ -1451,8 +1451,14 @@ class ImageGCodeDrawingTab(QWidget):
         self.sample_dir = "/home/dung/denso_ws/drawing_samples"
 
         self.init_ui()
-        # Defer sample processing to let Qt paint window instantly on startup
-        QTimer.singleShot(100, self._load_initial_sample)
+        # Nạp mẫu thử lười (Lazy load) khi người dùng mở Tab 5, giúp khởi động ứng dụng tức thì trong 0.2s
+        self._initial_loaded = False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not getattr(self, '_initial_loaded', False):
+            self._initial_loaded = True
+            QTimer.singleShot(30, self._load_initial_sample)
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)

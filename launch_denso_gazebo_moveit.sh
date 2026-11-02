@@ -1,22 +1,10 @@
 #!/bin/bash
-# Dọn dẹp triệt để 100% tiến trình cũ (Bảo đảm không còn tiến trình ma hay socket bị treo)
-killall -9 -q parameter_bridge robot_state_publisher static_transform_publisher spawner create rviz2 gz gz-sim ruby ruby3.2 move_group 2>/dev/null || true
-pkill -9 -f "denso_gazebo_control_panel" 2>/dev/null || true
-pkill -9 -f "denso_com_visualizer" 2>/dev/null || true
-pkill -9 -f "denso_log_cleaner" 2>/dev/null || true
-pkill -9 -f "denso_mock_controller" 2>/dev/null || true
-pkill -9 -f "ros_gz_bridge" 2>/dev/null || true
-pkill -9 -f "ros_gz_sim" 2>/dev/null || true
-pkill -9 -f "gz sim" 2>/dev/null || true
-pkill -9 -f "gz-sim" 2>/dev/null || true
-pkill -9 -f "move_group" 2>/dev/null || true
-pkill -9 -f "rviz2" 2>/dev/null || true
-rm -rf /dev/shm/* 2>/dev/null || true
-rm -rf /tmp/gz* /tmp/ign* /tmp/create* /tmp/launch_params* /tmp/ros2* 2>/dev/null || true
-sleep 1.0
+# Dọn dẹp nhanh các tiến trình cũ (giữ nguyên shader cache để Gazebo mở tức thì trong 2s)
+killall -9 -q parameter_bridge robot_state_publisher static_transform_publisher spawner create rviz2 gz gz-sim ruby move_group 2>/dev/null || true
+pkill -9 -f "denso_gazebo_control_panel|denso_com_visualizer|denso_log_cleaner|ros_gz_bridge|ros_gz_sim" 2>/dev/null || true
+rm -rf /dev/shm/* /tmp/launch_params* /tmp/create* /tmp/ros2* 2>/dev/null || true
 
 source /opt/ros/jazzy/setup.bash
-sudo ip link set lo multicast on 2>/dev/null || true
 if [ -f /home/dung/denso_ws/install/setup.bash ]; then
     source /home/dung/denso_ws/install/setup.bash
 fi

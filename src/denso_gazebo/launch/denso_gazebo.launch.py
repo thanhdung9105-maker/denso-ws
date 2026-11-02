@@ -156,9 +156,9 @@ def generate_launch_description():
         }]
     )
 
-    # Trì hoãn spawn robot 3.5s để Gazebo Sim khởi tạo xong world và các service entity
+    # Khởi chạy spawn robot nhanh (0.5s) - node create tự động thăm dò service khi world sẵn sàng
     delayed_spawn_robot = TimerAction(
-        period=3.5,
+        period=0.5,
         actions=[spawn_robot],
     )
 
@@ -188,13 +188,13 @@ def generate_launch_description():
         output="screen",
     )
 
-    # Kich hoat tuan tu: spawn_robot xong -> joint_state_broadcaster -> arm_controller
+    # Kích hoạt tuần tự tốc độ cao: spawn_robot xong -> nạp ngay joint_state_broadcaster -> nạp arm_controller
     load_arm_controller = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=joint_state_broadcaster_spawner,
             on_exit=[
                 TimerAction(
-                    period=0.5,
+                    period=0.1,
                     actions=[arm_controller_spawner],
                 )
             ],
@@ -206,7 +206,7 @@ def generate_launch_description():
             target_action=spawn_robot,
             on_exit=[
                 TimerAction(
-                    period=1.0,
+                    period=0.1,
                     actions=[joint_state_broadcaster_spawner],
                 )
             ],

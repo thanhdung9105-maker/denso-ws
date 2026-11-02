@@ -1034,7 +1034,17 @@ class GCodeJointAnglesTableWidget(QWidget):
             filtered.append(r)
 
         self.filtered_records = filtered
-        self._populate_table()
+        if self.isVisible():
+            self._table_dirty = False
+            self._populate_table()
+        else:
+            self._table_dirty = True
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, '_table_dirty', False):
+            self._table_dirty = False
+            self._populate_table()
 
     def _populate_table(self):
         """Đổ dữ liệu vào QTableWidget với hiệu năng cao."""
