@@ -28,6 +28,7 @@ class DensoWaitNode(Node):
 
         self.timer = self.create_timer(0.04, self._check_readiness)
         self.attempts = 0
+        self.ready_count = 0
         self.max_attempts = 300  # 60 seconds timeout
         self.get_logger().info('Đang chờ Gazebo controllers và TF tree sẵn sàng...')
 
@@ -41,9 +42,11 @@ class DensoWaitNode(Node):
             try:
                 # Kiểm tra cây TF từ world tới link_6 đã liên tục chưa
                 if self.tf_buffer.can_transform('world', 'link_6', rclpy.time.Time()):
-                    self.get_logger().info('✅ Hệ thống điều khiển Gazebo & TF Tree [world -> link_6] đã sẵn sàng 100%!')
-                    rclpy.shutdown()
-                    sys.exit(0)
+                    self.ready_count += 1
+                    if self.ready_count >= 5:
+                        self.get_logger().info('✅ Hệ thống điều khiển Gazebo & TF Tree [world -> link_6] đã sẵn sàng 100%!')
+                        rclpy.shutdown()
+                        sys.exit(0)
             except Exception:
                 pass
 

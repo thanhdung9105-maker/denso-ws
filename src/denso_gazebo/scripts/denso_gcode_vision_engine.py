@@ -1148,19 +1148,28 @@ class TrajectoryExecutionWorker(QThread):
             q_start = list(q_sol) if (ok and q_sol is not None) else list(q_curr)
 
         max_dq = max(abs(q_start[i] - q_curr[i]) for i in range(min(len(q_start), len(q_curr))))
-        if max_dq > 0.05:
+        if max_dq > 0.03:
             transit_dur = max(1.8, min(4.2, max_dq / 1.0))
             self.sig_status.emit(f"🤖 Đang di chuyển cánh tay tới điểm bắt đầu ({transit_dur:.1f}s)...", "info")
             self.bridge.send_trajectory(q_start, duration_sec=transit_dur, zero_velocity=True)
-            t_end = time.time() + transit_dur + 0.15
-            while time.time() < t_end and self.is_running:
+            
+            t_start = time.time()
+            max_wait = transit_dur * 3.0 + 1.0
+            while (time.time() - t_start < max_wait) and self.is_running:
+                pos_act = list(self.bridge.latest_positions)
+                if len(pos_act) >= 6:
+                    dq = max(abs(pos_act[i] - q_start[i]) for i in range(6))
+                    if dq < 0.035:
+                        break
                 time.sleep(0.04)
                 with self.pause_cond:
                     while self.is_paused and self.is_running:
                         self.pause_cond.wait()
             q_curr = list(q_start)
 
-        # BƯỚC 2: Thực thi từng nét vẽ liên tục mượt mà điểm theo điểm
+        # BƯỚC 2: Thực thi từng nét vẽ liên tục mượt mà đồng bộ với Gazebo
+        last_drawn_xy = None
+
         for s_idx, stroke in enumerate(self.strokes):
             if not self.is_running:
                 break
@@ -1177,8 +1186,10 @@ class TrajectoryExecutionWorker(QThread):
             if not stroke_pts:
                 continue
 
-            n_pts = len(stroke_pts)
-            for p_idx, pt in enumerate(stroke_pts):
+            # Batching: 12 điểm mỗi batch nét vẽ (8 điểm nét nhấc bút) để nội suy spline mượt mà
+            BATCH_SIZE = 12 if is_drawing else 8
+
+            for b_start in range(0, len(stroke_pts), BATCH_SIZE):
                 if not self.is_running:
                     break
 
@@ -1189,43 +1200,98 @@ class TrajectoryExecutionWorker(QThread):
                 if not self.is_running:
                     break
 
-                pos_m = [pt.x / 1000.0, pt.y / 1000.0, pt.z / 1000.0]
-                if pt.q_sol is not None:
-                    q_target = pt.q_sol
+                chunk_pts = stroke_pts[b_start : b_start + BATCH_SIZE]
+                trajectory_points = []
+                t_accum = 0.0
+
+                for pt in chunk_pts:
+                    pos_m = [pt.x / 1000.0, pt.y / 1000.0, pt.z / 1000.0]
+                    if pt.q_sol is not None:
+                        q_target = pt.q_sol
+                    else:
+                        q_sol, ok, _, _ = self.engine.inverse_kinematics(
+                            pos_m, q_seed=q_curr, use_flange=True, mode="hybrid",
+                            tool_pitch_rad=math.pi
+                        )
+                        if not ok or q_sol is None:
+                            continue
+                        q_target = q_sol
+
+                    # Thời gian di chuyển mượt mà: 0.045s - 0.18s tùy tốc độ
+                    dt_step = max(0.045, min(0.18, 0.065 / self.speed_scale))
+                    t_accum += dt_step
+                    trajectory_points.append((q_target, t_accum))
+                    q_curr = list(q_target)
+
+                if not trajectory_points:
+                    continue
+
+                # Gửi toàn bộ chunk điểm liên tục tới Gazebo joint_trajectory_controller
+                if hasattr(self.bridge, 'send_multi_point_trajectory'):
+                    self.bridge.send_multi_point_trajectory(trajectory_points)
                 else:
-                    q_sol, ok, _, _ = self.engine.inverse_kinematics(
-                        pos_m, q_seed=q_curr, use_flange=True, mode="hybrid",
-                        tool_pitch_rad=math.pi
-                    )
-                    if not ok or q_sol is None:
-                        continue
-                    q_target = q_sol
+                    for q_t, t_s in trajectory_points:
+                        self.bridge.send_trajectory(q_t, duration_sec=t_s)
 
-                is_last_pt = (p_idx == n_pts - 1)
-                # Tốc độ di chuyển mỗi bước: 0.045s - 0.20s tùy tốc độ
-                dt_step = max(0.045, min(0.20, 0.065 / self.speed_scale))
+                # Giám sát và cập nhật vệt vẽ theo thời gian thực (Real-time Arm Tracking)
+                t_chunk_start = time.time()
+                q_batch_target = trajectory_points[-1][0]
+                timeout_sec = t_accum * 3.0 + 0.3
 
-                # Gửi lệnh Trajectory tới bộ điều khiển Gazebo:
-                # zero_velocity=False giúp chuyển động liên tục lượn sóng không bị phanh giật từng bước;
-                # zero_velocity=True chỉ ở điểm cuối nét để dừng dứt khoát
-                self.bridge.send_trajectory(q_target, duration_sec=dt_step, zero_velocity=is_last_pt)
-                q_curr = list(q_target)
+                while (time.time() - t_chunk_start < timeout_sec) and self.is_running:
+                    if self.is_paused or not self.is_running:
+                        self.bridge.send_trajectory(self.bridge.latest_positions, duration_sec=0.2, zero_velocity=True)
+                        with self.pause_cond:
+                            while self.is_paused and self.is_running:
+                                self.pause_cond.wait()
+                        if not self.is_running:
+                            break
 
-                # Thêm điểm vào vệt vẽ RViz & Gazebo Sim đồng bộ trực tiếp từ đường vẽ
-                if self.trail_pub:
-                    self.trail_pub.add_point(pt.x, pt.y, pt.z, is_drawing)
-                    self.trail_pub.publish_update(current_pos_m=pos_m, is_draw=is_drawing)
+                    # Đọc trạng thái khớp THỰC TẾ từ Gazebo qua /joint_states
+                    pos_act = self.bridge.latest_positions
+                    if len(pos_act) >= 6:
+                        try:
+                            tfs, _ = self.engine.get_dh_transforms(pos_act)
+                            tcp = tfs[-1][:3, 3]  # Đầu ngòi bút Stylus Nib thực tế trong Gazebo
+                            act_x = float(tcp[0] * 1000.0)
+                            act_y = float(tcp[1] * 1000.0)
+                            act_z = float(tcp[2] * 1000.0)
 
-                # Cập nhật tiến trình GUI & Canvas 2D
-                curr_pt_idx += 1
-                pct = (curr_pt_idx / total_pts * 100.0) if total_pts > 0 else 0.0
-                q_list = [float(v) for v in q_target]
-                self.sig_progress.emit(curr_pt_idx, total_pts, pct, pt.x, pt.y, pt.z, is_drawing, q_list)
+                            # Nếu đang trong nét vẽ và đầu bút đã hạ xuống gần mặt giấy (<= 188mm)
+                            if is_drawing and act_z <= 188.0:
+                                if last_drawn_xy is None or math.hypot(act_x - last_drawn_xy[0], act_y - last_drawn_xy[1]) >= 0.4:
+                                    if self.trail_pub:
+                                        self.trail_pub.add_point(act_x, act_y, act_z, is_draw=True)
+                                        self.trail_pub.publish_update(current_pos_m=[tcp[0], tcp[1], tcp[2]], is_draw=True)
+                                    last_drawn_xy = (act_x, act_y)
+                            else:
+                                if self.trail_pub:
+                                    self.trail_pub.publish_update(current_pos_m=[tcp[0], tcp[1], tcp[2]], is_draw=False)
 
-                time.sleep(dt_step * 0.90)
+                            # Cập nhật con trỏ trên canvas 2D & GUI
+                            elapsed = time.time() - t_chunk_start
+                            frac = min(1.0, elapsed / t_accum) if t_accum > 0 else 1.0
+                            pt_sub_idx = min(len(chunk_pts) - 1, int(frac * len(chunk_pts)))
+                            
+                            cur_total_idx = curr_pt_idx + pt_sub_idx
+                            pct = (cur_total_idx / total_pts * 100.0) if total_pts > 0 else 0.0
+                            q_list = [float(v) for v in pos_act]
+                            self.sig_progress.emit(cur_total_idx, total_pts, pct, act_x, act_y, act_z, is_drawing, q_list)
 
-            if self.trail_pub:
+                            # Kiểm tra đã đến đích batch chưa
+                            dq_end = max(abs(pos_act[i] - q_batch_target[i]) for i in range(6))
+                            if dq_end < 0.025 and (time.time() - t_chunk_start >= t_accum * 0.75):
+                                break
+                        except Exception:
+                            pass
+
+                    time.sleep(0.025)
+
+                curr_pt_idx += len(chunk_pts)
+
+            if is_drawing and self.trail_pub:
                 self.trail_pub.end_stroke()
+                last_drawn_xy = None
 
         if self.is_running:
             self.sig_status.emit("🎉 HOÀN THÀNH QUÁ TRÌNH VẼ HÌNH THÀNH CÔNG!", "ok")

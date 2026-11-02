@@ -384,7 +384,7 @@
   <gazebo>
     <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
       <parameters>$(arg controllers_file)</parameters>
-      <position_proportional_gain>0.1</position_proportional_gain>
+      <position_proportional_gain>0.5</position_proportional_gain>
     </plugin>
   </gazebo>
 

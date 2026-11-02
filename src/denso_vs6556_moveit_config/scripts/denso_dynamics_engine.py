@@ -89,7 +89,8 @@ P_ORIGINS = [
 ]
 
 # Tool flange & gripper TCP offset (m) from Joint 6 flange axis along tool link
-TOOL_TCP_OFFSET = np.array([0.0, 0.0, 0.028])
+# URDF: joint_pen_tool at +0.028m, stylus nib tip at +0.014m in pen_tool_link -> Total tip offset = +0.042m (42mm)
+TOOL_TCP_OFFSET = np.array([0.0, 0.0, 0.042])
 
 # Official technical drawing dimensions (Denso VS-6556 catalog)
 POINT_P_MAX_REACH = 653.42   # mm: Workable space defined by point P
@@ -127,7 +128,7 @@ DH_PARAMS = [
     [ 0.090,  np.pi / 2, 0.000,  np.pi / 2, -1.0],  # Joint 3: Elbow Offset (J3 -> Forearm axis, offset=90mm, sign=-1)
     [ 0.000, -np.pi / 2, 0.295,  0.0,        1.0],  # Joint 4: Forearm Roll (L=295mm to Point P)
     [ 0.000,  np.pi / 2, 0.000,  0.0,       -1.0],  # Joint 5: Wrist Pitch
-    [ 0.000,  0.0,       0.09004, 0.0,       1.0],  # Joint 6: Tool Flange Roll (offset to TCP: 62.04mm + 28mm)
+    [ 0.000,  0.0,       0.10404, 0.0,       1.0],  # Joint 6: Tool Flange Roll (offset to TCP: 62.04mm + 42mm tip)
 ]
 
 def standard_dh_matrix(a, alpha, d, theta):
@@ -157,7 +158,7 @@ EXTENDED_DH_PARAMS = [
     ("link_4", 0.1090,  0.0900,  0.0680, "Z", 3, "Link 3 -> Link 4 (Cẳng tay J4, bù triệt tiêu Y)"),
     ("link_5", 0.1860,  0.0000,  0.0000, "-Y", 4, "Link 4 -> Link 5 (Tâm cổ tay Point P, -Y axis)"),
     ("link_6", 0.06204, 0.0000,  0.0000, "Z", 5, "Link 5 -> Link 6 (Cổ tay xoay J6 h=62.04mm, Z axis)"),
-    ("flange", 0.0280,  0.0000,  0.0000, "Fixed", -1, "Link 6 -> Flange Tool TCP (+28mm)"),
+    ("flange", 0.0420,  0.0000,  0.0000, "Fixed", -1, "Link 6 -> Flange Tool TCP (+42mm)"),
 ]
 
 def extended_dh_matrix(d, a, b, q_angle=0.0, axis="Z"):
@@ -548,7 +549,7 @@ class DensoDynamicsEngine:
         L2 = 0.270
         x2 = -0.075
         z2 = 0.335
-        L_tool = 0.09004
+        L_tool = float(DH_PARAMS[5][2])
         r_xy = math.hypot(xf, yf)
 
         if tool_pitch_rad is None:

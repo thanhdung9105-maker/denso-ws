@@ -113,6 +113,7 @@ def generate_launch_description():
         executable="denso_wait_for_controllers.py",
         name="denso_wait_for_controllers",
         output="screen",
+        parameters=[{'use_sim_time': True}],
     )
 
     # Kích hoạt MoveIt và RViz2 ngay khi Controllers & TF đã sẵn sàng, triệt tiêu 100% race conditions
