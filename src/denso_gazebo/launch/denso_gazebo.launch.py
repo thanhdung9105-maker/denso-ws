@@ -4,6 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     AppendEnvironmentVariable,
+    SetEnvironmentVariable,
     DeclareLaunchArgument,
     ExecuteProcess,
     IncludeLaunchDescription,
@@ -57,6 +58,16 @@ def generate_launch_description():
     gz_plugin_env = AppendEnvironmentVariable(
         name="GZ_SIM_SYSTEM_PLUGIN_PATH",
         value="/opt/ros/jazzy/lib"
+    )
+
+    gz_partition_env = SetEnvironmentVariable(
+        name="GZ_PARTITION",
+        value="denso_ws"
+    )
+
+    gz_ip_env = SetEnvironmentVariable(
+        name="GZ_IP",
+        value="127.0.0.1"
     )
 
     # Launch Arguments
@@ -117,7 +128,7 @@ def generate_launch_description():
         condition=IfCondition(launch_rsp)
     )
 
-    # Spawn Denso robot into Gazebo Sim
+    # Spawn Denso robot into Gazebo Sim truc tiep qua chuoi XML (-string) de khong phai cho topic /robot_description
     spawn_robot = Node(
         package="ros_gz_sim",
         executable="create",
@@ -125,7 +136,7 @@ def generate_launch_description():
         arguments=[
             "-world", "denso_world",
             "-name", "denso_vs6556",
-            "-topic", "robot_description",
+            "-string", doc.toxml(),
             "-x", "0.0",
             "-y", "0.0",
             "-z", "0.0",
@@ -145,37 +156,58 @@ def generate_launch_description():
         }]
     )
 
-    # Trì hoãn spawn robot 4.5s để Gazebo Sim khởi tạo xong world và các service entity
+    # Trì hoãn spawn robot 3.5s để Gazebo Sim khởi tạo xong world và các service entity
     delayed_spawn_robot = TimerAction(
-        period=4.5,
+        period=3.5,
         actions=[spawn_robot],
     )
 
-    # Controller Spawners: Nạp và kích hoạt đồng bộ joint_state_broadcaster và arm_controller cùng lúc
-    controllers_spawner = Node(
+    # 1. Spawner cho joint_state_broadcaster: phai nap truoc de phat ngay /joint_states cho RViz va MoveIt
+    joint_state_broadcaster_spawner = Node(
         package="controller_manager",
         executable="spawner",
         arguments=[
             "joint_state_broadcaster",
-            "arm_controller",
-            "--activate-as-group",
             "--controller-manager", "/controller_manager",
-            "--controller-manager-timeout", "45",
-            "--switch-timeout", "30",
-            "--service-call-timeout", "20"
+            "--controller-manager-timeout", "60",
         ],
         parameters=[{"use_sim_time": True}],
         output="screen",
     )
 
-    # Kích hoạt bộ điều khiển sau khi robot được spawn vào Gazebo và clock đã ổn định
-    load_controllers = RegisterEventHandler(
+    # 2. Spawner cho arm_controller: nap sau khi joint_state_broadcaster da chay on dinh
+    arm_controller_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[
+            "arm_controller",
+            "--controller-manager", "/controller_manager",
+            "--controller-manager-timeout", "60",
+        ],
+        parameters=[{"use_sim_time": True}],
+        output="screen",
+    )
+
+    # Kich hoat tuan tu: spawn_robot xong -> joint_state_broadcaster -> arm_controller
+    load_arm_controller = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=joint_state_broadcaster_spawner,
+            on_exit=[
+                TimerAction(
+                    period=0.5,
+                    actions=[arm_controller_spawner],
+                )
+            ],
+        )
+    )
+
+    load_joint_state_broadcaster = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=spawn_robot,
             on_exit=[
                 TimerAction(
-                    period=1.5,
-                    actions=[controllers_spawner],
+                    period=1.0,
+                    actions=[joint_state_broadcaster_spawner],
                 )
             ],
         )
@@ -193,6 +225,8 @@ def generate_launch_description():
     return LaunchDescription([
         gz_resource_env,
         gz_plugin_env,
+        gz_partition_env,
+        gz_ip_env,
         headless_arg,
         control_gui_arg,
         launch_rsp_arg,
@@ -202,6 +236,7 @@ def generate_launch_description():
         robot_state_publisher,
         static_transform_publisher,
         delayed_spawn_robot,
-        load_controllers,
+        load_joint_state_broadcaster,
+        load_arm_controller,
         control_panel_node,
     ])

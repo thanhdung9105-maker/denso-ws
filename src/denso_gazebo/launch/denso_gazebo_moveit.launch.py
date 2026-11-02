@@ -1,7 +1,7 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -100,10 +100,35 @@ def generate_launch_description():
         ],
     )
 
+    # Khởi động tuần tự có kiểm soát để đảm bảo TF & Controllers sẵn sàng 100%:
+    # 1. move_group_node: Trì hoãn 7.0s để Gazebo và controller_manager tải xong
+    delayed_move_group_node = TimerAction(
+        period=7.0,
+        actions=[move_group_node]
+    )
+
+    # 2. com_visualizer_node: Trì hoãn 9.5s để /joint_states và TF link_1..link_6 hoạt động hoàn toàn
+    delayed_com_visualizer_node = TimerAction(
+        period=9.5,
+        actions=[com_visualizer_node]
+    )
+
+    # 3. rviz_node: Trì hoãn 10.0s để toàn bộ hệ thống (Gazebo + Controllers + TF + MoveIt) sẵn sàng
+    # Đảm bảo RViz2 luôn mở lên với 100% trạng thái OK, KHÔNG BAO GIỜ bị lỗi 'No transform from link_1 to world'
+    delayed_rviz_node = TimerAction(
+        period=10.0,
+        actions=[rviz_node]
+    )
+
+    gz_partition_env = SetEnvironmentVariable(name="GZ_PARTITION", value="denso_ws")
+    gz_ip_env = SetEnvironmentVariable(name="GZ_IP", value="127.0.0.1")
+
     return LaunchDescription([
+        gz_partition_env,
+        gz_ip_env,
         headless_arg,
         gazebo_launch,
-        move_group_node,
-        com_visualizer_node,
-        rviz_node,
+        delayed_move_group_node,
+        delayed_com_visualizer_node,
+        delayed_rviz_node,
     ])

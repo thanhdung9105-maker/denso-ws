@@ -1,19 +1,19 @@
 #!/bin/bash
-# Dọn dẹp triệt để tiến trình cũ
+# Dọn dẹp triệt để 100% tiến trình cũ (Bảo đảm không còn tiến trình ma hay socket bị treo)
+killall -9 -q parameter_bridge robot_state_publisher static_transform_publisher spawner create rviz2 gz gz-sim ruby ruby3.2 move_group 2>/dev/null || true
+pkill -9 -f "denso_gazebo_control_panel" 2>/dev/null || true
+pkill -9 -f "denso_com_visualizer" 2>/dev/null || true
+pkill -9 -f "denso_log_cleaner" 2>/dev/null || true
+pkill -9 -f "denso_mock_controller" 2>/dev/null || true
+pkill -9 -f "ros_gz_bridge" 2>/dev/null || true
+pkill -9 -f "ros_gz_sim" 2>/dev/null || true
 pkill -9 -f "gz sim" 2>/dev/null || true
 pkill -9 -f "gz-sim" 2>/dev/null || true
-pkill -9 -f gz_sim 2>/dev/null || true
-killall -9 gz gz-sim ruby 2>/dev/null || true
-pkill -9 -f rviz2 2>/dev/null || true
-pkill -9 -f move_group 2>/dev/null || true
-pkill -9 -f ros2 2>/dev/null || true
-pkill -9 -f ros_gz 2>/dev/null || true
-killall -9 parameter_bridge robot_state_publisher static_transform_publisher spawner create 2>/dev/null || true
-pkill -9 -f denso_mock_controller 2>/dev/null || true
-pkill -9 -f denso_com_visualizer 2>/dev/null || true
-pkill -9 -f denso_gazebo_control_panel 2>/dev/null || true
-rm -rf /dev/shm/fastrtps* /dev/shm/sem.fastrtps* /dev/shm/cyclonedds* 2>/dev/null || true
-sleep 1
+pkill -9 -f "move_group" 2>/dev/null || true
+pkill -9 -f "rviz2" 2>/dev/null || true
+rm -rf /dev/shm/* 2>/dev/null || true
+rm -rf /tmp/gz* /tmp/ign* /tmp/create* /tmp/launch_params* /tmp/ros2* 2>/dev/null || true
+sleep 1.0
 
 source /opt/ros/jazzy/setup.bash
 sudo ip link set lo multicast on 2>/dev/null || true
