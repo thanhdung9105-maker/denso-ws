@@ -35,7 +35,7 @@ Visualization Manager:
     Plane Cell Count: 10
     Reference Frame: world
     Value: true
-  - Alpha: 0.6
+  - Alpha: 1.0
     Class: rviz_default_plugins/RobotModel
     Collision Enabled: false
     Description File: ''
@@ -152,7 +152,7 @@ Visualization Manager:
       Interrupt Trajectory Display: false
       Loop Animation: false
       Show Robot Collision: false
-      Show Robot Visual: true
+      Show Robot Visual: false
       Show Trail: false
       State Display Time: 0.1
       Trail Step Size: 1

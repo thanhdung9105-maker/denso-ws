@@ -316,6 +316,25 @@ class GazeboRosBridge:
         traj.points = [point]
         self.traj_pub.publish(traj)
 
+    def send_multi_point_trajectory(self, trajectory_points):
+        """
+        Gửi quỹ đạo đa điểm liên tục (spline continuous) tới Gazebo joint_trajectory_controller:
+        trajectory_points: danh sách tuple [(target_rads, time_from_start_sec), ...]
+        """
+        if not self.traj_pub or not trajectory_points:
+            return
+        traj = JointTrajectory()
+        traj.joint_names = JOINT_NAMES
+        for target_rads, t_sec in trajectory_points:
+            point = JointTrajectoryPoint()
+            point.positions = [float(r) for r in target_rads]
+            sec = int(t_sec)
+            nanosec = int((t_sec - sec) * 1e9)
+            point.time_from_start.sec = sec
+            point.time_from_start.nanosec = nanosec
+            traj.points.append(point)
+        self.traj_pub.publish(traj)
+
     def publish_forward_kinematics(self, fk_data):
         if not self.node or not self.ee_pose_pub:
             return
@@ -545,10 +564,10 @@ class DensoGazeboPanel(QMainWindow):
         self.init_ui()
         self.setup_connections()
 
-        # Telemetry Timer chạy ở 20 FPS (50ms)
+        # Telemetry Timer chạy ở ~12.5 FPS (80ms) tối ưu độ mượt và triệt tiêu tải CPU
         self.telemetry_timer = QTimer(self)
         self.telemetry_timer.timeout.connect(self._update_telemetry)
-        self.telemetry_timer.start(50)
+        self.telemetry_timer.start(80)
 
         # Tính toán trước IK vị trí ban đầu
         self._calc_ik()
@@ -2517,13 +2536,13 @@ class DensoGazeboPanel(QMainWindow):
             if trail_pub is not None and not is_worker_running and is_conn:
                 try:
                     tfs, _ = self.engine.get_dh_transforms(pos)
-                    # Flange TCP / Stylus Nib
-                    tcp = tfs[5][:3, 3]
+                    # Flange TCP / Stylus Nib (Khớp thứ 6 / Flange cuối)
+                    tcp = tfs[-1][:3, 3]
                     x_m, y_m, z_m = float(tcp[0]), float(tcp[1]), float(tcp[2])
                     
-                    # Kiểm tra ngòi bút chạm bàn vẽ (X: -0.56~-0.20m phía sau, Y: -0.18~0.18m, Z <= 0.182m)
+                    # Kiểm tra ngòi bút chạm bàn vẽ (X: -0.56~-0.20m phía sau, Y: -0.18~0.18m, Z <= 0.185m)
                     on_board = (-0.56 <= x_m <= -0.20) and (-0.18 <= y_m <= 0.18)
-                    is_touching = on_board and (z_m <= 0.182)
+                    is_touching = on_board and (z_m <= 0.185)
 
                     if is_touching:
                         trail_pub.add_point(x_m * 1000.0, y_m * 1000.0, z_m * 1000.0, is_draw=True)
