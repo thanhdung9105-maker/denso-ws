@@ -866,39 +866,70 @@ class GazeboDrawingTrailPublisher:
                 total_segments = sum(max(0, len(s) - 1) for s in all_strokes)
 
                 if total_segments > 0:
-                    # 1. Đoạn nối đường (LINE_LIST)
-                    m_line = mv.marker.add()
-                    m_line.ns = "denso_gazebo_trail"
-                    m_line.id = 1
-                    m_line.action = m_line.ADD_MODIFY
-                    m_line.type = m_line.LINE_LIST
-                    m_line.scale.x = 1.0
-                    m_line.scale.y = 1.0
-                    m_line.scale.z = 1.0
-                    for mat in [m_line.material.ambient, m_line.material.diffuse]:
-                        mat.r = 0.0; mat.g = 0.90; mat.b = 1.0; mat.a = 1.0
+                    # 1. Băng mực phẳng 3D (Flat Ink Ribbon) bằng TRIANGLE_LIST
+                    # Tạo độ dày thực tế 3D (2.5mm - 3.8mm) đồng đều 100%, liền mạch không răng cưa
+                    m_ribbon = mv.marker.add()
+                    m_ribbon.ns = "denso_gazebo_trail"
+                    m_ribbon.id = 1
+                    m_ribbon.action = m_ribbon.ADD_MODIFY
+                    m_ribbon.type = m_ribbon.TRIANGLE_LIST
+                    m_ribbon.scale.x = 1.0
+                    m_ribbon.scale.y = 1.0
+                    m_ribbon.scale.z = 1.0
+                    # Tự phát sáng 100% (Emissive Neon Cyan) triệt tiêu bóng đổ, màu mực đồng nhất rực rỡ
+                    for mat in [m_ribbon.material.ambient, m_ribbon.material.diffuse, m_ribbon.material.emissive]:
+                        mat.r = 0.0; mat.g = 0.88; mat.b = 1.0; mat.a = 1.0
 
-                    # 2. Hạt mực đậm (POINTS)
-                    m_pts = mv.marker.add()
-                    m_pts.ns = "denso_gazebo_trail"
-                    m_pts.id = 2
-                    m_pts.action = m_pts.ADD_MODIFY
-                    m_pts.type = m_pts.POINTS
-                    m_pts.scale.x = float(pt_size)
-                    m_pts.scale.y = float(pt_size)
-                    m_pts.scale.z = float(pt_size)
-                    for mat in [m_pts.material.ambient, m_pts.material.diffuse]:
-                        mat.r = 0.0; mat.g = 0.90; mat.b = 1.0; mat.a = 1.0
+                    # 2. Đường sống lưng trung tâm (LINE_LIST với Emissive Cyan) giúp nét vẽ sắc nét
+                    m_spine = mv.marker.add()
+                    m_spine.ns = "denso_gazebo_trail"
+                    m_spine.id = 2
+                    m_spine.action = m_spine.ADD_MODIFY
+                    m_spine.type = m_spine.LINE_LIST
+                    m_spine.scale.x = 1.0
+                    m_spine.scale.y = 1.0
+                    m_spine.scale.z = 1.0
+                    for mat in [m_spine.material.ambient, m_spine.material.diffuse, m_spine.material.emissive]:
+                        mat.r = 0.0; mat.g = 0.96; mat.b = 1.0; mat.a = 1.0
+
+                    half_w = max(0.0012, float(pt_size) * 0.0006)  # Nửa bề rộng nét mực (1.2mm - 2.4mm)
+                    ribbon_z = self.paper_z
 
                     for s in all_strokes:
-                        for idx in range(len(s)):
-                            pt_msg = m_pts.point.add()
-                            pt_msg.x, pt_msg.y, pt_msg.z = s[idx]
-                            if idx < len(s) - 1:
-                                pa = m_line.point.add()
-                                pa.x, pa.y, pa.z = s[idx]
-                                pb = m_line.point.add()
-                                pb.x, pb.y, pb.z = s[idx+1]
+                        if len(s) < 2:
+                            continue
+                        for idx in range(len(s) - 1):
+                            p1 = s[idx]
+                            p2 = s[idx + 1]
+                            dx = p2[0] - p1[0]
+                            dy = p2[1] - p1[1]
+                            dist = math.hypot(dx, dy)
+                            if dist < 1e-6:
+                                continue
+
+                            # Vector pháp tuyến vuông góc với đoạn thẳng trên mặt phẳng XY
+                            nx = (-dy / dist) * half_w
+                            ny = (dx / dist) * half_w
+
+                            # 4 đỉnh của dải mực
+                            v1_x, v1_y = p1[0] + nx, p1[1] + ny
+                            v2_x, v2_y = p1[0] - nx, p1[1] - ny
+                            v3_x, v3_y = p2[0] + nx, p2[1] + ny
+                            v4_x, v4_y = p2[0] - nx, p2[1] - ny
+
+                            # Tam giác 1: v1, v2, v3
+                            t1a = m_ribbon.point.add(); t1a.x, t1a.y, t1a.z = v1_x, v1_y, ribbon_z
+                            t1b = m_ribbon.point.add(); t1b.x, t1b.y, t1b.z = v2_x, v2_y, ribbon_z
+                            t1c = m_ribbon.point.add(); t1c.x, t1c.y, t1c.z = v3_x, v3_y, ribbon_z
+
+                            # Tam giác 2: v2, v4, v3
+                            t2a = m_ribbon.point.add(); t2a.x, t2a.y, t2a.z = v2_x, v2_y, ribbon_z
+                            t2b = m_ribbon.point.add(); t2b.x, t2b.y, t2b.z = v4_x, v4_y, ribbon_z
+                            t2c = m_ribbon.point.add(); t2c.x, t2c.y, t2c.z = v3_x, v3_y, ribbon_z
+
+                            # Đoạn sống lưng giữa
+                            sa = m_spine.point.add(); sa.x, sa.y, sa.z = p1[0], p1[1], ribbon_z + 0.0001
+                            sb = m_spine.point.add(); sb.x, sb.y, sb.z = p2[0], p2[1], ribbon_z + 0.0001
 
                 # 3. Con trỏ ngòi bút Stylus Pen Tip (SPHERE)
                 if tip is not None:
@@ -915,10 +946,10 @@ class GazeboDrawingTrailPublisher:
                     m_tip.pose.position.y = float(ty)
                     m_tip.pose.position.z = float(tz)
                     if is_drawing:
-                        for mat in [m_tip.material.ambient, m_tip.material.diffuse]:
+                        for mat in [m_tip.material.ambient, m_tip.material.diffuse, m_tip.material.emissive]:
                             mat.r = 0.0; mat.g = 1.0; mat.b = 0.4; mat.a = 1.0
                     else:
-                        for mat in [m_tip.material.ambient, m_tip.material.diffuse]:
+                        for mat in [m_tip.material.ambient, m_tip.material.diffuse, m_tip.material.emissive]:
                             mat.r = 1.0; mat.g = 0.75; mat.b = 0.1; mat.a = 0.9
 
                 if len(mv.marker) > 0:
