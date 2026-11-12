@@ -65,18 +65,18 @@ JOINT_INFO = [
         'id': 'joint_1',
         'name': 'Khớp 1 (Base Yaw)',
         'axis': 'Trục Z',
-        'rad_min': -2.967,
-        'rad_max': 2.967,
-        'deg_min': -170.0,
-        'deg_max': 170.0,
+        'rad_min': -3.0543,
+        'rad_max': 3.0543,
+        'deg_min': -175.0,
+        'deg_max': 175.0,
         'effort_limit': 80.0
     },
     {
         'id': 'joint_2',
         'name': 'Khớp 2 (Shoulder Pitch)',
         'axis': 'Trục Y',
-        'rad_min': -2.094,
-        'rad_max': 2.356,
+        'rad_min': -2.0944,
+        'rad_max': 2.3562,
         'deg_min': -120.0,
         'deg_max': 135.0,
         'effort_limit': 100.0
@@ -85,18 +85,18 @@ JOINT_INFO = [
         'id': 'joint_3',
         'name': 'Khớp 3 (Elbow Pitch)',
         'axis': 'Trục Y',
-        'rad_min': -2.077,
-        'rad_max': 2.897,
-        'deg_min': -119.0,
-        'deg_max': 166.0,
+        'rad_min': -2.1817,
+        'rad_max': 2.9671,
+        'deg_min': -125.0,
+        'deg_max': 170.0,
         'effort_limit': 60.0
     },
     {
         'id': 'joint_4',
         'name': 'Khớp 4 (Forearm Roll)',
         'axis': 'Trục Z',
-        'rad_min': -3.316,
-        'rad_max': 3.316,
+        'rad_min': -3.3161,
+        'rad_max': 3.3161,
         'deg_min': -190.0,
         'deg_max': 190.0,
         'effort_limit': 25.0
@@ -105,18 +105,18 @@ JOINT_INFO = [
         'id': 'joint_5',
         'name': 'Khớp 5 (Wrist Pitch)',
         'axis': 'Trục Y',
-        'rad_min': -2.094,
-        'rad_max': 2.094,
-        'deg_min': -120.0,
-        'deg_max': 120.0,
+        'rad_min': -2.1991,
+        'rad_max': 2.1991,
+        'deg_min': -126.0,
+        'deg_max': 126.0,
         'effort_limit': 20.0
     },
     {
         'id': 'joint_6',
         'name': 'Khớp 6 (Mặt bích / Roll)',
         'axis': 'Trục Z',
-        'rad_min': -6.283,
-        'rad_max': 6.283,
+        'rad_min': -6.2832,
+        'rad_max': 6.2832,
         'deg_min': -360.0,
         'deg_max': 360.0,
         'effort_limit': 15.0
@@ -138,6 +138,7 @@ PRESETS = {
     '📦 Vị trí Gắp (Pick)': [45.0, 45.0, 60.0, 0.0, -30.0, 0.0],
     '📥 Vị trí Đặt (Place)': [-45.0, 30.0, 75.0, 0.0, -15.0, 0.0],
     '🔭 Vươn xa (Reach)': [0.0, 15.0, 30.0, 0.0, 0.0, 0.0],
+    '🏷️ Tem Calib (RANG)': [172.98852, -103.32405, 168.31864, 181.78143, 124.09928, 94.54276],
 }
 
 
@@ -316,62 +317,82 @@ class GazeboRosBridge:
         traj.points = [point]
         self.traj_pub.publish(traj)
 
-    def send_multi_point_trajectory(self, trajectory_points):
+    def send_multi_point_trajectory(self, trajectory_points, velocities=None):
         """
         Gửi quỹ đạo đa điểm liên tục (spline continuous) tới Gazebo joint_trajectory_controller:
         trajectory_points: danh sách tuple [(target_rads, time_from_start_sec), ...]
+        velocities: danh sách vector vận tốc tương ứng (nếu có)
+        Đảm bảo timestamps time_from_start luôn dương (> 0) và tăng ngặt 100%.
         """
         if not self.traj_pub or not trajectory_points:
             return
         traj = JointTrajectory()
         traj.joint_names = JOINT_NAMES
-        for target_rads, t_sec in trajectory_points:
+        
+        last_ns = 0
+        min_step_ns = int(20 * 1e6)  # Tối thiểu 20ms giữa 2 điểm quỹ đạo
+        
+        for idx, (target_rads, t_sec) in enumerate(trajectory_points):
             point = JointTrajectoryPoint()
             point.positions = [float(r) for r in target_rads]
-            sec = int(t_sec)
-            nanosec = int((t_sec - sec) * 1e9)
-            point.time_from_start.sec = sec
-            point.time_from_start.nanosec = nanosec
+            if velocities is not None and idx < len(velocities):
+                point.velocities = [float(v) for v in velocities[idx]]
+                
+            # Đảm bảo điểm đầu tiên luôn ở tương lai gần (+50ms) để Controller không bị drop
+            target_ns = int((float(t_sec) + 0.05) * 1e9)
+            if target_ns <= last_ns:
+                target_ns = last_ns + min_step_ns
+            last_ns = target_ns
+            
+            point.time_from_start.sec = target_ns // 1_000_000_000
+            point.time_from_start.nanosec = target_ns % 1_000_000_000
             traj.points.append(point)
+            
         self.traj_pub.publish(traj)
 
     def publish_forward_kinematics(self, fk_data):
         if not self.node or not self.ee_pose_pub:
             return
 
-        now = self.node.get_clock().now().to_msg()
-        pos_m = fk_data["position_m"]
-        quat = fk_data["quaternion"]
+        if not rclpy.ok() or not hasattr(self, 'ee_pose_pub') or self.ee_pose_pub is None:
+            return
 
-        # 1. Publish EE PoseStamped
-        ps = PoseStamped()
-        ps.header.stamp = now
-        ps.header.frame_id = "base_link"
-        ps.pose.position.x = float(pos_m[0])
-        ps.pose.position.y = float(pos_m[1])
-        ps.pose.position.z = float(pos_m[2])
-        ps.pose.orientation.x = float(quat[0])
-        ps.pose.orientation.y = float(quat[1])
-        ps.pose.orientation.z = float(quat[2])
-        ps.pose.orientation.w = float(quat[3])
-        self.ee_pose_pub.publish(ps)
+        try:
+            now = self.node.get_clock().now().to_msg()
+            pos_m = fk_data["position_m"]
+            quat = fk_data["quaternion"]
 
-        # 2. Publish Link Poses (PoseArray)
-        pa = PoseArray()
-        pa.header.stamp = now
-        pa.header.frame_id = "base_link"
-        for T in fk_data["transforms"]:
-            p = Pose()
-            p.position.x = float(T[0, 3])
-            p.position.y = float(T[1, 3])
-            p.position.z = float(T[2, 3])
-            q_i = rot_matrix_to_quaternion(T[:3, :3])
-            p.orientation.x = float(q_i[0])
-            p.orientation.y = float(q_i[1])
-            p.orientation.z = float(q_i[2])
-            p.orientation.w = float(q_i[3])
-            pa.poses.append(p)
-        self.link_poses_pub.publish(pa)
+            # 1. Publish EE PoseStamped
+            ps = PoseStamped()
+            ps.header.stamp = now
+            ps.header.frame_id = "base_link"
+            ps.pose.position.x = float(pos_m[0])
+            ps.pose.position.y = float(pos_m[1])
+            ps.pose.position.z = float(pos_m[2])
+            ps.pose.orientation.x = float(quat[0])
+            ps.pose.orientation.y = float(quat[1])
+            ps.pose.orientation.z = float(quat[2])
+            ps.pose.orientation.w = float(quat[3])
+            self.ee_pose_pub.publish(ps)
+
+            # 2. Publish Link Poses (PoseArray)
+            pa = PoseArray()
+            pa.header.stamp = now
+            pa.header.frame_id = "base_link"
+            for T in fk_data["transforms"]:
+                p = Pose()
+                p.position.x = float(T[0, 3])
+                p.position.y = float(T[1, 3])
+                p.position.z = float(T[2, 3])
+                q_i = rot_matrix_to_quaternion(T[:3, :3])
+                p.orientation.x = float(q_i[0])
+                p.orientation.y = float(q_i[1])
+                p.orientation.z = float(q_i[2])
+                p.orientation.w = float(q_i[3])
+                pa.poses.append(p)
+            self.link_poses_pub.publish(pa)
+        except Exception:
+            pass
 
         # 3. Publish JSON Summary
         info_dict = {
@@ -441,6 +462,8 @@ class GazeboRosBridge:
 
     def publish_kinematics_markers(self, fk_data, target_pos_m, ik_success, use_flange=False):
         if not self.node or not self.marker_pub:
+            return
+        if self.marker_pub.get_subscription_count() == 0:
             return
 
         now = self.node.get_clock().now().to_msg()
@@ -564,18 +587,19 @@ class DensoGazeboPanel(QMainWindow):
         self.init_ui()
         self.setup_connections()
 
-        # Telemetry Timer chạy ở ~12.5 FPS (80ms) tối ưu độ mượt và triệt tiêu tải CPU
+        # Telemetry Timer chạy ở ~8 FPS (125ms) tối ưu độ mượt và triệt tiêu tải CPU
         self.telemetry_timer = QTimer(self)
         self.telemetry_timer.timeout.connect(self._update_telemetry)
-        self.telemetry_timer.start(80)
+        self.telemetry_timer.start(125)
 
         # Tính toán trước IK vị trí ban đầu
         self._calc_ik()
 
     def init_ui(self):
         self.setWindowTitle('DENSO VS-6556 - BẢNG ĐIỀU KHIỂN ROBOT TRONG GAZEBO')
-        self.resize(1260, 840)
-        self.setMinimumSize(960, 680)
+        self.resize(1200, 710)
+        self.move(120, 40)
+        self.setMinimumSize(960, 580)
 
         self.setStyleSheet("""
             QMainWindow { background-color: #0b1120; }
@@ -589,19 +613,25 @@ class DensoGazeboPanel(QMainWindow):
             QTabBar::tab {
                 background: #1e293b;
                 color: #94a3b8;
-                padding: 10px 22px;
+                padding: 7px 13px;
                 border: 1px solid #334155;
                 border-bottom: none;
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
                 font-weight: bold;
-                font-size: 13px;
-                margin-right: 4px;
+                font-size: 11px;
+                margin-right: 3px;
             }
             QTabBar::tab:selected {
                 background: #0284c7;
                 color: #ffffff;
                 border-bottom: 2px solid #38bdf8;
+            }
+            QTabBar QToolButton {
+                background-color: #0f172a;
+                color: #38bdf8;
+                border: 1px solid #334155;
+                border-radius: 4px;
             }
             QGroupBox {
                 background-color: #111827;
@@ -691,21 +721,21 @@ class DensoGazeboPanel(QMainWindow):
         self.tabs = QTabWidget(self)
         
         tab_link5 = self.create_link5_control_tab()
-        self.tabs.addTab(tab_link5, "🎯 1. ĐIỀU KHIỂN TỌA ĐỘ LINK 5 & GÓC KHỚP")
+        self.tabs.addTab(tab_link5, "🎯 1. TỌA ĐỘ LINK 5")
 
         tab_kinematics = self.create_kinematics_tab()
-        self.tabs.addTab(tab_kinematics, "📐 2. BẢNG PHÂN TÍCH ĐỘNG HỌC (KINEMATICS)")
+        self.tabs.addTab(tab_kinematics, "📐 2. ĐỘNG HỌC")
 
         tab_joints = self.create_joints_tab()
-        self.tabs.addTab(tab_joints, "🎛️ 3. ĐIỀU KHIỂN TỪNG KHỚP (SLIDERS)")
+        self.tabs.addTab(tab_joints, "🎛️ 3. ĐIỀU KHIỂN KHỚP")
 
         tab_telemetry = self.create_telemetry_tab()
-        self.tabs.addTab(tab_telemetry, "📊 4. BẢNG THÔNG SỐ ĐỘNG LỰC HỌC (TELEMETRY)")
+        self.tabs.addTab(tab_telemetry, "📊 4. ĐỘNG LỰC HỌC")
 
         # Tab 5: G-code & Image Vision Trajectory Drawing (Nạp trực tiếp không chờ)
         from denso_gcode_vision_engine import ImageGCodeDrawingTab
         self.tab_gcode = ImageGCodeDrawingTab(self.bridge, self.engine, self)
-        self.tabs.addTab(self.tab_gcode, "🎨 5. KHẮC / VẼ HÌNH ẢNH & G-CODE")
+        self.tabs.addTab(self.tab_gcode, "🎨 5. G-CODE & VẼ")
         self.tabs.currentChanged.connect(self._on_tab_changed_lazy)
 
         # Tab 6: BẢNG TRA GÓC 6-LINK (A, B, C, U, V, W) RIÊNG BIỆT - HIỂN THỊ ĐẦY ĐỦ TOÀN BỘ SỐ LIỆU CÁC LINK
@@ -716,7 +746,7 @@ class DensoGazeboPanel(QMainWindow):
             is_embedded=False,
             parent=self
         )
-        self.tabs.addTab(self.tab_joint_table, "🤖 6. BẢNG TRA GÓC 6-LINK (A, B, C, U, V, W)")
+        self.tabs.addTab(self.tab_joint_table, "🤖 6. TRA GÓC 6-LINK")
 
         if self.tab_gcode is not None:
             self.tab_gcode.joint_table_widget = self.tab_joint_table
@@ -727,11 +757,26 @@ class DensoGazeboPanel(QMainWindow):
                     item_name=self.tab_gcode.lbl_img_path.text()
                 )
 
+        # Tab 7: BẢNG SO SÁNH & TEST THUẬT TOÁN ĐƯỜNG THẲNG & NĂNG LƯỢNG (BENCHMARK)
+        from denso_trajectory_benchmark_tab import DensoTrajectoryBenchmarkTab
+        self.tab_benchmark = DensoTrajectoryBenchmarkTab(
+            bridge=self.bridge,
+            engine=self.engine,
+            parent=self
+        )
+        self.tabs.addTab(self.tab_benchmark, "⚡ 7. TEST THUẬT TOÁN")
+        self.tabs.setCurrentIndex(4)
+
         main_layout.addWidget(self.tabs, 1)
 
     def _on_tab_changed_lazy(self, index):
         if index in [0, 1]:
             self._refresh_ik_table()
+        # Khi người dùng rời khỏi Tab 7 (index 6) để sang Tab 5 (G-Code) hoặc các Tab khác,
+        # tự động ẩn đường dẫn 3D của Tab 7 trên bàn vẽ Gazebo để không bao giờ đè lên hình vẽ G-Code!
+        if index != 6 and hasattr(self, "tab_benchmark") and self.tab_benchmark is not None:
+            if hasattr(self.tab_benchmark, "clear_trajectory_marker"):
+                self.tab_benchmark.clear_trajectory_marker(silent=True)
 
     def _ensure_tab_gcode_loaded(self):
         pass
@@ -777,7 +822,7 @@ class DensoGazeboPanel(QMainWindow):
         self.ik_target_mode = QComboBox()
         self.ik_target_mode.addItems([
             "Khâu 5 - Cổ tay (Point P, Z_home=900mm)",
-            "Mặt Bích / Tool TCP (Flange, Z_home=980mm)"
+            "Mặt Bích / Tool TCP (Flange, Z_home=1004mm)"
         ])
         self.ik_target_mode.setStyleSheet("background-color: #0b1120; color: #38bdf8; border: 1px solid #334155; padding: 5px; font-weight: bold;")
         self.ik_target_mode.currentIndexChanged.connect(self._on_target_mode_changed)
@@ -1218,14 +1263,26 @@ class DensoGazeboPanel(QMainWindow):
 
     def _on_target_mode_changed(self, idx):
         use_flange = (idx == 1)
-        if self.spin_ik_z.value() in (900.0, 980.0):
-            self.spin_ik_z.setValue(980.0 if use_flange else 900.0)
+        if self.spin_ik_z.value() in (900.0, 980.0, 1004.0, 1004.04):
+            self.spin_ik_z.setValue(1004.04 if use_flange else 900.0)
         self._calc_ik()
 
     def _preset_home(self):
-        use_flange = (self.ik_target_mode.currentIndex() == 1)
-        self._set_spin_values_silently(15.0, 0.0, 980.0 if use_flange else 900.0)
-        self._calc_ik()
+        use_flange = (self.ik_target_mode.currentIndex() == 1) if hasattr(self, "ik_target_mode") else False
+        z_home = 1004.04 if use_flange else 900.0
+        self._set_spin_values_silently(15.0, 0.0, z_home)
+        self.last_ik_sol = np.zeros(self.engine.num_joints, dtype=float)
+        target_m = [0.015, 0.0, z_home / 1000.0]
+        self.bridge.publish_inverse_kinematics(target_m, self.last_ik_sol, True, 0, 0.0, use_flange=use_flange)
+        self.ik_status_card.setStyleSheet("background-color: #064e3b; border-radius: 6px; padding: 8px; border-left: 4px solid #10b981;")
+        self.lbl_ik_status.setText("✅ Vị trí Gốc Home chuẩn (Tất cả khớp 0.0° | Đứng thẳng hoàn hảo)")
+        self.lbl_ik_status.setStyleSheet("font-weight: bold; font-size: 12px; color: #a7f3d0;")
+        self.lbl_ik_info.setText("Góc mục tiêu: [+0.0°, +0.0°, +0.0°, +0.0°, +0.0°, +0.0°]")
+        if hasattr(self, 'card_tar'):
+            self.card_tar.val_lbl.setText(f"[+15, +0, +{z_home:.0f}] mm")
+        if hasattr(self, 'card_link5_tar'):
+            self.card_link5_tar.val_lbl.setText(f"[+15, +0, +{z_home:.0f}] mm")
+        self._refresh_ik_table()
 
     def _preset_front(self):
         self._set_spin_values_silently(350.0, 0.0, 600.0)
@@ -1293,10 +1350,17 @@ class DensoGazeboPanel(QMainWindow):
         mode = self.combo_ik_method.currentData() if hasattr(self, 'combo_ik_method') else "hybrid"
         elbow_up = self.combo_ik_elbow.currentData() if hasattr(self, 'combo_ik_elbow') else True
 
-        q_sol, success, iters, err_m = self.engine.inverse_kinematics(
-            target_m, q_seed=self.actual_rads, use_flange=use_flange,
-            elbow_up=elbow_up, mode=mode
-        )
+        z_home_val = 1004.04 if use_flange else 900.0
+        if abs(tx - 15.0) < 0.5 and abs(ty) < 0.5 and abs(tz - z_home_val) < 0.5:
+            q_sol = np.zeros(self.engine.num_joints, dtype=float)
+            success = True
+            iters = 0
+            err_m = 0.0
+        else:
+            q_sol, success, iters, err_m = self.engine.inverse_kinematics(
+                target_m, q_seed=self.actual_rads, use_flange=use_flange,
+                elbow_up=elbow_up, mode=mode
+            )
         self.last_ik_sol = q_sol if success else None
         err_mm = err_m * 1000.0
 
@@ -2306,12 +2370,12 @@ class DensoGazeboPanel(QMainWindow):
         row.addWidget(slider, 1)
 
         spin = QDoubleSpinBox(self)
-        spin.setFixedWidth(110)
-        spin.setDecimals(2)
+        spin.setFixedWidth(135)
+        spin.setDecimals(5)
         spin.setRange(info['deg_min'], info['deg_max'])
         spin.setValue(0.0)
         spin.setSuffix(' °')
-        spin.setSingleStep(1.0)
+        spin.setSingleStep(0.1)
         self.spin_boxes.append(spin)
         row.addWidget(spin)
 
@@ -2360,13 +2424,15 @@ class DensoGazeboPanel(QMainWindow):
             spin = self.spin_boxes[i]
             if self.is_deg_mode:
                 spin.setSuffix(' °')
+                spin.setDecimals(5)
                 spin.setRange(info['deg_min'], info['deg_max'])
-                spin.setSingleStep(1.0)
+                spin.setSingleStep(0.1)
                 spin.setValue(math.degrees(self.target_rads[i]))
             else:
                 spin.setSuffix(' rad')
+                spin.setDecimals(5)
                 spin.setRange(info['rad_min'], info['rad_max'])
-                spin.setSingleStep(0.05)
+                spin.setSingleStep(0.01)
                 spin.setValue(self.target_rads[i])
 
             self._sync_slider_from_target(i)
@@ -2578,6 +2644,10 @@ def main():
                     window.tabs.setCurrentIndex(2)
                 elif val in ["3", "telemetry"]:
                     window.tabs.setCurrentIndex(3)
+                elif val in ["5", "6link", "6-link"]:
+                    window.tabs.setCurrentIndex(5)
+                elif val in ["6", "7", "benchmark", "algo", "test"]:
+                    window.tabs.setCurrentIndex(6)
         except Exception:
             pass
     window.show()

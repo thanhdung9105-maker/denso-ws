@@ -40,12 +40,12 @@ except ImportError:
         DensoDynamicsEngine = None
         JOINT_NAMES = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
         JOINT_LIMITS = [
-            (-2.967, 2.967),
-            (-2.094, 2.356),
-            (-2.077, 2.897),
-            (-3.316, 3.316),
-            (-2.094, 2.094),
-            (-6.283, 6.283)
+            (-3.0543, 3.0543),
+            (-2.0944, 2.3562),
+            (-2.1817, 2.9671),
+            (-3.3161, 3.3161),
+            (-2.1991, 2.1991),
+            (-6.2832, 6.2832)
         ]
 
 LINK_NAMES = [
@@ -166,11 +166,11 @@ def export_records_to_txt(records: List[GCodePointRecord], file_path: str, title
         lines.extend([
             "-" * 156,
             "GIỚI HẠN GÓC VẬT LÝ DENSO VS-6556 (6-DOF):",
-            "  • Link 1 (J1 Đế / Base):      [-170.0°, +170.0°] ([-2.967, +2.967] rad)",
+            "  • Link 1 (J1 Đế / Base):      [-175.0°, +175.0°] ([-3.054, +3.054] rad)",
             "  • Link 2 (J2 Vai / Shoulder): [-120.0°, +135.0°] ([-2.094, +2.356] rad)",
-            "  • Link 3 (J3 Khuỷu / Elbow):  [-119.0°, +166.0°] ([-2.077, +2.897] rad)",
+            "  • Link 3 (J3 Khuỷu / Elbow):  [-125.0°, +170.0°] ([-2.182, +2.967] rad)",
             "  • Link 4 (J4 Cẳng tay):       [-190.0°, +190.0°] ([-3.316, +3.316] rad)",
-            "  • Link 5 (J5 Cổ tay / Wrist): [-120.0°, +120.0°] ([-2.094, +2.094] rad)",
+            "  • Link 5 (J5 Cổ tay / Wrist): [-126.0°, +126.0°] ([-2.199, +2.199] rad)",
             "  • Link 6 (J6 Mặt bích):       [-360.0°, +360.0°] ([-6.283, +6.283] rad)",
             "=" * 156
         ])
@@ -387,32 +387,39 @@ def export_records_to_html(records: List[GCodePointRecord], file_path: str, titl
 
 
 
-def export_records_to_gcode(records, file_path):
-    """Xuất G-code 6 link (A=J1, B=J2, C=J3, U=J4, V=J5, W=J6).
-    Khớp xoay mới Link 6 được định nghĩa là trục W. Feed rate F chỉ ghi ở dòng đầu."""
+def export_records_to_gcode(records, file_path, default_feed: float = 2000.0):
+    """Xuất file G-code 6 trục (A, B, C, U, V, W) chuẩn định dạng theo yêu cầu:
+    G90 ; absolute positioning
+    G1 A-10.33 B-2.98 C14.47 U-10.90 V43.18 W12.76 F2000
+    G1 A-19.93 B-22.77 C-33.81 U-4.94 V-14.31 W-17.39
+    Không thêm bớt bất kỳ thông tin nào khác, F mặc định là 2000."""
     try:
         os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
         with open(file_path, mode="w", encoding="utf-8") as f:
-            f.write("; Robot Denso VS-6556 - 6 Link G-code\n")
-            f.write("; Truc: A=Link1(J1), B=Link2(J2), C=Link3(J3), U=Link4(J4), V=Link5(J5), W=Link6(J6)\n")
-            f.write(f"; Tong so diem: {len(records)}\n")
+            f.write("G90 ; absolute positioning\n")
             first_f = True
             for r in records:
                 if r.q_deg and len(r.q_deg) >= 5:
-                    def fmt(v):
-                        rv = round(v, 3)
+                    def fmt_coord(v: float) -> str:
+                        rv = round(float(v), 2)
                         if abs(rv) < 1e-6:
                             rv = 0.0
-                        return str(int(rv)) if rv == int(rv) else str(rv)
+                        return f"{rv:.2f}"
+
                     w_deg = r.q_deg[5] if len(r.q_deg) >= 6 else 0.0
-                    line = (f"G1 A{fmt(r.q_deg[0])} B{fmt(r.q_deg[1])}"
-                            f" C{fmt(r.q_deg[2])} U{fmt(r.q_deg[3])} V{fmt(r.q_deg[4])} W{fmt(w_deg)}")
-                    if first_f and getattr(r, "feedrate", 0) and r.feedrate > 0:
-                        line += f" F{int(r.feedrate)}"
+                    a_s = fmt_coord(r.q_deg[0])
+                    b_s = fmt_coord(r.q_deg[1])
+                    c_s = fmt_coord(r.q_deg[2])
+                    u_s = fmt_coord(r.q_deg[3])
+                    v_s = fmt_coord(r.q_deg[4])
+                    w_s = fmt_coord(w_deg)
+
+                    line = f"G1 A{a_s} B{b_s} C{c_s} U{u_s} V{v_s} W{w_s}"
+                    if first_f:
+                        feed_int = int(round(default_feed)) if default_feed and default_feed > 0 else 2000
+                        line += f" F{feed_int}"
                         first_f = False
                     f.write(line + "\n")
-                else:
-                    f.write(f"; [SKIP] Diem #{r.index} - IK loi ({r.status})\n")
         return True
     except Exception as e:
         print(f"[ERROR] Xuat G-code that bai: {e}")
@@ -466,7 +473,7 @@ def extract_records_from_strokes(strokes: Any, engine: Any = None) -> List[GCode
             y = float(getattr(pt, "y", 0.0))
             z = float(getattr(pt, "z", 0.0))
             is_draw = bool(getattr(pt, "is_draw", is_stroke_draw))
-            feed = float(getattr(pt, "feedrate", 1200.0))
+            feed = float(getattr(pt, "feedrate", 2000.0))
             cmd = getattr(pt, "cmd", "G01" if is_draw else "G00")
 
             q_sol = getattr(pt, "q_sol", None)
@@ -702,8 +709,8 @@ class GCodeJointAnglesTableWidget(QWidget):
 
         self.btn_export_gcode = QPushButton("💾 XUẤT 6-LINK G-CODE (A, B, C, U, V, W)...")
         self.btn_export_gcode.setToolTip(
-            "Xuất tệp G-code 6 link (A/B/C/U/V/W) thẳng vào thư mục OneDrive/Máy tính/Denso\n"
-            "Trục W (Link 6 Khớp Xoay Mới) được xuất đầy đủ, F1200 ở dòng đầu tiên."
+            "Xuất tệp G-code 6 trục (A/B/C/U/V/W) thẳng vào thư mục OneDrive/Máy tính/Denso\n"
+            "Định dạng G90, F2000 ở dòng đầu tiên, tọa độ chuẩn 2 chữ số thập phân."
         )
         self.btn_export_gcode.setStyleSheet("""
             QPushButton {
@@ -1305,14 +1312,15 @@ class GCodeJointAnglesTableWidget(QWidget):
         if export_records_to_gcode(self.records, file_path):
             valid_cnt = sum(1 for r in self.records if r.q_deg)
             skipped = len(self.records) - valid_cnt
-            info = ('\u2705 Xuat thanh cong G-code 6 link!\n\n'
-                    '\U0001f4c1 Thu muc: ' + gcode_dir + '\n'
+            info = ('\u2705 Xuất thành công G-code 6 trục chuẩn!\n\n'
+                    '\U0001f4c1 Thư mục: ' + gcode_dir + '\n'
                     '\U0001f4c4 File: ' + filename + '\n\n'
-                    '\U0001f4ca Tong: ' + str(len(self.records)) + ' diem\n'
-                    '   Xuat IK kha thi: ' + str(valid_cnt) + '\n'
-                    '   Bo qua IK loi: ' + str(skipped) + '\n'
-                    '   Truc W (Link 6): Da tich hop day du')
-            QMessageBox.information(self, 'Xuat G-Code thanh cong', info)
+                    '\U0001f4ca Tổng: ' + str(len(self.records)) + ' điểm\n'
+                    '   Xuất IK khả thi: ' + str(valid_cnt) + '\n'
+                    '   Bỏ qua IK lỗi: ' + str(skipped) + '\n'
+                    '   Định dạng: G90 ; absolute positioning\n'
+                    '   Tốc độ mặc định: F2000 (2 chữ số thập phân)')
+            QMessageBox.information(self, 'Xuất G-Code thành công', info)
         else:
             QMessageBox.critical(self, 'Loi', 'Khong the xuat G-code ra: ' + file_path)
 
@@ -1402,6 +1410,7 @@ def main():
     parser.add_argument("--csv", type=str, help="Xuất ra tệp CSV")
     parser.add_argument("--txt", type=str, help="Xuất ra tệp Text report")
     parser.add_argument("--html", type=str, help="Xuất ra tệp HTML report")
+    parser.add_argument("--gcode", "-g", type=str, help="Xuất ra tệp G-code 6 trục (.gcode)")
     parser.add_argument("--gui", action="store_true", help="Khởi động giao diện GUI độc lập")
     args = parser.parse_args()
 
@@ -1434,13 +1443,22 @@ def main():
         csv_file = args.csv or f"{base_name}_5link_angles.csv"
         txt_file = args.txt or f"{base_name}_5link_angles.txt"
         html_file = args.html or f"{base_name}_5link_angles.html"
+        gcode_file = args.gcode
 
-        export_records_to_csv(records, csv_file)
-        print(f"[INFO] Đã xuất CSV: {csv_file}")
-        export_records_to_txt(records, txt_file)
-        print(f"[INFO] Đã xuất TXT: {txt_file}")
-        export_records_to_html(records, html_file)
-        print(f"[INFO] Đã xuất HTML: {html_file}")
+        if args.gcode or (not args.csv and not args.txt and not args.html):
+            target_gcode = args.gcode or f"{base_name}_6axis.gcode"
+            export_records_to_gcode(records, target_gcode)
+            print(f"[INFO] Đã xuất G-Code 6 trục: {target_gcode}")
+
+        if args.csv:
+            export_records_to_csv(records, csv_file)
+            print(f"[INFO] Đã xuất CSV: {csv_file}")
+        if args.txt:
+            export_records_to_txt(records, txt_file)
+            print(f"[INFO] Đã xuất TXT: {txt_file}")
+        if args.html:
+            export_records_to_html(records, html_file)
+            print(f"[INFO] Đã xuất HTML: {html_file}")
         print(f"[DONE] Hoàn thành trích xuất {len(records)} điểm G-Code.")
 
 if __name__ == '__main__':

@@ -8,8 +8,8 @@
   <link name="base_link">
     <inertial>
       <origin xyz="0 0 0.09" rpy="0 0 0"/>
-      <mass value="8.0"/>
-      <inertia ixx="0.04" ixy="0.0" ixz="0.0" iyy="0.04" iyz="0.0" izz="0.05"/>
+      <mass value="12.5"/>
+      <inertia ixx="0.062" ixy="0.0" ixz="0.0" iyy="0.062" iyz="0.0" izz="0.078"/>
     </inertial>
     <visual>
       <origin xyz="-0.11555 0.11564 0.0" rpy="1.570796 0 0"/>
@@ -32,8 +32,8 @@
   <link name="link_1">
     <inertial>
       <origin xyz="-0.04 0.0 0.08" rpy="0 0 0"/>
-      <mass value="4.5"/>
-      <inertia ixx="0.035" ixy="0.0" ixz="0.0" iyy="0.035" iyz="0.0" izz="0.025"/>
+      <mass value="7.5"/>
+      <inertia ixx="0.058" ixy="0.0" ixz="0.0" iyy="0.058" iyz="0.0" izz="0.042"/>
     </inertial>
     <visual>
       <origin xyz="-0.16000 0.11000 -0.02000" rpy="1.570796 0 0"/>
@@ -56,8 +56,8 @@
   <link name="link_2">
     <inertial>
       <origin xyz="0.0 -0.041 0.120" rpy="0 0 0"/>
-      <mass value="4.2"/>
-      <inertia ixx="0.045" ixy="0.0" ixz="0.0" iyy="0.040" iyz="0.0" izz="0.015"/>
+      <mass value="6.3"/>
+      <inertia ixx="0.068" ixy="0.0" ixz="0.0" iyy="0.060" iyz="0.0" izz="0.023"/>
     </inertial>
     <visual>
       <origin xyz="-0.08719 0.02550 -0.08557" rpy="1.570796 0 0"/>
@@ -80,8 +80,8 @@
   <link name="link_3">
     <inertial>
       <origin xyz="0.045 0.075 0.010" rpy="0 0 0"/>
-      <mass value="3.1"/>
-      <inertia ixx="0.020" ixy="0.0" ixz="0.0" iyy="0.020" iyz="0.0" izz="0.010"/>
+      <mass value="4.8"/>
+      <inertia ixx="0.031" ixy="0.0" ixz="0.0" iyy="0.031" iyz="0.0" izz="0.016"/>
     </inertial>
     <visual>
       <!-- Aligned with joint_3 elbow pitch axis matching SolidWorks VS-6556-B_asm.STL -->
@@ -105,8 +105,8 @@
   <link name="link_4">
     <inertial>
       <origin xyz="0 0 0.10" rpy="0 0 0"/>
-      <mass value="2.0"/>
-      <inertia ixx="0.015" ixy="0.0" ixz="0.0" iyy="0.015" iyz="0.0" izz="0.005"/>
+      <mass value="2.6"/>
+      <inertia ixx="0.020" ixy="0.0" ixz="0.0" iyy="0.020" iyz="0.0" izz="0.0065"/>
     </inertial>
     <visual>
       <!-- Aligned with forearm roll axis matching SolidWorks VS-6556-B_asm.STL -->
@@ -130,8 +130,8 @@
   <link name="link_5">
     <inertial>
       <origin xyz="0.0 0.0 0.0163" rpy="0 0 0"/>
-      <mass value="0.95"/>
-      <inertia ixx="0.000816" ixy="0.0" ixz="0.0" iyy="0.000954" iyz="0.0" izz="0.000634"/>
+      <mass value="1.0"/>
+      <inertia ixx="0.000860" ixy="0.0" ixz="0.0" iyy="0.001000" iyz="0.0" izz="0.000667"/>
     </inertial>
     <visual>
       <!-- Origin set at wrist pitch axis matching SolidWorks VS-6556-B_asm.STL -->
@@ -155,8 +155,8 @@
   <link name="link_6">
     <inertial>
       <origin xyz="0.0 0.0 0.01126" rpy="0 0 0"/>
-      <mass value="0.25"/>
-      <inertia ixx="0.000072" ixy="0.0" ixz="0.0" iyy="0.000072" iyz="0.0" izz="0.000120"/>
+      <mass value="0.30"/>
+      <inertia ixx="0.000086" ixy="0.0" ixz="0.0" iyy="0.000086" iyz="0.0" izz="0.000144"/>
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -181,7 +181,7 @@
     <child link="link_1"/>
     <origin xyz="0 0 0.205" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-2.96706" upper="2.96706" effort="80" velocity="4.5815"/>
+    <limit lower="-3.054326" upper="3.054326" effort="80" velocity="4.5815"/>
     <dynamics damping="1.0" friction="0.0"/>
   </joint>
 
@@ -201,7 +201,7 @@
     <child link="link_3"/>
     <origin xyz="0 0.0065 0.270" rpy="0 0 0"/>
     <axis xyz="0 -1 0"/>
-    <limit lower="-2.076942" upper="2.897247" effort="60" velocity="5.2360"/>
+    <limit lower="-2.181662" upper="2.967060" effort="60" velocity="5.2360"/>
     <dynamics damping="1.0" friction="0.0"/>
   </joint>
 
@@ -221,7 +221,7 @@
     <child link="link_5"/>
     <origin xyz="0 0 0.186" rpy="0 0 0"/>
     <axis xyz="0 -1 0"/>
-    <limit lower="-2.094395" upper="2.094395" effort="20" velocity="5.2360"/>
+    <limit lower="-2.199115" upper="2.199115" effort="20" velocity="5.2360"/>
     <dynamics damping="0.5" friction="0.0"/>
   </joint>
 
@@ -314,8 +314,8 @@
     </hardware>
     <joint name="joint_1">
       <command_interface name="position">
-        <param name="min">-2.96706</param>
-        <param name="max">2.96706</param>
+        <param name="min">-3.054326</param>
+        <param name="max">3.054326</param>
       </command_interface>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
@@ -336,8 +336,8 @@
     </joint>
     <joint name="joint_3">
       <command_interface name="position">
-        <param name="min">-2.076942</param>
-        <param name="max">2.897247</param>
+        <param name="min">-2.181662</param>
+        <param name="max">2.967060</param>
       </command_interface>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
@@ -358,8 +358,8 @@
     </joint>
     <joint name="joint_5">
       <command_interface name="position">
-        <param name="min">-2.094395</param>
-        <param name="max">2.094395</param>
+        <param name="min">-2.199115</param>
+        <param name="max">2.199115</param>
       </command_interface>
       <state_interface name="position">
         <param name="initial_value">0.0</param>

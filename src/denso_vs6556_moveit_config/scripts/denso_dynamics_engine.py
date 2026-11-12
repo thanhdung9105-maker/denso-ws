@@ -14,12 +14,12 @@ import numpy as np
 # -------------------------------------------------------------
 JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
 JOINT_LIMITS = [
-    (-2.967, 2.967),   # Joint 1: Base Z [-170°, +170°]
-    (-2.094, 2.356),   # Joint 2: Shoulder Y [-120°, +135°]
-    (-2.077, 2.897),   # Joint 3: Elbow Y [-119°, +166°]
-    (-3.316, 3.316),   # Joint 4: Forearm X [-190°, +190°]
-    (-2.094, 2.094),   # Joint 5: Wrist Y [-120°, +120°]
-    (-6.283, 6.283),   # Joint 6: Flange Z [-360°, +360°]
+    (-3.0543, 3.0543),   # Joint 1: Base Z [-175°, +175°] (Cho phép góc Calib 172.98852°)
+    (-2.0944, 2.3562),   # Joint 2: Shoulder Y [-120°, +135°] (Cho phép góc Calib -103.32405°)
+    (-2.1817, 2.9671),   # Joint 3: Elbow Y [-125°, +170°] (Cho phép góc Calib 168.31864°)
+    (-3.3161, 3.3161),   # Joint 4: Forearm X [-190°, +190°] (Cho phép góc Calib 181.78143°)
+    (-2.1991, 2.1991),   # Joint 5: Wrist Y [-126°, +126°] (Cho phép góc Calib 124.09928°)
+    (-6.2832, 6.2832),   # Joint 6: Flange Z [-360°, +360°] (Cho phép góc Calib 94.54276°)
 ]
 
 # Torque limits (N*m) for Denso VS-6556 industrial motors
@@ -45,8 +45,8 @@ ACCELERATION_LIMITS = np.array([15.0, 12.0, 15.0, 20.0, 20.0, 25.0])
 FRICTION_B = np.array([0.8, 1.2, 0.9, 0.3, 0.2, 0.1])
 FRICTION_FC = np.array([0.5, 0.8, 0.6, 0.2, 0.15, 0.05])
 
-# Link masses (kg)
-LINK_MASSES = np.array([4.5, 4.2, 3.1, 2.0, 0.95, 0.25])
+# Link masses (kg) - Moving links 1..6 = 22.50 kg + base_link 12.50 kg = 35.00 kg total robot mass (DENSO Datasheet)
+LINK_MASSES = np.array([7.5, 6.3, 4.8, 2.6, 1.0, 0.30])
 
 # Centers of mass (m) in each link frame (synchronized with calibrated denso_vs6556.urdf)
 COMS = [
@@ -60,12 +60,12 @@ COMS = [
 
 # Inertia tensors (kg*m^2) at CoM
 INERTIAS = [
-    np.diag([0.035, 0.035, 0.025]),           # link_1
-    np.diag([0.045, 0.040, 0.015]),           # link_2
-    np.diag([0.020, 0.020, 0.010]),           # link_3
-    np.diag([0.015, 0.015, 0.005]),           # link_4
-    np.diag([0.000816, 0.000954, 0.000634]),   # link_5
-    np.diag([0.000072, 0.000072, 0.000120]),   # link_6
+    np.diag([0.058, 0.058, 0.042]),           # link_1
+    np.diag([0.068, 0.060, 0.023]),           # link_2
+    np.diag([0.031, 0.031, 0.016]),           # link_3
+    np.diag([0.020, 0.020, 0.0065]),          # link_4
+    np.diag([0.000860, 0.001000, 0.000667]),  # link_5
+    np.diag([0.000086, 0.000086, 0.000144]),  # link_6
 ]
 
 # Joint axes in local joint frames
@@ -679,7 +679,7 @@ class DensoDynamicsEngine:
 
         # Step 1: Decouple spherical wrist center (Point P)
         # Flange normal along tool Z-axis: column 2 of R_tgt
-        d6 = 0.09004
+        d6 = float(DH_PARAMS[5][2])
         z_flange = R_tgt[:, 2]
         p_wrist = p_tgt - d6 * z_flange
 
@@ -784,6 +784,7 @@ class DensoDynamicsEngine:
         last_err_ana = 1.0
         if mode in ("analytical", "hybrid"):
             branches = [elbow_up, not elbow_up] if elbow_up is not None else [True, False]
+            valid_candidates = []
             for branch in branches:
                 if not use_flange:
                     q_ana, ok, err_ana = self.solve_ik_analytical_point_p(target, elbow_up=branch, q_seed=q_seed)
@@ -794,7 +795,13 @@ class DensoDynamicsEngine:
                 if ok and q_ana is not None and err_ana < 1e-3:
                     is_col, _ = self.check_collision(q_ana)
                     if not is_col:
-                        return q_ana, True, 0, err_ana
+                        valid_candidates.append((q_ana, err_ana))
+
+            if valid_candidates:
+                # Nếu có q_seed: chọn nghiệm gần tư thế q_seed nhất để chuyển động tự nhiên nhất
+                if q_seed is not None and len(valid_candidates) > 1:
+                    valid_candidates.sort(key=lambda item: float(np.linalg.norm(item[0][:3] - np.array(q_seed)[:3])))
+                return valid_candidates[0][0], True, 0, valid_candidates[0][1]
 
             # Đối với Point P (Khâu 5) hoặc Flange có góc chúc bút tool_pitch_rad cố định,
             # giải tích hình học đã bao quát toàn bộ không gian làm việc chính xác 100%.

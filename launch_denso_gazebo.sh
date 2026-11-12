@@ -11,10 +11,10 @@ pkill -9 -f "gz sim" 2>/dev/null || true
 pkill -9 -f "gz-sim" 2>/dev/null || true
 rm -rf /dev/shm/* 2>/dev/null || true
 rm -rf /tmp/gz* /tmp/ign* /tmp/create* /tmp/launch_params* /tmp/ros2* 2>/dev/null || true
-sleep 1.0
+sleep 0.5
 
 source /opt/ros/jazzy/setup.bash
-sudo ip link set lo multicast on 2>/dev/null || true
+sudo -n ip link set lo multicast on 2>/dev/null || true
 if [ -f /home/dung/denso_ws/install/setup.bash ]; then
     source /home/dung/denso_ws/install/setup.bash
 fi
@@ -24,6 +24,7 @@ export CYCLONEDDS_URI=file:///home/dung/cyclonedds.xml
 export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 export ROS_DOMAIN_ID=0
 export GZ_IP=127.0.0.1
+export GZ_RELAY=127.0.0.1
 export GZ_PARTITION=denso_ws
 
 export GZ_SIM_RESOURCE_PATH=/home/dung/denso_ws/src:/home/dung/denso_ws/install/denso_vs6556/share:/home/dung/denso_ws/install/denso_gazebo/share:

@@ -29,4 +29,8 @@ export QT_AUTO_SCREEN_SCALE_FACTOR=0
 export QT_SCALE_FACTOR=1
 
 echo "[INFO] Khởi động Giao diện Điều khiển Tương tác Robot Denso VS-6556 trong Gazebo Sim [Domain ID: 0]..."
-exec python3 /home/dung/denso_ws/src/denso_gazebo/scripts/denso_gazebo_control_panel.py ""
+
+# Tự động canh chỉnh kích thước và vị trí cửa sổ vừa vặn màn hình (chống lỗi Taskbar Windows 11)
+python3 /home/dung/denso_ws/src/denso_gazebo/scripts/denso_window_arranger.py >/dev/null 2>&1 &
+
+exec python3 /home/dung/denso_ws/src/denso_gazebo/scripts/denso_gazebo_control_panel.py "$@"

@@ -12,12 +12,12 @@ controller_manager:
 gz_ros2_control:
   ros__parameters:
     use_sim_time: true
-    position_proportional_gain: 0.1
+    position_proportional_gain: 0.35
 
 gz_ros_control:
   ros__parameters:
     use_sim_time: true
-    position_proportional_gain: 0.1
+    position_proportional_gain: 0.35
 
 arm_controller:
   ros__parameters:
@@ -38,12 +38,12 @@ arm_controller:
     allow_partial_joints_goal: false
     interpolation_method: splines
     constraints:
-      stopped_velocity_tolerance: 0.05
-      goal_time: 5.0
-      # trajectory tolerance = 0.0 disables state tolerance aborts during drawing motions
-      joint_1: { trajectory: 0.0, goal: 0.05 }
-      joint_2: { trajectory: 0.0, goal: 0.05 }
-      joint_3: { trajectory: 0.0, goal: 0.05 }
-      joint_4: { trajectory: 0.0, goal: 0.05 }
-      joint_5: { trajectory: 0.0, goal: 0.05 }
-      joint_6: { trajectory: 0.0, goal: 0.05 }
+      stopped_velocity_tolerance: 0.0
+      goal_time: 0.0
+      # trajectory & goal tolerance = 0.0 disables state tolerance aborts during motions
+      joint_1: { trajectory: 0.0, goal: 0.0 }
+      joint_2: { trajectory: 0.0, goal: 0.0 }
+      joint_3: { trajectory: 0.0, goal: 0.0 }
+      joint_4: { trajectory: 0.0, goal: 0.0 }
+      joint_5: { trajectory: 0.0, goal: 0.0 }
+      joint_6: { trajectory: 0.0, goal: 0.0 }

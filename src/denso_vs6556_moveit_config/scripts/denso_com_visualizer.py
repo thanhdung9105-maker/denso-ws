@@ -90,9 +90,9 @@ class DensoCoMVisualizer(Node):
         # Xóa các marker thừa ở link_5/tool (id 6 trước đây)
         self._clear_legacy_markers()
         
-        # Duy trì phát chu kỳ 0.2s (5 Hz) khi TF đã sẵn sàng
+        # Duy trì phát chu kỳ 0.35s (~3 Hz) khi TF đã sẵn sàng và có subscriber
         # Giúp RViz2 nhận biểu tượng trọng tâm tức thì, mượt mà khi di chuyển khớp và triệt tiêu tải CPU
-        self.timer = self.create_timer(0.2, self.publish_markers)
+        self.timer = self.create_timer(0.35, self.publish_markers)
         self.get_logger().info('Denso CoM Visualizer: Da bat dau phat bieu tuong Trong tam Chuan Xac 6 Link.')
 
     def _clear_legacy_markers(self):
@@ -117,6 +117,10 @@ class DensoCoMVisualizer(Node):
         self.marker_pub.publish(clear_array)
 
     def publish_markers(self):
+        # Chỉ tạo và gửi marker khi có ít nhất 1 node (như RViz2) đang lắng nghe để tránh lãng phí CPU
+        if self.marker_pub.get_subscription_count() == 0:
+            return
+
         # Đảm bảo TF tree đã có link_6 trước khi xuất bản marker để triệt tiêu 100% lỗi RViz 'Frame does not exist'
         try:
             if not self.tf_buffer.can_transform('world', 'link_6', rclpy.time.Time()):

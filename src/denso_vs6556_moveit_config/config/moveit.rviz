@@ -162,7 +162,7 @@ Visualization Manager:
   Global Options:
     Background Color: 48; 48; 48
     Fixed Frame: world
-    Frame Rate: 10
+    Frame Rate: 30
   Name: root
   Tools:
   - Class: rviz_default_plugins/MoveCamera
@@ -200,11 +200,11 @@ Visualization Manager:
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 750
+  Height: 700
   Hide Left Dock: false
   Hide Right Dock: false
   Views:
     collapsed: false
-  Width: 1280
+  Width: 1180
   X: 60
-  Y: 50
+  Y: 45

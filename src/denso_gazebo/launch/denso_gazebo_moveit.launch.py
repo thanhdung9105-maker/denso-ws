@@ -15,6 +15,10 @@ from launch_ros.actions import Node
 from moveit_configs_utils import MoveItConfigsBuilder
 
 def generate_launch_description():
+    os.environ["GZ_IP"] = "127.0.0.1"
+    os.environ["GZ_RELAY"] = "127.0.0.1"
+    os.environ["GZ_PARTITION"] = "denso_ws"
+
     pkg_denso_gazebo = get_package_share_directory('denso_gazebo')
     pkg_denso_vs6556 = get_package_share_directory('denso_vs6556')
     pkg_moveit = get_package_share_directory('denso_vs6556_moveit_config')
@@ -114,7 +118,7 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}],
     )
 
-    # Kích hoạt MoveIt và RViz2 ngay khi Controllers & TF đã sẵn sàng, triệt tiêu 100% race conditions
+    # Kích hoạt MoveGroup và RViz2 ngay khi TF sẵn sàng
     start_moveit_and_rviz = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=wait_node,
@@ -122,7 +126,7 @@ def generate_launch_description():
                 move_group_node,
                 com_visualizer_node,
                 TimerAction(
-                    period=0.1,
+                    period=0.2,
                     actions=[rviz_node]
                 ),
             ],
@@ -131,10 +135,12 @@ def generate_launch_description():
 
     gz_partition_env = SetEnvironmentVariable(name="GZ_PARTITION", value="denso_ws")
     gz_ip_env = SetEnvironmentVariable(name="GZ_IP", value="127.0.0.1")
+    gz_relay_env = SetEnvironmentVariable(name="GZ_RELAY", value="127.0.0.1")
 
     return LaunchDescription([
         gz_partition_env,
         gz_ip_env,
+        gz_relay_env,
         headless_arg,
         gazebo_launch,
         wait_node,

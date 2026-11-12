@@ -1,5 +1,7 @@
 import os
 import shutil
+import subprocess
+import time
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
@@ -19,6 +21,19 @@ from launch_ros.actions import Node
 import xacro
 
 def generate_launch_description():
+    # Dọn dẹp triệt để các tiến trình Gazebo / Ruby / Bridge cũ bị treo trước khi khởi chạy
+    subprocess.run(
+        ["killall", "-9", "-q", "ruby", "ruby3.2", "create", "parameter_bridge", "gz", "gz-sim", "spawner"],
+        stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+    )
+    time.sleep(0.3)
+
+    # Đồng bộ biến môi trường GZ Transport ngay trong tiến trình gốc của ros2 launch
+    os.environ["GZ_IP"] = "127.0.0.1"
+    os.environ["GZ_RELAY"] = "127.0.0.1"
+    os.environ["GZ_PARTITION"] = "denso_ws"
+
     pkg_denso_gazebo = get_package_share_directory("denso_gazebo")
     pkg_denso_vs6556 = get_package_share_directory("denso_vs6556")
     pkg_ros_gz_sim = get_package_share_directory("ros_gz_sim")
@@ -30,7 +45,7 @@ def generate_launch_description():
     bridge_config = os.path.join(pkg_denso_gazebo, "config", "gz_bridge.yaml")
     gui_config_file = os.path.join(pkg_denso_gazebo, "config", "gui.config")
 
-    # Đồng bộ cấu hình góc nhìn camera Gazebo vào ~/.gz/sim/8/gui.config (không dùng cờ --gui-config vì CLI gz sim sẽ nuốt mất đường dẫn world_file)
+    # Đồng bộ cấu hình góc nhìn camera Gazebo vào ~/.gz/sim/8/gui.config
     try:
         gz_user_dir = os.path.expanduser("~/.gz/sim/8")
         os.makedirs(gz_user_dir, exist_ok=True)
@@ -70,6 +85,11 @@ def generate_launch_description():
         value="127.0.0.1"
     )
 
+    gz_relay_env = SetEnvironmentVariable(
+        name="GZ_RELAY",
+        value="127.0.0.1"
+    )
+
     # Launch Arguments
     headless_arg = DeclareLaunchArgument(
         "headless",
@@ -92,18 +112,17 @@ def generate_launch_description():
     )
     launch_rsp = LaunchConfiguration("launch_rsp")
 
-    # Gazebo Sim (GUI mode) - Chay truc tiep ExecuteProcess de tranh loi nuot tham so world cua gz_sim.launch.py
-    gazebo_gui = ExecuteProcess(
-        cmd=["gz", "sim", "-r", world_file],
-        output="screen",
-        condition=UnlessCondition(headless)
-    )
-
-    # Gazebo Sim (Headless / Server mode)
-    gazebo_headless = ExecuteProcess(
+    # 1. Gazebo Sim Server (-s -r): Luôn chạy độc lập với cờ -s (wait_gui=0)
+    # Triệt tiêu 100% lỗi deadlock chờ topic /gazebo/starting_world từ GUI,
+    # giúp service [/world/denso_world/create] khởi tạo tức thì (< 0.3s).
+    gazebo_server = ExecuteProcess(
         cmd=["gz", "sim", "-s", "-r", world_file],
         output="screen",
-        condition=IfCondition(headless)
+        additional_env={
+            "GZ_PARTITION": "denso_ws",
+            "GZ_IP": "127.0.0.1",
+            "GZ_RELAY": "127.0.0.1",
+        },
     )
 
     # Robot State Publisher (publishes TF based on URDF and /joint_states)
@@ -128,7 +147,7 @@ def generate_launch_description():
         condition=IfCondition(launch_rsp)
     )
 
-    # Spawn Denso robot into Gazebo Sim truc tiep qua chuoi XML (-string) de khong phai cho topic /robot_description
+    # Spawn Denso robot into Gazebo Sim trực tiếp qua chuỗi XML (-string)
     spawn_robot = Node(
         package="ros_gz_sim",
         executable="create",
@@ -156,13 +175,13 @@ def generate_launch_description():
         }]
     )
 
-    # Khởi chạy spawn robot nhanh (0.5s) - node create tự động thăm dò service khi world sẵn sàng
+    # Khởi chạy spawn robot nhanh (0.5s) sau khi gazebo_server (-s) đã nạp world
     delayed_spawn_robot = TimerAction(
         period=0.5,
         actions=[spawn_robot],
     )
 
-    # 1. Spawner cho joint_state_broadcaster: phai nap truoc de phat ngay /joint_states cho RViz va MoveIt
+    # 1. Spawner cho joint_state_broadcaster: phải nạp trước để phát ngay /joint_states cho RViz và MoveIt
     joint_state_broadcaster_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -175,7 +194,7 @@ def generate_launch_description():
         output="screen",
     )
 
-    # 2. Spawner cho arm_controller: nap sau khi joint_state_broadcaster da chay on dinh
+    # 2. Spawner cho arm_controller: nạp sau khi joint_state_broadcaster đã chạy ổn định
     arm_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -213,6 +232,44 @@ def generate_launch_description():
         )
     )
 
+    # 2. Gazebo Sim GUI (-g): Khởi chạy ngay sau khi joint_state_broadcaster hoàn tất (trước RViz2 2.5s để không bao giờ tranh chấp GPU D3D12)
+    # Cấu hình môi trường đồ họa chuẩn DirectX 12 cho WSLg:
+    # TUYỆT ĐỐI KHÔNG gán LIBGL_ALWAYS_SOFTWARE=1 vì sẽ gây xung đột với D3D12 và Ogre2,
+    # dẫn đến lỗi 'glx: failed to create drisw screen' và crash tiến trình với SIGABRT (exit code -6).
+    gz_gui_env = {
+        "GZ_PARTITION": "denso_ws",
+        "GZ_IP": "127.0.0.1",
+        "GZ_RELAY": "127.0.0.1",
+        "DISPLAY": os.environ.get("DISPLAY", ":0"),
+        "WAYLAND_DISPLAY": "",
+        "GALLIUM_DRIVER": os.environ.get("GALLIUM_DRIVER", "d3d12"),
+        "OGRE_RTT_MODE": "FBO",
+        "QT_QPA_PLATFORM": "xcb",
+        "QT_AUTO_SCREEN_SCALE_FACTOR": "0",
+        "QT_SCALE_FACTOR": "1",
+    }
+    if "MESA_D3D12_DEFAULT_ADAPTER_NAME" in os.environ:
+        gz_gui_env["MESA_D3D12_DEFAULT_ADAPTER_NAME"] = os.environ["MESA_D3D12_DEFAULT_ADAPTER_NAME"]
+
+    start_gazebo_gui = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=joint_state_broadcaster_spawner,
+            on_exit=[
+                TimerAction(
+                    period=0.5,
+                    actions=[
+                        ExecuteProcess(
+                            cmd=["gz", "sim", "-g", "--gui-config", gui_config_file],
+                            output="screen",
+                            condition=UnlessCondition(headless),
+                            additional_env=gz_gui_env,
+                        )
+                    ],
+                )
+            ],
+        )
+    )
+
     # Interactive Control Panel GUI (Optional)
     control_panel_node = Node(
         package="denso_gazebo",
@@ -227,11 +284,12 @@ def generate_launch_description():
         gz_plugin_env,
         gz_partition_env,
         gz_ip_env,
+        gz_relay_env,
         headless_arg,
         control_gui_arg,
         launch_rsp_arg,
-        gazebo_gui,
-        gazebo_headless,
+        gazebo_server,
+        start_gazebo_gui,
         bridge,
         robot_state_publisher,
         static_transform_publisher,

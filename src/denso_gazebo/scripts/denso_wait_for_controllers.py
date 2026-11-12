@@ -43,7 +43,7 @@ class DensoWaitNode(Node):
                 # Kiểm tra cây TF từ world tới link_6 đã liên tục chưa
                 if self.tf_buffer.can_transform('world', 'link_6', rclpy.time.Time()):
                     self.ready_count += 1
-                    if self.ready_count >= 5:
+                    if self.ready_count >= 2:
                         self.get_logger().info('✅ Hệ thống điều khiển Gazebo & TF Tree [world -> link_6] đã sẵn sàng 100%!')
                         rclpy.shutdown()
                         sys.exit(0)
