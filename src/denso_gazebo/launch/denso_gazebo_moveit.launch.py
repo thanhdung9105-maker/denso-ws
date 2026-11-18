@@ -8,6 +8,7 @@ from launch.actions import (
     TimerAction,
     RegisterEventHandler,
 )
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -46,6 +47,12 @@ def generate_launch_description():
         'headless',
         default_value='false',
         description='Run Gazebo in headless mode (server only)'
+    )
+
+    launch_rviz_arg = DeclareLaunchArgument(
+        'launch_rviz',
+        default_value='false',
+        description='Launch RViz2 visualizer (default false to save CPU and eliminate lag in Gazebo)'
     )
 
     # Launch Gazebo Simulation with controllers and single robot_state_publisher
@@ -91,6 +98,7 @@ def generate_launch_description():
         executable="rviz2",
         name="rviz_visualizer",
         output="screen",
+        condition=IfCondition(LaunchConfiguration('launch_rviz')),
         arguments=["-d", rviz_config],
         ros_arguments=[
             "--log-level", "rcl.logging_rosout:=ERROR",
@@ -142,6 +150,7 @@ def generate_launch_description():
         gz_ip_env,
         gz_relay_env,
         headless_arg,
+        launch_rviz_arg,
         gazebo_launch,
         wait_node,
         start_moveit_and_rviz,

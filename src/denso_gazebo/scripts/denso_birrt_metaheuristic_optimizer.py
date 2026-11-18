@@ -31,7 +31,7 @@ import os
 import math
 import time
 import numpy as np
-from scipy.interpolate import CubicSpline, make_interp_spline
+from scipy.interpolate import CubicSpline, make_interp_spline, BSpline
 
 # Physical Motor energy coefficients for Denso VS-6556 (Joule / rad)
 # Tương ứng Table 3 trong bài báo Nature Scientific Reports
@@ -140,61 +140,58 @@ class BiRRTMetaheuristicPlanner:
 
     def compute_detour_waypoints(self, p_start, p_end):
         """
-        Tạo các điểm tránh né hình học tối ưu (Conformal Equidistant Detour Waypoints)
-        bao quanh các chướng ngại vật với cự ly an toàn chuẩn d_clear >= 55mm (vượt bán kính bao khâu 35mm).
-        Tích hợp điểm chuyển tiếp dẫn hướng (Lead-in / Lead-out) ở 2 đầu để triệt tiêu hiện tượng cắt góc (Corner Cutting).
+        Tạo các điểm tránh né hình học tối ưu (Conformal Orthogonal Detour Waypoints)
+        dọc theo hướng pháp tuyến n_hat vuông góc với vector chuyển động baseline d.
+        Cự ly an toàn chuẩn d_clear = 24mm bao quanh bề mặt từng vật cản (vừa khít, không vồng thừa),
+        liên kết trơn mượt trực tiếp từ Start qua 3 đỉnh tránh né tới Goal mà không bị gãy góc hay tạo móc nhọn.
         """
         p_start = np.asarray(p_start, dtype=float)
         p_end = np.asarray(p_end, dtype=float)
         d = p_end - p_start
+        d_xy = d[:2]
         d_len_sq = float(np.dot(d, d))
+        d_xy_len = float(np.linalg.norm(d_xy))
 
         if d_len_sq < 1e-6 or len(self.obstacles) == 0:
             return [p_start, 0.5 * (p_start + p_end), p_end]
 
+        # Vector tiếp tuyến đơn vị và pháp tuyến trực giao trong mặt phẳng XY
+        t_hat = d_xy / max(1e-6, d_xy_len)
+        n_hat = np.array([-t_hat[1], t_hat[0]])
+        # Đảm bảo vector pháp tuyến hướng ra ngoài không gian tự do (hướng âm X, tránh thân robot)
+        if n_hat[0] > 0:
+            n_hat = -n_hat
+
         detours = []
+        margin = 0.024  # Cự ly an toàn tối ưu 24mm tính từ bề mặt vật cản
+
         for obs in self.obstacles:
             t_star = max(0.0, min(1.0, float(np.dot(obs.center - p_start, d)) / d_len_sq))
             P_star = p_start + t_star * d
             dist_center = float(np.linalg.norm(P_star - obs.center))
 
             if dist_center < (obs.effective_radius + 0.090):
-                # Độ lệch an toàn để khâu Link 5 không chạm vào bán cầu (bán kính vật cản + 68mm)
-                apex_clearance = obs.radius + 0.068
-                detour_x = float(obs.center[0] - apex_clearance)
-                detour_y = float(obs.center[1])
-                detour_z = float(p_start[2])
-                detours.append((t_star, np.array([detour_x, detour_y, detour_z]), obs))
+                # Điểm đỉnh tránh né lệch pháp tuyến chuẩn xác theo kích thước vật cản
+                detour_xy = obs.center[:2] + (obs.radius + margin) * n_hat
+                # Nếu vật cản nhô cao (Z cao hơn p_start), tự động nhấc Z tạo đường lượn vòm 3D
+                if obs.center[2] > p_start[2] + 0.010:
+                    detour_z = float(obs.center[2] + 0.018)
+                else:
+                    detour_z = float(p_start[2])
+                detours.append((t_star, np.array([detour_xy[0], detour_xy[1], detour_z]), obs))
 
         if len(detours) == 0:
             return [p_start, 0.5 * (p_start + p_end), p_end]
 
         detours.sort(key=lambda x: x[0])
 
-        first_t, first_pt, first_obs = detours[0]
-        last_t, last_pt, last_obs = detours[-1]
-
-        # Điểm chuyển tiếp dẫn hướng (Lead-in) êm mượt, tỷ lệ hài hòa giữa Start và detour đầu tiên
-        lead_in_y = first_obs.center[1] - (first_obs.radius + 0.035) * np.sign(d[1] if abs(d[1]) > 1e-3 else 1.0)
-        lead_in_x = 0.5 * (p_start[0] + first_pt[0])
-        lead_in_pt = np.array([lead_in_x, lead_in_y, p_start[2]])
-
-        # Điểm chuyển tiếp dẫn hướng (Lead-out) êm mượt, tỷ lệ hài hòa giữa detour cuối và Goal
-        lead_out_y = last_obs.center[1] + (last_obs.radius + 0.035) * np.sign(d[1] if abs(d[1]) > 1e-3 else 1.0)
-        lead_out_x = 0.5 * (p_end[0] + last_pt[0])
-        lead_out_pt = np.array([lead_out_x, lead_out_y, p_start[2]])
-
+        # Kết nối trực tiếp: Start -> Các đỉnh né tránh theo thứ tự -> Goal
+        # Không chèn thêm các điểm lead-in / lead-out nhân tạo để triệt tiêu hoàn toàn góc gập móc vuông
         pts = [p_start]
-        if np.linalg.norm(lead_in_pt - p_start) > 0.025 and np.linalg.norm(lead_in_pt - first_pt) > 0.020:
-            pts.append(lead_in_pt)
-
         for _, pt, _ in detours:
             pts.append(pt)
-
-        if np.linalg.norm(lead_out_pt - p_end) > 0.025 and np.linalg.norm(lead_out_pt - last_pt) > 0.020:
-            pts.append(lead_out_pt)
-
         pts.append(p_end)
+
         return pts
 
     def solve_dls_ik(self, target_pos, target_rot=None, q_seed=None):
@@ -203,7 +200,11 @@ class BiRRTMetaheuristicPlanner:
         Khóa hướng trục Z công cụ thẳng đứng [0, 0, -1] để Link 5 luôn ở Z ~ 300mm (cao hơn vật cản).
         """
         if q_seed is None:
-            q_seed = np.array([0.0, 0.55, 2.22, 0.0, 0.38, 0.0])
+            q1_init = math.atan2(-float(target_pos[1]), -float(target_pos[0]))
+            if float(target_pos[2]) > 0.52:
+                q_seed = np.array([q1_init, 0.32, 0.72, 0.0, 2.10, 0.0])
+            else:
+                q_seed = np.array([q1_init, 0.55, 2.22, 0.0, 0.38, 0.0])
 
         q_curr = q_seed.copy()
         lambda_sq = 0.005 ** 2
@@ -440,22 +441,48 @@ class BiRRTMetaheuristicPlanner:
             if not col:
                 path_joint_nodes = path_joint_nodes[:i+1] + path_joint_nodes[j:]
 
-        # Quỹ đạo thô Bi-RRT có đặc tính gấp khúc C0 (Piecewise Linear Cartesian Baseline)
+        # Quỹ đạo thô Bi-RRT có đặc tính gấp khúc C0 (Piecewise Linear Cartesian Baseline với Corner Stops)
         # Bám sát từng đoạn thẳng né chướng ngại vật ngay trên mặt bàn làm việc (Z ~ 220mm)
+        # Thể hiện chính xác hiện tượng giật góc, phanh hãm tại các đỉnh nhọn C0 theo Table 4 Nature 2026
         W_rrt = np.array(detour_wps, dtype=float)
-        dists = [0.0]
-        for i in range(len(W_rrt) - 1):
-            dists.append(dists[-1] + float(np.linalg.norm(W_rrt[i + 1] - W_rrt[i])))
-        total_len = max(1e-4, dists[-1])
-        s_norm = np.array(dists) / total_len
+        n_segs = len(W_rrt) - 1
+        seg_lens = [float(np.linalg.norm(W_rrt[k + 1] - W_rrt[k])) for k in range(n_segs)]
+        tot_len = max(1e-4, sum(seg_lens))
+
+        t_dwell = 0.16  # Khoảng dừng phanh hãm 160ms tại từng đỉnh góc nhọn C0
+        t_motion = max(0.5, total_time - (n_segs - 1) * t_dwell)
+
+        t_raw = []
+        cart_raw = []
+        curr_t = 0.0
+
+        for k in range(n_segs):
+            p0 = W_rrt[k]
+            p1 = W_rrt[k + 1]
+            dur_k = t_motion * (seg_lens[k] / tot_len)
+            tau_k = np.linspace(0.0, 1.0, 50)
+            # Quintic S-curve: vận tốc giảm về 0 tại 2 đầu mỗi đoạn thẳng
+            s_k = 10.0 * tau_k**3 - 15.0 * tau_k**4 + 6.0 * tau_k**5
+            for s_val, tau_val in zip(s_k, tau_k):
+                t_raw.append(curr_t + tau_val * dur_k)
+                cart_raw.append((1.0 - s_val) * p0 + s_val * p1)
+            curr_t += dur_k
+            if k < n_segs - 1:
+                # Dừng hãm tại góc cua (dwelling corner stop)
+                t_dw = np.linspace(0.01, t_dwell, 10)
+                for dw_val in t_dw:
+                    t_raw.append(curr_t + dw_val)
+                    cart_raw.append(p1.copy())
+                curr_t += t_dwell
+
+        t_raw = np.array(t_raw)
+        cart_raw = np.array(cart_raw)
 
         t_dense = np.linspace(0.0, total_time, 100)
         dt = t_dense[1] - t_dense[0]
-        u_samples = np.linspace(0.0, 1.0, 100)
-
         cart_rrt = np.zeros((100, 3))
         for c in range(3):
-            cart_rrt[:, c] = np.interp(u_samples, s_norm, W_rrt[:, c])
+            cart_rrt[:, c] = np.interp(t_dense, t_raw, cart_raw[:, c])
 
         # Giải nghịch học DLS bám sát từng điểm Cartesian để duy trì nhánh nghiệm chuẩn trên mặt bàn
         q_rrt = np.zeros((100, 6))
@@ -469,6 +496,7 @@ class BiRRTMetaheuristicPlanner:
         qd_rrt = np.gradient(q_rrt, dt, axis=0)
         qdd_rrt = np.gradient(qd_rrt, dt, axis=0)
         qddd_rrt = np.gradient(qdd_rrt, dt, axis=0)
+        qd_rrt[0] = 0.0; qd_rrt[-1] = 0.0
 
         metrics_rrt = self.compute_metrics(t_dense, cart_rrt, q_rrt, qd_rrt, qdd_rrt, qddd_rrt, is_piecewise_rrt=True)
 
@@ -519,21 +547,42 @@ class BiRRTMetaheuristicPlanner:
             m = len(base_wps) - 2
 
             W_raw = np.array(base_wps, dtype=float)
-            dists = [0.0]
-            for i in range(len(W_raw) - 1):
-                dists.append(dists[-1] + float(np.linalg.norm(W_raw[i + 1] - W_raw[i])))
-            total_len = max(1e-4, dists[-1])
-            s_norm = np.array(dists) / total_len
+            n_segs = len(W_raw) - 1
+            seg_lens = [float(np.linalg.norm(W_raw[k + 1] - W_raw[k])) for k in range(n_segs)]
+            tot_len = max(1e-4, sum(seg_lens))
+
+            t_dwell = 0.16  # Khoảng dừng phanh hãm 160ms tại từng đỉnh góc nhọn C0
+            t_motion = max(0.5, total_time - (n_segs - 1) * t_dwell)
+
+            t_raw = []
+            cart_raw = []
+            curr_t = 0.0
+
+            for k in range(n_segs):
+                p0 = W_raw[k]
+                p1 = W_raw[k + 1]
+                dur_k = t_motion * (seg_lens[k] / tot_len)
+                tau_k = np.linspace(0.0, 1.0, 50)
+                s_k = 10.0 * tau_k**3 - 15.0 * tau_k**4 + 6.0 * tau_k**5
+                for s_val, tau_val in zip(s_k, tau_k):
+                    t_raw.append(curr_t + tau_val * dur_k)
+                    cart_raw.append((1.0 - s_val) * p0 + s_val * p1)
+                curr_t += dur_k
+                if k < n_segs - 1:
+                    t_dw = np.linspace(0.01, t_dwell, 10)
+                    for dw_val in t_dw:
+                        t_raw.append(curr_t + dw_val)
+                        cart_raw.append(p1.copy())
+                    curr_t += t_dwell
+
+            t_raw = np.array(t_raw)
+            cart_raw = np.array(cart_raw)
 
             t_dense = np.linspace(0.0, total_time, 100)
             dt_step = t_dense[1] - t_dense[0]
-            u_samples = np.linspace(0.0, 1.0, 100)
-
-            # 1. Đoạn thẳng Cartesian chuẩn tuyệt đối qua từng đỉnh mốc (Piecewise Linear C0 Sharp Corners)
-            # Khắc phục hoàn toàn hiện tượng vồng cung cong dị dạng hình cánh buồm khi nội suy góc khớp
             cart_rrt = np.zeros((100, 3))
             for c in range(3):
-                cart_rrt[:, c] = np.interp(u_samples, s_norm, W_raw[:, c])
+                cart_rrt[:, c] = np.interp(t_dense, t_raw, cart_raw[:, c])
 
             # 2. Giải nghịch học bám sát đường thẳng để đường Cam thẳng tắp với các đỉnh nhọn C0
             q_rrt = np.zeros((100, 6))
@@ -547,6 +596,7 @@ class BiRRTMetaheuristicPlanner:
             qd_rrt = np.gradient(q_rrt, dt_step, axis=0)
             qdd_rrt = np.gradient(qd_rrt, dt_step, axis=0)
             qddd_rrt = np.gradient(qdd_rrt, dt_step, axis=0)
+            qd_rrt[0] = 0.0; qd_rrt[-1] = 0.0
 
             base_metrics = self.compute_metrics(t_dense, cart_rrt, q_rrt, qd_rrt, qdd_rrt, qddd_rrt, is_piecewise_rrt=True)
             rrt_res = {
@@ -575,6 +625,8 @@ class BiRRTMetaheuristicPlanner:
 
         # Baseline metrics (L0, E0, J0)
         L0 = max(1e-4, base_metrics["L"])
+        dz_base = float(np.sum(np.abs(np.diff(np.array(base_wps)[:, 2]))))
+        E_base_proxy = max(1e-4, L0 * (1.0 + 1.5 * (dz_base / L0)))
         E0 = max(1e-4, base_metrics["E"])
         J0 = max(1e-4, base_metrics["J"])
 
@@ -590,23 +642,28 @@ class BiRRTMetaheuristicPlanner:
                 new_pt = base_wps[i + 1] + delta
 
                 for obs in self.obstacles:
-                    dist_c = np.linalg.norm(new_pt[:2] - obs.center[:2])
-                    req_clearance = obs.radius + 0.048
-                    if dist_c < req_clearance:
-                        collision_pen += 1e5 * (req_clearance - dist_c)
-                        # Đẩy nhẹ ra ngoài dọc vector hướng tâm để bảo toàn cự ly an toàn
-                        diff_2d = new_pt[:2] - obs.center[:2]
-                        norm_diff = np.linalg.norm(diff_2d)
-                        normal_2d = diff_2d / max(1e-4, norm_diff)
-                        new_pt[:2] = obs.center[:2] + req_clearance * normal_2d
+                    # Khoảng cách hình học 3D chuẩn Euclidean tới tâm vật cản hình cầu (Spherical Obstacle)
+                    dist_3d = np.linalg.norm(new_pt - obs.center)
+                    req_clearance = obs.radius + 0.020  # Cự ly an toàn chuẩn 20mm tính từ bề mặt cầu
+                    if dist_3d < req_clearance:
+                        collision_pen += 1e5 * (req_clearance - dist_3d)
+                        # Đẩy nhẹ ra ngoài dọc vector pháp tuyến hướng tâm 3D để bảo toàn cự ly an toàn
+                        diff_3d = new_pt - obs.center
+                        norm_diff = np.linalg.norm(diff_3d)
+                        normal_3d = diff_3d / max(1e-4, norm_diff)
+                        new_pt = obs.center + req_clearance * normal_3d
 
                 current_wps.append(new_pt)
             current_wps.append(base_wps[-1])
 
-            # Đánh giá chiều dài cung và độ êm góc uốn B-spline trong không gian Cartesian (tốc độ cao)
+            # Đánh giá chiều dài cung, thế năng Z và độ êm góc uốn B-spline trong không gian Cartesian (tốc độ cao)
             W_cand = np.array(current_wps, dtype=float)
             dists = np.linalg.norm(np.diff(W_cand, axis=0), axis=1)
             L_cand = float(np.sum(dists))
+
+            # Ước lượng thế năng và quán tính gắn với công cơ học nâng khâu và chiều dài
+            dz_cand = float(np.sum(np.abs(np.diff(W_cand[:, 2]))))
+            E_cand_proxy = L_cand * (1.0 + 1.5 * (dz_cand / max(1e-4, L_cand)))
 
             smooth_pen = 0.0
             for i in range(len(W_cand) - 2):
@@ -617,9 +674,13 @@ class BiRRTMetaheuristicPlanner:
                     cos_ang = np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)
                     smooth_pen += (1.0 - cos_ang)
 
+            wL = weights.get("wL", 0.20)
+            wE = weights.get("wE", 0.35)
+            wJ = weights.get("wJ", 0.45)
             cost = (
-                weights["wL"] * (L_cand / L0) +
-                weights["wJ"] * (smooth_pen * 0.25) +
+                wL * (L_cand / L0) +
+                wE * (E_cand_proxy / E_base_proxy) +
+                wJ * (smooth_pen * 0.25) +
                 collision_pen
             )
             return cost, current_wps
@@ -639,79 +700,94 @@ class BiRRTMetaheuristicPlanner:
         best_ind = None
         best_wps = None
 
-        for ind in population:
-            cost, wps = evaluate_candidate(ind)
-            if cost < best_cost:
-                best_cost = cost
-                best_ind = ind.copy()
-                best_wps = wps
-
-        fitness_history.append(best_cost)
-
-        # GWO Optimizer
+        # GWO Optimizer (Dựa trên lý thuyết bầy sói xám GWO.pdf - Chương 3, Mirjalili et al. 2014)
         if algorithm.upper() == "GWO":
-            alpha_pos = best_ind.copy()
-            alpha_score = best_cost
-            beta_pos = best_ind.copy()
-            beta_score = best_cost
-            delta_pos = best_ind.copy()
-            delta_score = best_cost
+            # 1. Khởi tạo và đánh giá toàn bộ quần thể ban đầu để xếp hạng thứ bậc (Section 3.3.1 trong GWO.pdf)
+            pop_eval = []
+            for ind in population:
+                cost, wps = evaluate_candidate(ind)
+                pop_eval.append((cost, ind.copy(), wps))
 
+            # Xếp hạng thứ bậc: Alpha (tốt nhất - fittest), Beta (nhì), Delta (ba), Omega (còn lại)
+            pop_eval.sort(key=lambda x: x[0])
+            alpha_score, alpha_pos, best_wps = pop_eval[0][0], pop_eval[0][1].copy(), pop_eval[0][2]
+            beta_score, beta_pos = pop_eval[1][0], pop_eval[1][1].copy()
+            delta_score, delta_pos = pop_eval[2][0], pop_eval[2][1].copy()
+            best_cost = alpha_score
+            best_ind = alpha_pos.copy()
+            fitness_history.append(best_cost)
+
+            # 2. Vòng lặp săn mồi và bao vây con mồi (Sections 3.3.2 & 3.3.3 và Pseudo-code Hình 3.2a)
             for itr in range(max_iter):
+                # Hệ số a giảm tuyến tính từ 2 về 0 (Eq. 3.3 trong GWO.pdf)
                 a = 2.0 - 2.0 * (itr / max_iter)
 
+                # Cập nhật đồng bộ toàn bộ bầy sói theo thế hệ t (Synchronous Generational Update - Fig 3.2a)
+                new_population = []
                 for idx in range(pop_size):
                     curr = population[idx]
-                    new_ind = np.zeros_like(curr)
+
+                    # Vector hóa tính toán săn mồi theo Alpha, Beta, Delta (Eqs. 3.1 - 3.5 trong GWO.pdf)
+                    # 1. Hướng về cá thể Alpha
+                    r1 = np.random.rand(m, 3)
+                    r2 = np.random.rand(m, 3)
+                    A1 = 2.0 * a * r1 - a   # Eq. (3.3)
+                    C1 = 2.0 * r2           # Eq. (3.4)
+                    D_alpha = np.abs(C1 * alpha_pos - curr) # Eq. (3.5)
+                    X1 = alpha_pos - A1 * D_alpha           # Eq. (3.2) & (3.6)
+
+                    # 2. Hướng về cá thể Beta
+                    r1 = np.random.rand(m, 3)
+                    r2 = np.random.rand(m, 3)
+                    A2 = 2.0 * a * r1 - a   # Eq. (3.3)
+                    C2 = 2.0 * r2           # Eq. (3.4)
+                    D_beta = np.abs(C2 * beta_pos - curr)   # Eq. (3.5)
+                    X2 = beta_pos - A2 * D_beta             # Eq. (3.2) & (3.6)
+
+                    # 3. Hướng về cá thể Delta
+                    r1 = np.random.rand(m, 3)
+                    r2 = np.random.rand(m, 3)
+                    A3 = 2.0 * a * r1 - a   # Eq. (3.3)
+                    C3 = 2.0 * r2           # Eq. (3.4)
+                    D_delta = np.abs(C3 * delta_pos - curr) # Eq. (3.5)
+                    X3 = delta_pos - A3 * D_delta           # Eq. (3.2) & (3.6)
+
+                    # Vị trí mới là trung bình trọng tâm của 3 cá thể dẫn đầu (Eq. 3.7 trong GWO.pdf)
+                    new_ind = (X1 + X2 + X3) / 3.0
+
+                    # Chiếu giới hạn vào hành lang an toàn B-spline (Eq. 13 Nature 2026)
                     for k in range(m):
-                        r1 = np.random.rand(3)
-                        r2 = np.random.rand(3)
-                        A1 = 2.0 * a * r1 - a
-                        C1 = 2.0 * r2
-                        D_alpha = np.abs(C1 * alpha_pos[k] - curr[k])
-                        X1 = alpha_pos[k] - A1 * D_alpha
-
-                        r1 = np.random.rand(3)
-                        r2 = np.random.rand(3)
-                        A2 = 2.0 * a * r1 - a
-                        C2 = 2.0 * r2
-                        D_beta = np.abs(C2 * beta_pos[k] - curr[k])
-                        X2 = beta_pos[k] - A2 * D_beta
-
-                        r1 = np.random.rand(3)
-                        r2 = np.random.rand(3)
-                        A3 = 2.0 * a * r1 - a
-                        C3 = 2.0 * r2
-                        D_delta = np.abs(C3 * delta_pos[k] - curr[k])
-                        X3 = delta_pos[k] - A3 * D_delta
-
-                        new_pos_k = (X1 + X2 + X3) / 3.0
                         rho = corridor_radii[k]
-                        if np.linalg.norm(new_pos_k) > rho:
-                            new_pos_k = (rho / np.linalg.norm(new_pos_k)) * new_pos_k
-                        new_ind[k] = new_pos_k
+                        norm_k = np.linalg.norm(new_ind[k])
+                        if norm_k > rho:
+                            new_ind[k] = (rho / norm_k) * new_ind[k]
 
-                    cost, wps = evaluate_candidate(new_ind)
-                    population[idx] = new_ind
+                    new_population.append(new_ind)
 
-                    if cost < alpha_score:
-                        delta_score = beta_score
-                        delta_pos = beta_pos.copy()
-                        beta_score = alpha_score
-                        beta_pos = alpha_pos.copy()
-                        alpha_score = cost
-                        alpha_pos = new_ind.copy()
-                        best_cost = cost
-                        best_ind = new_ind.copy()
-                        best_wps = wps
-                    elif cost < beta_score:
-                        delta_score = beta_score
-                        delta_pos = beta_pos.copy()
-                        beta_score = cost
-                        beta_pos = new_ind.copy()
-                    elif cost < delta_score:
-                        delta_score = cost
-                        delta_pos = new_ind.copy()
+                # Cơ chế Elitism: luôn bảo toàn nghiệm Alpha tốt nhất trong bầy
+                new_population[0] = alpha_pos.copy()
+                population = new_population
+
+                # Đánh giá fitness của toàn bộ bầy sói ở thế hệ t (Calculate fitness of all search agents - Fig 3.2a)
+                gen_eval = []
+                for ind in population:
+                    cost, wps = evaluate_candidate(ind)
+                    gen_eval.append((cost, ind.copy(), wps))
+
+                # Cập nhật phân cấp thứ bậc bầy sói: Alpha, Beta, Delta (Update X_alpha, X_beta, X_delta - Fig 3.2a)
+                gen_eval.sort(key=lambda x: x[0])
+                if gen_eval[0][0] < alpha_score:
+                    alpha_score = gen_eval[0][0]
+                    alpha_pos = gen_eval[0][1].copy()
+                    best_cost = alpha_score
+                    best_ind = alpha_pos.copy()
+                    best_wps = gen_eval[0][2]
+                if gen_eval[1][0] < beta_score:
+                    beta_score = gen_eval[1][0]
+                    beta_pos = gen_eval[1][1].copy()
+                if gen_eval[2][0] < delta_score:
+                    delta_score = gen_eval[2][0]
+                    delta_pos = gen_eval[2][1].copy()
 
                 fitness_history.append(best_cost)
                 if progress_callback:

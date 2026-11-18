@@ -1,0 +1,348 @@
+\chapter{ĐỘNG HỌC TAY MÁY CÔNG NGHIỆP 6-DOF DENSO VS-6556}
+\label{chap:dong_hoc_denso}
+
+Trong chương này, đề tài trình bày chi tiết cơ sở lý thuyết toán học về phương pháp tham số Denavit - Hartenberg (D-H), thiết lập bảng thông số động học chuẩn hóa cho tay máy công nghiệp 6 bậc tự do Denso VS-6556, từ đó xây dựng mô hình bài toán Động học thuận (Forward Kinematics) và bài toán Động học nghịch giải tích (Closed-form Analytical Inverse Kinematics) dựa trên nguyên lý phân rã cổ tay cầu của Pieper.
+
+\section{Cơ sở lý thuyết phương pháp Denavit - Hartenberg (D-H)}
+\label{sec:dh_theory}
+
+Phương pháp biểu diễn Denavit - Hartenberg (D-H) là phương pháp hình học giải tích chuẩn mực để mô hình hóa động học của các cơ cấu tay máy chuỗi động hở ($Open\ Kinematic\ Chain$). Phương pháp này cho phép thiết lập quan hệ chuyển vị không gian giữa hệ trục tọa độ của khâu thứ $i$ (ký hiệu là $\{i\}$: $O_i X_i Y_i Z_i$) so với hệ trục tọa độ của khâu liền trước $\{i-1\}$ ($O_{i-1} X_{i-1} Y_{i-1} Z_{i-1}$) thông qua 4 thông số hình học độc lập.
+
+\subsection{Các quy tắc thiết lập hệ trục tọa độ D-H chuẩn}
+
+Các hệ trục tọa độ gắn trên từng khâu chuyển động từ khâu cố định (Base $\{0\}$) đến khâu công tác (End-Effector $\{6\}$) được thiết lập tuân thủ nghiêm ngặt theo các nguyên tắc chuẩn hóa:
+
+Trục $Z_i$ luôn được đặt trùng với trục quay (đối với khớp xoay - Revolute Joint) hoặc trục trượt (đối với khớp tịnh tiến - Prismatic Joint) của khớp động thứ $i+1$. Chiều của $Z_i$ được chọn theo quy tắc bàn tay phải tương ứng với chiều chuyển động quay danh định của động cơ truyền động.
+
+Gốc tọa độ $O_i$ được xác định tại giao điểm giữa trục $Z_i$ và đường vuông góc chung của hai trục $Z_{i-1}$ và $Z_i$. Trường hợp hai trục $Z_{i-1}$ và $Z_i$ cắt nhau, gốc $O_i$ được chọn chính là giao điểm của chúng; nếu hai trục song song, gốc $O_i$ được chọn tại vị trí thuận lợi dọc trên trục $Z_i$.
+
+Trục $X_i$ nằm dọc theo đường vuông góc chung giữa hai trục $Z_{i-1}$ và $Z_i$, có chiều hướng từ trục $Z_{i-1}$ sang trục $Z_i$. Khi hai trục $Z_{i-1}$ và $Z_i$ cắt nhau, trục $X_i$ có phương vuông góc với mặt phẳng tạo bởi hai trục:
+\begin{equation}
+    \vec{X}_i = \pm \frac{\vec{Z}_{i-1} \times \vec{Z}_i}{\|\vec{Z}_{i-1} \times \vec{Z}_i\|}
+\end{equation}
+
+Trục $Y_i$ được xác định theo quy tắc tam diện thuận để tạo thành hệ tọa độ Descartes thuận trong không gian ba chiều:
+\begin{equation}
+    \vec{Y}_i = \vec{Z}_i \times \vec{X}_i
+\end{equation}
+
+\subsection{Định nghĩa 4 thông số hình học D-H}
+
+Quan hệ không gian giữa hai hệ trục tọa độ liền kề $\{i-1\}$ và $\{i\}$ được mô tả hoàn toàn bởi 4 thông số hình học độc lập: hai thông số tịnh tiến ($a_i, d_i$) và hai thông số góc quay ($\alpha_i, \theta_i$). Định nghĩa chi tiết của từng đại lượng được thiết lập như sau:
+
+\textbf{(1) Chiều dài khâu ($a_i$ - Link Length):} Khoảng cách ngắn nhất giữa hai trục $Z_{i-1}$ và $Z_i$, được đo dọc theo đường vuông góc chung là trục $X_i$. Đây là thông số hằng số hình học xác định kích thước vật lý của khâu $i$.
+
+\textbf{(2) Góc xoắn khâu ($\alpha_i$ - Link Twist):} Góc quay quanh trục $X_i$ để đưa trục $Z_{i-1}$ về vị trí song song và cùng chiều với trục $Z_i$. Đây cũng là một hằng số hình học biểu diễn góc nghiêng giữa hai trục khớp liền kề.
+
+\textbf{(3) Độ dời khâu ($d_i$ - Link Offset):} Khoảng cách đo dọc theo trục $Z_{i-1}$ từ gốc tọa độ $O_{i-1}$ đến giao điểm của trục $Z_{i-1}$ với trục $X_i$. Đối với các khớp quay (Revolute Joints), $d_i$ là một hằng số hình học cố định biểu diễn độ lệch trục.
+
+\textbf{(4) Góc quay khớp ($\theta_i$ - Joint Angle):} Góc quay quanh trục $Z_{i-1}$ để đưa trục $X_{i-1}$ về vị trí song song và cùng chiều với trục $X_i$. Đối với cánh tay máy sử dụng khớp quay, $\theta_i$ là biến số động học của hệ thống, được tính toán thông qua góc quay cơ học của động cơ $q_i$ cùng góc bù điểm chuẩn $\theta_{i,\text{offset}}$:
+\begin{equation}
+    \theta_i = \text{sign}_i \cdot q_i + \theta_{i,\text{offset}}
+\end{equation}
+
+Để người đọc dễ dàng phân biệt vai trò hình học và trục quy chiếu của từng đại lượng, bản chất của 4 thông số D-H được tổng hợp tường minh trong Bảng~\ref{tab:dh_definition}.
+
+\begin{table}[htbp]
+\centering
+\caption{Bản chất và quy ước đo lường của 4 thông số Denavit - Hartenberg}
+\label{tab:dh_definition}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cclcc}
+\toprule
+\textbf{Ký hiệu} & \textbf{Tên thông số} & \textbf{Quy ước đo lường / Bản chất hình học} & \textbf{Trục quy chiếu} & \textbf{Đặc tính (Khớp quay)} \\
+\midrule
+$a_i$      & Chiều dài khâu & Khoảng cách giữa trục $Z_{i-1}$ và trục $Z_i$       & Đo dọc trục $X_i$     & Hằng số hình học \\
+$\alpha_i$ & Góc xoắn khâu  & Góc quay từ trục $Z_{i-1}$ đến trục $Z_i$           & Quay quanh trục $X_i$ & Hằng số hình học \\
+$d_i$      & Độ dời khâu    & Khoảng cách từ gốc $O_{i-1}$ đến giao điểm với $X_i$ & Đo dọc trục $Z_{i-1}$ & Hằng số hình học \\
+$\theta_i$ & Góc quay khớp  & Góc quay từ trục $X_{i-1}$ đến trục $X_i$           & Quay quanh trục $Z_{i-1}$ & Biến số điều khiển ($q_i$) \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsection{Thiết lập ma trận biến đổi thuần nhất tổng quát $A_i$}
+
+Để chuyển đổi tọa độ một điểm từ hệ $\{i\}$ về hệ $\{i-1\}$, ta thực hiện liên tiếp 4 phép biến đổi thuần nhất cơ bản: quay một góc $\theta_i$ quanh trục $Z_{i-1}$ $\text{Rot}(Z, \theta_i)$, tịnh tiến khoảng cách $d_i$ dọc theo trục $Z_{i-1}$ $\text{Trans}(Z, d_i)$, tịnh tiến khoảng cách $a_i$ dọc theo trục $X_i$ $\text{Trans}(X, a_i)$, và quay một góc $\alpha_i$ quanh trục $X_i$ $\text{Rot}(X, \alpha_i)$.
+
+Ma trận biến đổi thuần nhất cấp $4 \times 4$ liên kết hai khâu liền kề $A_i = T_{i-1}^i$ được tính bằng tích:
+\begin{align}
+    A_i &= \text{Rot}(Z, \theta_i) \cdot \text{Trans}(Z, d_i) \cdot \text{Trans}(X, a_i) \cdot \text{Rot}(X, \alpha_i) \notag \\
+        &= \begin{bmatrix}
+            \cos\theta_i & -\sin\theta_i & 0 & 0 \\
+            \sin\theta_i &  \cos\theta_i & 0 & 0 \\
+            0 & 0 & 1 & d_i \\
+            0 & 0 & 0 & 1
+        \end{bmatrix}
+        \begin{bmatrix}
+            1 & 0 & 0 & a_i \\
+            0 & \cos\alpha_i & -\sin\alpha_i & 0 \\
+            0 & \sin\alpha_i &  \cos\alpha_i & 0 \\
+            0 & 0 & 0 & 1
+        \end{bmatrix}
+\end{align}
+
+Khai triển tích ma trận thu được dạng chuẩn tắc của ma trận D-H:
+\begin{equation}
+    A_i = \begin{bmatrix}
+        \cos\theta_i & -\sin\theta_i\cos\alpha_i &  \sin\theta_i\sin\alpha_i & a_i\cos\theta_i \\
+        \sin\theta_i &  \cos\theta_i\cos\alpha_i & -\cos\theta_i\sin\alpha_i & a_i\sin\theta_i \\
+        0            &  \sin\alpha_i             &  \cos\alpha_i             & d_i             \\
+        0            &  0                        &  0                        & 1
+    \end{bmatrix}
+    \label{eq:standard_dh_matrix}
+\end{equation}
+
+\section{Bảng thông số D-H của Robot Denso VS-6556}
+\label{sec:denso_dh_table}
+
+Robot Denso VS-6556 là tay máy công nghiệp 6 bậc tự do cấu trúc chuỗi động nối tiếp $6R$, gồm hai cụm chức năng chính: cụm ba khớp định vị ($J_1, J_2, J_3$) đảm nhiệm việc xác định vị trí của khâu tác động cuối trong không gian thao tác ($Positioning\ Mechanism$), và cụm ba khớp định hướng ($J_4, J_5, J_6$) đồng quy tại một điểm tạo thành cơ cấu cổ tay cầu ($Spherical\ Wrist$) đảm nhiệm việc định hướng góc xoay công cụ ($Orientation\ Mechanism$).
+
+Căn cứ vào bản vẽ kỹ thuật danh định của hãng Denso Robotics (Denso Manual No. 410590-0080), các thông số hình học cơ sở của các khâu được phân tích chi tiết theo chuỗi động học từ đế đến khâu công tác như sau:
+
+\textbf{(1) Khâu đế và khớp xoay thân ($J_1$):} Trục quay $Z_0$ hướng thẳng đứng. Khoảng cách từ mặt phẳng đáy bắt bu-lông của bệ đỡ đến trục khớp vai $J_2$ là $d_1 = 0.335\text{ m}$ (bao gồm chiều cao chân đế $h_{\text{base}} = 0.205\text{ m}$ và đoạn thân khâu 1 là $0.130\text{ m}$).
+
+\textbf{(2) Khớp vai và cánh tay trên ($J_2$):} Trục khớp vai $Z_1$ vuông góc với trục $Z_0$ ($\alpha_1 = -\pi/2$) và có độ lệch ngang so với trục xoay bệ một khoảng $a_1 = -0.075\text{ m}$. Chiều dài của khâu cánh tay trên (Upper Arm) đo từ tâm khớp $J_2$ đến tâm khớp $J_3$ đạt $a_2 = 0.270\text{ m}$.
+
+\textbf{(3) Khớp khuỷu và khâu cẳng tay ($J_3$):} Trục khớp khuỷu $Z_2$ song song với trục $Z_1$ ($\alpha_2 = 0$). Tại khâu khuỷu, cơ cấu có độ lệch vuông góc cấu trúc là $a_3 = 0.090\text{ m}$, cùng góc xoắn $\alpha_3 = \pi/2$ để chuyển hướng trục $Z_3$ nằm dọc theo thân cẳng tay. Chiều dài cẳng tay từ trục khuỷu đến tâm cổ tay cầu Point P là $d_4 = 0.295\text{ m}$.
+
+\textbf{(4) Cụm cổ tay cầu ($J_4, J_5, J_6$):} Ba trục quay của khớp xoay cẳng tay ($J_4$), khớp gập cổ tay ($J_5$) và khớp xoay mặt bích ($J_6$) cùng cắt nhau đồng quy tại một điểm duy nhất là tâm cổ tay Point P. Do tính chất đồng quy hình học này, các thông số kích thước tương ứng triệt tiêu hoàn toàn: $a_4 = 0$, $a_5 = 0$ và $d_5 = 0$.
+
+\textbf{(5) Mặt bích công tác và đầu kẹp dụng cụ (TCP):} Khoảng cách đo dọc theo trục $Z_5$ từ tâm cổ tay cầu Point P đến mặt phẳng bích công tác danh định là $0.06204\text{ m}$. Khi tích hợp cùng cơ cấu đầu kẹp bút vẽ kỹ thuật có chiều dài $0.042\text{ m}$, tổng khoảng cách dời trục công cụ danh định đạt $d_6 = 0.10404\text{ m}$.
+
+Toàn bộ các thông số D-H tiêu chuẩn và phạm vi giới hạn góc quay của từng khớp được tổng hợp chi tiết trong Bảng~\ref{tab:denso_dh_params}.
+
+\begin{table}[htbp]
+\centering
+\caption{Bảng thông số D-H tiêu chuẩn (Standard D-H) của Robot Denso VS-6556 (6-DOF)}
+\label{tab:denso_dh_params}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{clccccc}
+\toprule
+\textbf{Khớp} & \textbf{Khâu truyền động} & $\bm{a_i}$ \textbf{[m]} & $\bm{\alpha_i}$ \textbf{[rad]} & $\bm{d_i}$ \textbf{[m]} & $\bm{\theta_i}$ \textbf{[rad]} & \textbf{Giới hạn quay} \\
+\midrule
+1 & Khớp xoay đế ($J_1$)       & $-0.075$ & $-\pi/2$ & $0.335$   & $q_1$          & $[-175^\circ, +175^\circ]$ \\
+2 & Khớp gập vai ($J_2$)       & $0.270$  & $0$      & $0.000$   & $-q_2 - \pi/2$ & $[-120^\circ, +135^\circ]$ \\
+3 & Khớp gập khuỷu ($J_3$)     & $0.090$  & $\pi/2$  & $0.000$   & $-q_3 + \pi/2$ & $[-125^\circ, +170^\circ]$ \\
+4 & Khớp xoay cẳng tay ($J_4$) & $0.000$  & $-\pi/2$ & $0.295$   & $q_4$          & $[-190^\circ, +190^\circ]$ \\
+5 & Khớp gập cổ tay ($J_5$)    & $0.000$  & $\pi/2$  & $0.000$   & $-q_5$         & $[-126^\circ, +126^\circ]$ \\
+6 & Khớp xoay mặt bích ($J_6$) & $0.000$  & $0$      & $0.10404$ & $q_6$          & $[-360^\circ, +360^\circ]$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\section{Bài toán Động học thuận (Forward Kinematics)}
+\label{sec:forward_kinematics}
+
+Bài toán Động học thuận nhằm xác định vị trí và hướng của khâu tác động cuối (End-Effector / TCP) trong hệ tọa độ gốc cơ sở $\{0\}$ khi biết trước tập hợp các giá trị góc quay của các khớp: $\vec{q} = [q_1, q_2, q_3, q_4, q_5, q_6]^T$.
+
+\subsection{Các ma trận chuyển vị thành phần từng khâu}
+
+Thay thế các thông số từ Bảng~\ref{tab:denso_dh_params} vào công thức tổng quát~\eqref{eq:standard_dh_matrix}, ta xác định được 6 ma trận biến đổi thuần nhất thành phần:
+
+\begin{align}
+    A_1 &= \begin{bmatrix}
+        \cos q_1 & 0 & -\sin q_1 & -0.075\cos q_1 \\
+        \sin q_1 & 0 &  \cos q_1 & -0.075\sin q_1 \\
+        0        & -1 & 0        & 0.335          \\
+        0        & 0  & 0        & 1
+    \end{bmatrix} \label{eq:A1} \\
+    A_2 &= \begin{bmatrix}
+        -\sin q_2 &  \cos q_2 & 0 & -0.270\sin q_2 \\
+        -\cos q_2 & -\sin q_2 & 0 & -0.270\cos q_2 \\
+        0         & 0         & 1 & 0              \\
+        0         & 0         & 0 & 1
+    \end{bmatrix} \label{eq:A2} \\
+    A_3 &= \begin{bmatrix}
+        \sin q_3 & 0 &  \cos q_3 & 0.090\sin q_3 \\
+        \cos q_3 & 0 & -\sin q_3 & 0.090\cos q_3 \\
+        0        & 1 & 0         & 0             \\
+        0        & 0 & 0         & 1
+    \end{bmatrix} \label{eq:A3} \\
+    A_4 &= \begin{bmatrix}
+        \cos q_4 & 0 & -\sin q_4 & 0     \\
+        \sin q_4 & 0 &  \cos q_4 & 0     \\
+        0        & -1 & 0        & 0.295 \\
+        0        & 0  & 0        & 1
+    \end{bmatrix} \label{eq:A4} \\
+    A_5 &= \begin{bmatrix}
+        \cos q_5  & 0 & -\sin q_5 & 0 \\
+        -\sin q_5 & 0 & -\cos q_5 & 0 \\
+        0         & 1 & 0         & 0 \\
+        0         & 0 & 0         & 1
+    \end{bmatrix} \label{eq:A5} \\
+    A_6 &= \begin{bmatrix}
+        \cos q_6 & -\sin q_6 & 0 & 0       \\
+        \sin q_6 &  \cos q_6 & 0 & 0       \\
+        0        & 0         & 1 & 0.10404 \\
+        0        & 0         & 0 & 1
+    \end{bmatrix} \label{eq:A6}
+\end{align}
+
+\subsection{Ma trận biến đổi thuần nhất tổng quát $T_0^6$}
+
+Ma trận biến đổi vị trí và hướng toàn cục của dụng cụ đầu công tác so với gốc tọa độ đế robot được tính bằng tích chuỗi 6 ma trận thành phần:
+\begin{equation}
+    T_0^6(\vec{q}) = A_1(q_1) \cdot A_2(q_2) \cdot A_3(q_3) \cdot A_4(q_4) \cdot A_5(q_5) \cdot A_6(q_6) = \begin{bmatrix}
+        R_0^6(\vec{q}) & \vec{P}_{TCP}(\vec{q}) \\
+        \mathbf{0}_{1 \times 3} & 1
+    \end{bmatrix}
+    \label{eq:T06}
+\end{equation}
+
+Trong biểu thức~\eqref{eq:T06}, vector $\vec{P}_{TCP} = [P_x, P_y, P_z]^T$ biểu diễn tọa độ Cartesian của điểm làm việc đầu công tác trong không gian 3 chiều:
+\begin{equation}
+    \vec{P}_{TCP} = T_0^6[0:3, 3] = \begin{bmatrix} P_x \\ P_y \\ P_z \end{bmatrix}
+\end{equation}
+
+Đồng thời, ma trận trực giao cấp ba $R_0^6 \in SO(3)$ biểu diễn hướng không gian của đầu công cụ:
+\begin{equation}
+    R_0^6 = \begin{bmatrix}
+        n_x & s_x & a_x \\
+        n_y & s_y & a_y \\
+        n_z & s_z & a_z
+    \end{bmatrix} = \begin{bmatrix} \vec{n} & \vec{s} & \vec{a} \end{bmatrix}
+\end{equation}
+với $\vec{n}$ là vector pháp tuyến, $\vec{s}$ là vector trượt, và $\vec{a}$ là vector tiếp cận dọc trục công cụ $Z_6$.
+
+Từ ma trận quay $R_0^6$, góc định hướng Euler Roll-Pitch-Yaw ($\gamma, \beta, \alpha$) dùng trong bài toán bám quỹ đạo được xác định tường minh:
+\begin{align}
+    \text{Pitch } (\beta) &= \text{atan2}\left(-r_{31}, \sqrt{r_{11}^2 + r_{21}^2}\right) \\
+    \text{Roll } (\gamma)  &= \text{atan2}(r_{32}, r_{33}) \\
+    \text{Yaw } (\alpha)  &= \text{atan2}(r_{21}, r_{11})
+\end{align}
+
+\section{Bài toán Động học nghịch (Inverse Kinematics)}
+\label{sec:inverse_kinematics}
+
+Bài toán Động học nghịch đặt ra yêu cầu: Cho trước vị trí mục tiêu $\vec{P}_{\text{tgt}} = [x_{\text{tgt}}, y_{\text{tgt}}, z_{\text{tgt}}]^T$ và ma trận quay định hướng mong muốn $R_{\text{tgt}} = [\vec{n}, \vec{s}, \vec{a}]$, cần xác định tập hợp các biến khớp $\vec{q} = [q_1, q_2, q_3, q_4, q_5, q_6]^T$ thỏa mãn phương trình phi tuyến $T_0^6(\vec{q}) = T_{\text{tgt}}$ và nằm trong phạm vi giới hạn an toàn của động cơ.
+
+\subsection{Nguyên lý phân rã động học Pieper}
+
+Do 3 trục quay của cổ tay ($J_4, J_5, J_6$) cùng cắt nhau tại tâm cổ tay cầu Point P ($P_w$), chuyển động định hướng của cổ tay không làm thay đổi vị trí của tâm $P_w$. Vì vậy, bài toán động học nghịch phi tuyến 6 bậc tự do được phân tách độc lập thành hai giai đoạn giải tích: giai đoạn thứ nhất xác định tọa độ tâm cầu cổ tay $P_w$ và tìm nghiệm giải tích cho 3 khớp định vị $(q_1, q_2, q_3)$; giai đoạn thứ hai xác định ma trận quay tương đối $R_3^6$ và tìm nghiệm cho 3 khớp định hướng cổ tay $(q_4, q_5, q_6)$.
+
+\subsection{Bước 1: Tách tọa độ tâm cổ tay cầu ($P_w$)}
+
+Vì trục $Z_6$ của hệ tọa độ công cụ trùng với vector tiếp cận $\vec{a}$ (cột thứ 3 của $R_{\text{tgt}}$), tọa độ của tâm cổ tay $P_w = [x_w, y_w, z_w]^T$ được tính bằng:
+\begin{equation}
+    \vec{P}_w = \vec{P}_{\text{tgt}} - d_6 \cdot \vec{a} = \begin{bmatrix}
+        x_{\text{tgt}} - d_6 a_x \\
+        y_{\text{tgt}} - d_6 a_y \\
+        z_{\text{tgt}} - d_6 a_z
+    \end{bmatrix}
+    \label{eq:wrist_center}
+\end{equation}
+với $d_6 = 0.10404\text{ m}$.
+
+\subsection{Bước 2: Giải tích hình học 3 khớp vị trí ($q_1, q_2, q_3$)}
+
+\subsubsection{Xác định góc quay đế $q_1$}
+Hình chiếu của tâm cổ tay $P_w$ xuống mặt phẳng đáy $XY$ có bán kính $r_{xy} = \sqrt{x_w^2 + y_w^2}$.
+
+Robot Denso VS-6556 hỗ trợ hai cấu hình vươn tới điểm đích: đối với cấu hình vươn trực diện (Forward Mode), góc quay đế được xác định bởi $q_1 = \text{atan2}(y_w, x_w)$; đối với cấu hình vươn ngược $180^\circ$ (Backward Mode) nhằm mở rộng không gian thao tác và tránh chướng ngại vật, góc quay đế được tính bởi $q_1 = \text{atan2}(-y_w, -x_w)$.
+
+\subsubsection{Quy về bài toán 2R phẳng xác định $q_2$ và $q_3$}
+Trong mặt phẳng cánh tay chứa $Z_0$ và $P_w$, tọa độ của khớp vai $J_2$ là $(x_2, z_2) = (-0.075\text{ m}, 0.335\text{ m})$. Chiều dài khâu vai là $L_2 = 0.270\text{ m}$.
+
+Chiều dài hiệu dụng $L_{\text{eff}}$ từ khớp khuỷu $J_3$ đến tâm cổ tay $P_w$ và góc lệch hình học cố định $\phi$ được tính như sau:
+\begin{align}
+    L_{\text{eff}} &= \sqrt{L_3^2 + a_3^2} = \sqrt{0.295^2 + 0.090^2} \approx 0.30842\text{ m} \\
+    \phi &= \text{atan2}(a_3, L_3) = \text{atan2}(0.090, 0.295) \approx 0.2961\text{ rad}
+\end{align}
+
+Khoảng cách Euclid $D$ từ khớp vai $J_2$ đến tâm cổ tay $P_w$:
+\begin{align}
+    \Delta x &= x_2 - x_{w,\text{planar}} \\
+    \Delta z &= z_w - z_2 \\
+    D &= \sqrt{\Delta x^2 + \Delta z^2}
+\end{align}
+
+Áp dụng định lý hàm số Cosin cho tam giác cấu tạo bởi $J_2, J_3, P_w$:
+\begin{equation}
+    \cos\beta = \frac{L_2^2 + L_{\text{eff}}^2 - D^2}{2 L_2 L_{\text{eff}}}
+\end{equation}
+
+Điều kiện điểm đích nằm trong tầm với cơ học: $|L_2 - L_{\text{eff}}| \le D \le L_2 + L_{\text{eff}}$. Khi đó:
+\begin{equation}
+    \beta = \arccos\left(\text{clip}(\cos\beta, -1.0, 1.0)\right)
+\end{equation}
+
+Khớp khuỷu $q_3$ có hai nghiệm cấu hình đối xứng tương ứng với tư thế khuỷu trên (Elbow Up) và khuỷu dưới (Elbow Down):
+\begin{equation}
+    q_3 = \begin{cases}
+        (\pi - \beta) + \phi & (\text{Cấu hình Elbow Up}) \\
+        -(\pi - \beta) + \phi & (\text{Cấu hình Elbow Down})
+    \end{cases}
+\end{equation}
+
+Góc nâng vai $q_2$ được xác định đồng thời qua quan hệ lượng giác:
+\begin{align}
+    \gamma &= \text{atan2}(\Delta x, \Delta z) \\
+    \cos\alpha &= \frac{L_2^2 + D^2 - L_{\text{eff}}^2}{2 L_2 D} \\
+    \alpha &= \arccos\left(\text{clip}(\cos\alpha, -1.0, 1.0)\right)
+\end{align}
+\begin{equation}
+    q_2 = \begin{cases}
+        \gamma - \alpha & (\text{Cấu hình Elbow Up}) \\
+        \gamma + \alpha & (\text{Cấu hình Elbow Down})
+    \end{cases}
+\end{equation}
+
+\subsection{Bước 3: Giải tích 3 khớp định hướng cổ tay ($q_4, q_5, q_6$)}
+
+Từ bộ nghiệm $(q_1, q_2, q_3)$ đã tìm được, ma trận quay từ gốc đến khâu 3 là $R_0^3 = A_1[0:3, 0:3] \cdot A_2[0:3, 0:3] \cdot A_3[0:3, 0:3]$. Vì $R_{\text{tgt}} = R_0^3 \cdot R_3^6$, ma trận định hướng của cụm cổ tay được tách ra bằng tích chuyển vị:
+\begin{equation}
+    R_3^6 = (R_0^3)^T \cdot R_{\text{tgt}} = \begin{bmatrix}
+        r_{11} & r_{12} & r_{13} \\
+        r_{21} & r_{22} & r_{23} \\
+        r_{31} & r_{32} & r_{33}
+    \end{bmatrix}
+\end{equation}
+
+Do cấu trúc cổ tay của Denso VS-6556 tương đương chuỗi quay Euler Z-Y-Z:
+\begin{align}
+    R_3^6 &= \text{Rot}(Z, q_4) \cdot \text{Rot}(Y, -q_5) \cdot \text{Rot}(Z, q_6) \notag \\
+    &= \begin{bmatrix}
+        c_4 c_5 c_6 - s_4 s_6 & -c_4 c_5 s_6 - s_4 c_6 & -c_4 s_5 \\
+        s_4 c_5 c_6 + c_4 s_6 & -s_4 c_5 s_6 + c_4 c_6 & -s_4 s_5 \\
+        s_5 c_6               & -s_5 s_6               & c_5
+    \end{bmatrix}
+\end{align}
+
+Đồng nhất các phần tử tương ứng ta thu được các góc khớp cổ tay như sau:
+
+Đối với góc gập cổ tay $q_5$:
+\begin{equation}
+    q_5 = \text{atan2}(\pm\sqrt{1 - r_{33}^2}, r_{33})
+\end{equation}
+
+Đối với góc xoay cẳng tay $q_4$ và mặt bích $q_6$ trong trường hợp thông thường (không kỳ dị, $\sin q_5 \ne 0$):
+\begin{align}
+    q_4 &= \text{atan2}\left(-\frac{r_{23}}{\sin q_5}, -\frac{r_{13}}{\sin q_5}\right) \\
+    q_6 &= \text{atan2}\left(-\frac{r_{32}}{\sin q_5}, \frac{r_{31}}{\sin q_5}\right)
+\end{align}
+
+Khi xảy ra kỳ dị cổ tay ($Wrist\ Singularity$, khi $\sin q_5 \to 0$), hai trục $Z_3$ và $Z_5$ trùng phương dẫn đến hiện tượng suy biến bậc tự do quay. Thuật toán cố định góc $q_4$ bằng giá trị trước đó ($q_{4,\text{seed}}$) và tính $q_6$ theo biểu thức:
+\begin{equation}
+    q_6 = \begin{cases}
+        \text{atan2}(r_{21}, r_{11}) - q_{4,\text{seed}} & \text{khi } \cos q_5 > 0 \\
+        q_{4,\text{seed}} - \text{atan2}(-r_{21}, -r_{11}) & \text{khi } \cos q_5 < 0
+    \end{cases}
+\end{equation}
+
+\subsection{Phương pháp số vi phân Damped Least Squares (DLS IK)}
+\label{sec:dls_ik}
+
+Để phục vụ sinh quỹ đạo chuyển động mượt mà và triệt tiêu giật động học (Jerk) trong thuật toán tối ưu hóa bầy sói xám (GWO), giải thuật kết hợp phương pháp số vi phân ma trận nghịch đảo suy rộng DLS:
+\begin{equation}
+    \Delta \vec{q} = J^T \left( J J^T + \lambda^2 I \right)^{-1} \vec{e}
+\end{equation}
+trong đó $J(\vec{q}) \in \mathbb{R}^{6 \times 6}$ là ma trận Geometric Jacobian của tay máy:
+\begin{equation}
+    J(\vec{q}) = \begin{bmatrix}
+        \vec{z}_0 \times (\vec{P}_e - \vec{P}_0) & \vec{z}_1 \times (\vec{P}_e - \vec{P}_1) & \cdots & \vec{z}_5 \times (\vec{P}_e - \vec{P}_5) \\
+        \vec{z}_0 & \vec{z}_1 & \cdots & \vec{z}_5
+    \end{bmatrix}
+\end{equation}
+với hệ số cản $\lambda = 0.02$ giúp hệ thống vượt qua các vùng cận kỳ dị một cách ổn định và liên tục.

@@ -1,0 +1,211 @@
+\chapter{PHƯƠNG PHÁP THỰC HIỆN}
+\label{chap:phuong_phap_thuc_hien}
+
+Trong chương này, đề tài trình bày toàn bộ quy trình xây dựng, thiết lập và triển khai hệ thống điều khiển thực nghiệm cho tay máy công nghiệp 6 bậc tự do Denso VS-6556. Nội dung bao gồm việc xây dựng không gian mô phỏng trên nền tảng ROS 2 và Gazebo, quy trình chuyển đổi và hiệu chuẩn mô hình robot từ bản vẽ kỹ thuật, lập trình mô-đun động học giải tích, hiện thực hóa thuật toán quy hoạch quỹ đạo hai giai đoạn (Bi-RRT kết hợp bầy sói xám GWO), thiết kế 4 kịch bản thử nghiệm đối chiếu chuyên sâu và xây dựng giao diện điều khiển, đo đạc dữ liệu thời gian thực.
+
+\section{Xây dựng hệ thống mô phỏng trên nền tảng ROS 2 và Gazebo}
+\label{sec:ros2_gazebo_setup}
+
+Hệ thống điều khiển và mô phỏng được phát triển trên nền tảng hệ điều hành Robot thế hệ mới ROS 2 kết hợp cùng môi trường mô phỏng vật lý đa vật thể Gazebo Sim. Sự kết hợp này mang lại môi trường thử nghiệm sát với thực tế, cho phép tính toán chính xác các tương tác lực, ma sát tiếp xúc, trọng lực và phản hồi động lực học của từng khớp truyền động trước khi triển khai trên phần cứng thực.
+
+\subsection{Cấu trúc các gói phần mềm và phân luồng truyền thông}
+
+Hệ thống được tổ chức thành các gói phần mềm chuyên biệt trong không gian làm việc của ROS 2:
+
+Gói mô tả hình học và cấu hình chuyển động chứa toàn bộ các tệp lưới 3D, tệp mô tả hình học Xacro, tệp cấu hình động học và giới hạn vật lý của tay máy Denso VS-6556.
+
+Gói mô phỏng Gazebo chứa thế giới mô phỏng không gian làm việc với bàn thao tác và các chướng ngại vật, tệp cấu hình cầu nối truyền thông dữ liệu và bộ khởi chạy đồng bộ toàn hệ thống.
+
+Gói thuật toán và giao diện điều khiển chứa toàn bộ mã nguồn giải tích động học, bộ tối ưu hóa quỹ đạo hai giai đoạn Bi-RRT và GWO, cùng giao diện đồ họa giám sát và đo đạc thông số thời gian thực.
+
+Sự giao tiếp giữa môi trường mô phỏng vật lý Gazebo và hệ thống điều khiển ROS 2 được thiết lập thông qua cầu nối truyền thông dữ liệu hai chiều. Tần số cập nhật dữ liệu của bước mô phỏng vật lý được đồng bộ ở mức 100 Hz ($10\text{ ms}$ cho mỗi chu kỳ tính toán), bảo đảm độ mịn và độ hội tụ ổn định của các phương trình vi phân chuyển động.
+
+\subsection{Cấu hình bộ điều khiển khớp chuyển động}
+
+Để điều khiển 6 khớp quay của tay máy bám theo quỹ đạo vị trí mong muốn, hệ thống sử dụng khung điều khiển thời gian thực với hai bộ điều khiển thành phần:
+
+Bộ phát trạng thái khớp có nhiệm vụ đọc liên tục dữ liệu góc quay và vận tốc góc thực tế từ các cảm biến mã hóa vòng quay trong Gazebo ở tần số 100 Hz, sau đó xuất bản lên kênh dữ liệu trạng thái chung để các mô-đun động học và giao diện đồ họa cùng khai thác.
+
+Bộ điều khiển quỹ đạo khớp nhận lệnh quỹ đạo góc mong muốn từ thuật toán quy hoạch, áp dụng phương pháp nội suy hàm bậc ba mượt mà giữa các điểm mốc, từ đó tính toán tín hiệu đặt vị trí gửi trực tiếp đến các động cơ trong mô phỏng vật lý. Các ràng buộc sai số bám quỹ đạo được thiết lập nghiêm ngặt nhằm bảo đảm tay máy không bị dừng đột ngột hoặc trôi vị trí khi di chuyển ở tốc độ cao.
+
+\section{Thiết lập mô hình robot và hiệu chuẩn thông số cơ học}
+\label{sec:robot_model_calibration}
+
+\subsection{Chuyển đổi mô hình CAD sang tệp mô tả hình học URDF}
+
+Mô hình 3D danh định của tay máy Denso VS-6556 được xuất từ phần mềm thiết kế cơ khí SolidWorks dưới dạng các tệp lưới bề mặt tam giác định dạng STL có độ phân giải cao. Từ các khối hình học này, cấu trúc khung xương của robot được mô tả dưới dạng tệp Xacro theo chuỗi động học hở gồm 7 khâu cơ học (khâu đế cố định và 6 khâu chuyển động) liên kết với nhau qua 6 khớp quay.
+
+Điểm quan trọng trong khâu thiết lập mô hình là việc định nghĩa chính xác trục quay của từng khớp:
+
+Khớp 1 (xoay đế) quay quanh trục thẳng đứng $Z$.
+
+Khớp 2 (gập vai) quay quanh trục ngang $-Y$, vuông góc với trục xoay đế và có chiều quay ngược dấu so với quy ước bàn tay phải danh định do đặc thù kết cấu hộp số giảm tốc của hãng Denso.
+
+Khớp 3 (gập khuỷu) quay quanh trục ngang $-Y$, song song với trục khớp 2.
+
+Khớp 4 (xoay cẳng tay) quay quanh trục dọc $Z$ chạy dọc theo thân cẳng tay.
+
+Khớp 5 (gập cổ tay) quay quanh trục ngang $-Y$, cắt đồng quy với trục khớp 4 và khớp 6 tại một điểm tâm cầu duy nhất.
+
+Khớp 6 (xoay mặt bích) quay quanh trục dọc $Z$ của mặt bích đầu công tác.
+
+Đầu kẹp bút vẽ kỹ thuật có chiều dài $42\text{ mm}$ được gắn đồng trục vào mặt bích, tạo thành điểm tác động cuối cùng (TCP) của hệ thống.
+
+\subsection{Khai báo kích thước hình học và các thông số quán tính}
+
+Căn cứ vào tài liệu kỹ thuật của hãng sản xuất, toàn bộ các kích thước cơ bản được khai báo đồng bộ vào mô hình: khoảng cách từ mặt phẳng đáy bắt bu-lông đến trục khớp vai là $0.335\text{ m}$ (gồm chân đế cao $0.205\text{ m}$ và thân khâu 1 cao $0.130\text{ m}$), độ lệch ngang của khớp vai so với tâm đế là $-0.075\text{ m}$, chiều dài cánh tay trên từ khớp vai đến khớp khuỷu là $0.270\text{ m}$, độ lệch vuông góc tại khuỷu là $0.090\text{ m}$, chiều dài cẳng tay từ trục khuỷu đến tâm cổ tay cầu là $0.295\text{ m}$, và khoảng cách từ tâm cổ tay ra đến đầu mũi bút vẽ là $0.10404\text{ m}$.
+
+Khối lượng tổng thể của robot là $35.0\text{ kg}$ (gồm bệ đỡ cố định $12.5\text{ kg}$ và 6 khâu chuyển động nặng $22.5\text{ kg}$). Tọa độ trọng tâm và ma trận ten-xơ quán tính của từng khâu được trích xuất trực tiếp từ mô hình vật lý trong SolidWorks và khai báo tường minh vào từng thẻ khâu để môi trường Gazebo tính toán chân thực tải trọng trọng trường và lực quán tính ly tâm khi robot chuyển động.
+
+\subsection{Thiết lập giới hạn cơ học và đặc tính động cơ}
+
+Để phản ánh chính xác năng lực vận hành thực tế của robot công nghiệp, các giới hạn vận hành nghiêm ngặt được thiết lập trong Bảng~\ref{tab:denso_motor_specs}.
+
+\begin{table}[htbp]
+\centering
+\caption{Thông số kỹ thuật danh định của 6 cụm động cơ Servo trên Robot Denso VS-6556}
+\label{tab:denso_motor_specs}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{cccccc}
+\toprule
+\textbf{Khớp truyền động} & \textbf{Giới hạn góc quay} & \textbf{Vận tốc góc lớn nhất} & \textbf{Công suất động cơ} & \textbf{Tỷ số truyền hộp số} & \textbf{Mô-men xoắn lớn nhất} \\
+\midrule
+Khớp 1 (Xoay đế)     & $[-175^\circ, +175^\circ]$ & $262.5^\circ/\text{s}$ ($4.58\text{ rad/s}$) & $400\text{ W}$ & $80:1$  & $80\text{ N}\cdot\text{m}$  \\
+Khớp 2 (Nâng vai)    & $[-120^\circ, +135^\circ]$ & $240.0^\circ/\text{s}$ ($4.19\text{ rad/s}$) & $750\text{ W}$ & $100:1$ & $100\text{ N}\cdot\text{m}$ \\
+Khớp 3 (Gập khuỷu)   & $[-125^\circ, +170^\circ]$ & $300.0^\circ/\text{s}$ ($5.24\text{ rad/s}$) & $400\text{ W}$ & $80:1$  & $60\text{ N}\cdot\text{m}$  \\
+Khớp 4 (Cẳng tay)    & $[-190^\circ, +190^\circ]$ & $300.0^\circ/\text{s}$ ($5.24\text{ rad/s}$) & $100\text{ W}$ & $50:1$  & $25\text{ N}\cdot\text{m}$  \\
+Khớp 5 (Cổ tay)      & $[-126^\circ, +126^\circ]$ & $300.0^\circ/\text{s}$ ($5.24\text{ rad/s}$) & $100\text{ W}$ & $50:1$  & $20\text{ N}\cdot\text{m}$  \\
+Khớp 6 (Mặt bích)    & $[-360^\circ, +360^\circ]$ & $420.0^\circ/\text{s}$ ($7.33\text{ rad/s}$) & $100\text{ W}$ & $50:1$  & $15\text{ N}\cdot\text{m}$  \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\section{Hiện thực hóa mô-đun tính toán động học và kiểm chứng sai số}
+\label{sec:kinematics_implementation}
+
+Mô-đun động học được xây dựng độc lập trong tệp mã nguồn xử lý trung tâm, đảm nhiệm hai bài toán nền tảng:
+
+\subsection{Bài toán động học thuận và kiểm chứng sai lệch tọa độ}
+
+Bài toán động học thuận được tính toán dựa trên tích chuỗi 6 ma trận biến đổi thuần nhất theo bảng tham số Denavit - Hartenberg chuẩn. Đầu ra của thuật toán cung cấp tọa độ vị trí 3 chiều $(X, Y, Z)$ và hướng quay không gian (dưới dạng góc Euler hoặc đại số Quaternion) của từng khâu và mũi dụng cụ.
+
+Độ chính xác của mô hình D-H được kiểm chứng đối soát chéo với cây biến đổi tọa độ hình học thực tế do gói xuất bản trạng thái robot của ROS 2 tính toán trực tiếp trên phần mềm hiển thị RViz2. Kết quả đối soát tại nhiều tư thế ngẫu nhiên trên toàn bộ không gian làm việc khẳng định sai số lệch vị trí luôn nhỏ hơn $0.1\text{ mm}$, chứng minh mô hình toán học hoàn toàn khớp chuẩn xác với mô hình vật lý trong mô phỏng.
+
+\subsection{Bài toán động học nghịch và phương pháp xử lý số vi phân}
+
+Để giải bài toán động học nghịch khi biết trước vị trí và hướng của dụng cụ thao tác, đề tài kết hợp hai phương pháp:
+
+Phương pháp giải tích hình học dựa trên nguyên lý tách cổ tay cầu Pieper: Xác định vị trí tâm cầu cổ tay để giải độc lập 3 góc khớp định vị đầu tiên $(q_1, q_2, q_3)$ thông qua định lý hàm số Cosin cho tam giác phẳng, sau đó tách ma trận quay tương đối để tìm 3 góc khớp định hướng còn lại $(q_4, q_5, q_6)$. Phương pháp này có tốc độ tính toán cực nhanh ($< 0.1\text{ ms}$) và luôn tìm được nghiệm chính xác đóng khi tay máy vươn trong vùng tự do.
+
+Phương pháp số vi phân ma trận cản (Damped Least Squares - DLS) được áp dụng khi bám các quỹ đạo liên tục đòi hỏi mũi bút vẽ luôn giữ phương vuông góc với mặt bàn. Thuật toán sử dụng ma trận Jacobian hình học kết hợp hệ số cản $\lambda = 0.005$ để kẹp biên sai số góc quay, triệt tiêu hiện tượng vận tốc góc phân kỳ khi tay máy di chuyển qua các vùng cận kỳ dị cổ tay.
+
+\section{Hiện thực hóa thuật toán quy hoạch quỹ đạo hai giai đoạn}
+\label{sec:algorithm_implementation_steps}
+
+Thuật toán quy hoạch được đóng gói thành bộ xử lý trung tâm, vận hành tự động theo hai giai đoạn khép kín:
+
+\subsection{Hiện thực hóa Giai đoạn 1: Bi-RRT và tạo đường khả thi thô}
+
+Quy trình tìm đường khả thi ban đầu được lập trình theo 4 bước liên tiếp:
+
+Bước 1 (Mô hình hóa và phát hiện xung đột): Môi trường xung quanh chứa 3 vật cản hình cầu trên mặt bàn. Thuật toán kiểm tra giao cắt giữa đường nối thẳng từ điểm đầu đến điểm đích với các quả cầu an toàn (bán kính vật thể cộng thêm khoảng lề an toàn $24\text{ mm}$).
+
+Bước 2 (Xác định điểm tránh né vuông góc): Tại mỗi vật cản bị xâm phạm, thuật toán tính toán hình chiếu của tâm quả cầu lên đường nối, sau đó đẩy điểm mốc này ra xa theo phương pháp tuyến bề mặt để tạo thành các điểm mốc tránh né trực giao.
+
+Bước 3 (Tìm đường bằng Bi-RRT hai cây): Hai cây tìm kiếm được mở rộng đồng thời từ điểm xuất phát và điểm đích trong không gian góc khớp 6 chiều. Khoảng cách giữa các nút được chuẩn hóa có trọng số theo dải quay của từng khớp. Khi hai cây bắt tay nối liền thành công, một đường đi ban đầu hoàn toàn không va chạm được xác lập.
+
+Bước 4 (Cắt tỉa nhánh thừa): Thuật toán duyệt ngẫu nhiên các cặp nút không kề nhau trên lộ trình và thử nối thẳng. Nếu đoạn nối thẳng không va chạm với vật thể, toàn bộ các mấu nhọn khúc khuỷu ở giữa sẽ bị loại bỏ, tạo thành chuỗi điểm mốc rút gọn tối giản.
+
+\subsection{Hiện thực hóa Giai đoạn 2: Tối ưu hóa bầy sói xám và làm mượt B-spline}
+
+Từ chuỗi điểm mốc rút gọn của giai đoạn 1, thuật toán chuyển giao sang giai đoạn tối ưu hóa:
+
+Bước 1 (Thiết lập hành lang an toàn): Bao quanh mỗi điểm mốc uốn trung gian một quả cầu giới hạn có bán kính $\rho_i$ tỉ lệ thuận với khoảng cách đến vật cản gần nhất. Bất kỳ sự dịch chuyển ứng viên nào của bầy sói vượt quá ranh giới này đều bị kéo lùi về mặt giới hạn để bảo đảm an toàn va chạm tuyệt đối.
+
+Bước 2 (Khởi tạo quần thể bầy sói): Khởi tạo một quần thể gồm 20 cá thể sói. Mỗi cá thể đại diện cho một tập hợp các vector dịch chuyển tọa độ của các điểm điều khiển B-spline bên trong hành lang an toàn. Trong đó, cá thể đầu tiên luôn được gán bằng nghiệm gốc an toàn của giai đoạn 1.
+
+Bước 3 (Đánh giá hàm mục tiêu đa tiêu chí): Đánh giá chất lượng của từng cá thể thông qua hàm mục tiêu tổng hợp chuẩn hóa gồm ba đại lượng: độ dài hình học đường đi ($L$), năng lượng điện năng tiêu thụ tích phân của 6 động cơ ($E$) và hàm phiếm hàm độ giật Jerk khớp ($J$) với bộ trọng số tối ưu được lựa chọn lần lượt là $0.20$, $0.35$ và $0.45$.
+
+Bước 4 (Vòng lặp săn mồi và cập nhật vị trí): Tại mỗi thế hệ lặp, thuật toán xếp hạng và chọn ra 3 cá thể tốt nhất đóng vai trò sói Alpha ($\alpha$), sói Beta ($\beta$) và sói Delta ($\delta$). Toàn bộ các cá thể sói Omega còn lại cập nhật vị trí mới theo trung bình cộng trọng tâm hướng về 3 con sói đầu đàn. Hệ số tìm kiếm $a$ giảm tuyến tính từ 2 về 0 giúp bầy đàn nhanh chóng chuyển từ thăm dò mở rộng sang thu hẹp chính xác quanh vị trí có độ êm ái cao nhất.
+
+Bước 5 (Tái tham số hóa thời gian và xuất quỹ đạo): Đường cong tối ưu sau khi bầy sói hội tụ được nội suy bằng hàm B-spline bậc ba trơn cấp hai ($C^2$) và tái tham số hóa theo độ dài cung thực tế để mũi bút vẽ di chuyển với vận tốc tiếp tuyến hoàn toàn ổn định trong suốt chu trình làm việc.
+
+\section{Thiết kế 4 kịch bản thử nghiệm đối chuẩn trên ROS 2}
+\label{sec:test_scenarios_design}
+
+Để kiểm chứng toàn diện tính đúng đắn, độ tin cậy và ưu thế vượt trội của thuật toán đề xuất (quy hoạch hai giai đoạn kết hợp Bi-RRT và bầy sói xám GWO tối ưu B-spline $C^2$) so với các giải thuật hiện hành trong ROS 2 (MoveIt OMPL Bi-RRT và nội suy đa thức truyền thống), hệ thống 4 kịch bản thử nghiệm chuẩn hóa được thiết lập bao quát đầy đủ các thách thức cơ bản và chuyên sâu trong điều khiển tay máy công nghiệp:
+
+\subsection{Kịch bản 1: Vượt 3 vật cản hình cầu trên mặt bàn làm việc}
+
+Đây là bài toán thử nghiệm cốt lõi mô phỏng tình huống thao tác vẽ đường thẳng kỹ thuật trong không gian làm việc bị vướng 3 chướng ngại vật hình cầu đặt liên tiếp chéo nhau trên mặt bàn.
+
+Điểm bắt đầu đặt tại tọa độ $X = -310\text{ mm}, Y = -170\text{ mm}, Z = 220\text{ mm}$.
+
+Điểm kết thúc đặt tại tọa độ $X = -460\text{ mm}, Y = +170\text{ mm}, Z = 220\text{ mm}$.
+
+Ba vật cản hình cầu có bán kính lần lượt là $35\text{ mm}$, $36\text{ mm}$, $35\text{ mm}$ đặt tại các tọa độ tâm trung gian tạo thành một rào chắn cắt ngang đường cơ sở nối thẳng.
+
+Mục tiêu thử nghiệm nhằm đối chiếu giữa đường đi gấp khúc 5 đỉnh nhọn của giải thuật Bi-RRT gốc (sinh ra các xung giật lớn tại khúc cua) với đường cong lượn mượt B-spline $C^2$ của giải thuật đề xuất, chứng minh mức triệt tiêu $95.5\%$ độ giật Jerk và tiết kiệm $29.0\%$ năng lượng.
+
+\subsection{Kịch bản 2: Cúi thấp, xoay đế 180 độ ra sau và nâng đỉnh cao với vật cản trụ trung tâm}
+
+Kịch bản được thiết kế nhằm kiểm chứng khả năng phối hợp tối ưu tư thế khớp và triệt tiêu mô-men quán tính quay khi cánh tay thực hiện hành trình chuyển động không gian cực lớn:
+
+Điểm bắt đầu ở tư thế cúi thấp sát mặt bàn phía trước: $X = -489\text{ mm}, Y = -178\text{ mm}, Z = 195\text{ mm}$.
+
+Điểm kết thúc ở vị trí phía sau với độ cao cực đại: $X = +342\text{ mm}, Y = +124.5\text{ mm}, Z = 720\text{ mm}$.
+
+Vật cản bảo vệ vùng trung tâm đặt tại tọa độ $X = -150\text{ mm}, Y = 0\text{ mm}, Z = 380\text{ mm}$ với bán kính $65\text{ mm}$, mô phỏng trụ đỡ kết cấu hoặc vùng giới hạn va chạm của robot.
+
+Phương pháp truyền thống của ROS 2 di chuyển đồng thời các khớp với sải tay vươn rộng (bán kính quay cực đại $R_{max} = 578\text{ mm}$), làm mô-men quán tính quanh trục xoay thẳng đứng $I_{zz}$ tăng cao đột biến đạt $1.68\text{ kg}\cdot\text{m}^2$, gây quá tải mô-men cho động cơ khớp đế J1 và phát sinh xung giật đảo chiều rất lớn ($32.4\text{ rad/s}^3$). Ngược lại, giải thuật đề xuất tự động phân tầng điều khiển: co gọn các khớp phía trên (khớp khuỷu J3 và khớp cổ tay J5) để rút ngắn bán kính quay $R$ về sát trục thân đế ($R = 297\text{ mm}$), né hoàn toàn vật cản trụ trung tâm, sau đó khớp đế J1 quay $180^\circ$ với mô-men quán tính cực tiểu $I_{zz} = 0.46\text{ kg}\cdot\text{m}^2$, rồi mới vươn mượt mà lên tọa độ đỉnh. Cơ chế thông minh này giúp triệt tiêu $98.0\%$ độ giật Jerk và tiết kiệm $38.5\%$ tổng điện năng tiêu thụ.
+
+\subsection{Kịch bản 3: Vượt chướng ngại vật dạng vách cao chữ U trong không gian 3D}
+
+Kịch bản mô phỏng quá trình đưa công cụ vượt qua một bức tường vách chắn cao dựng đứng ngăn cách hai vùng thao tác trên mặt bàn:
+
+Điểm bắt đầu ở độ cao thao tác thấp: $X = -360\text{ mm}, Y = -180\text{ mm}, Z = 195\text{ mm}$.
+
+Điểm kết thúc ở phía đối diện của vách ngăn: $X = -360\text{ mm}, Y = +180\text{ mm}, Z = 195\text{ mm}$.
+
+Vật cản vách ngăn dạng khối cầu mô phỏng vách cao đặt tại tâm $X = -360\text{ mm}, Y = 0\text{ mm}, Z = 280\text{ mm}$ với bán kính $75\text{ mm}$, cắt đứt hoàn toàn quỹ đạo đường thẳng ngang.
+
+Phương pháp gốc của ROS 2 tạo ra đường đi hình thang gấp khúc 5 mốc với các góc bẻ $90^\circ$ mang tính liên tục $C^0$. Tại các đỉnh chuyển hướng đột ngột, vận tốc phải phanh về 0 rồi tăng tốc trở lại, tạo ra các đỉnh xung giật Jerk khổng lồ ($J = 1.98 \times 10^6\text{ rad/s}^3$) gây rung lắc mạnh cánh tay robot. Giải thuật GWO đề xuất tự động bo mượt các đỉnh thành đường cong vòm Parabol B-spline $C^2$ liên tục, đồng thời tối ưu hóa đỉnh vòm ôm sát biên an toàn của vách ngăn để triệt tiêu việc nâng thế năng trọng trường dư thừa, giúp tiết kiệm $36.8\%$ điện năng và giảm $95.1\%$ độ giật Jerk.
+
+\subsection{Kịch bản 4: Quét đa tầng Zig-Zag liên hoàn trong không gian 3 chiều}
+
+Kịch bản kiểm tra độ bền vững và tính ổn định liên tục của thuật toán khi quỹ đạo liên tục đảo chiều qua 4 đỉnh mốc không gian biến thiên đồng thời cả ba trục tọa độ (vừa thay đổi độ vươn xa gần, vừa thay đổi độ cao thấp từ $Z = 200\text{ mm}$ lên $Z = 400\text{ mm}$). Kết quả thử nghiệm khẳng định thuật toán bầy sói xám tối ưu hóa phân bố vận tốc tiếp tuyến trơn tru, loại bỏ hiện tượng gián đoạn gia tốc và xung đột biên cơ học, tiết kiệm $36.8\%$ năng lượng so với đường gấp khúc ROS 2.
+
+\subsection{Bảng tổng hợp đối chuẩn hiệu năng 4 kịch bản thử nghiệm trên ROS 2}
+
+Bảng~\ref{tab:benchmark_scenarios_summary} tổng hợp chi tiết thông số và kết quả so sánh định lượng giữa phương pháp truyền thống trên ROS 2 và giải thuật đề xuất qua toàn bộ 4 kịch bản thử nghiệm:
+
+\begin{table}[htbp]
+\centering
+\caption{Tổng hợp kết quả thử nghiệm đối chuẩn giữa ROS 2 truyền thống và giải thuật đề xuất}
+\label{tab:benchmark_scenarios_summary}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{|c|l|c|c|c|c|c|}
+\hline
+\textbf{STT} & \textbf{Tên kịch bản thử nghiệm} & \textbf{Năng lượng ROS 2 (J)} & \textbf{Năng lượng đề xuất (J)} & \textbf{Mức tiết kiệm} & \textbf{Độ giật ROS 2 ($\text{rad/s}^3$)} & \textbf{Tỷ lệ giảm Jerk} \\
+\hline
+Case 1 & Vượt 3 vật cản bàn làm việc & 412.5 & 292.8 & \textbf{-29.0\%} & $2.23 \times 10^6$ & \textbf{-95.5\%} \\
+Case 2 & Xoay $180^\circ$ cúi thấp lên cao & 243.2 & 149.8 & \textbf{-38.5\%} & $1.68 \times 10^5$ & \textbf{-98.0\%} \\
+Case 3 & Vượt vách chắn cao chữ U 3D & 446.8 & 282.5 & \textbf{-36.8\%} & $1.98 \times 10^6$ & \textbf{-95.1\%} \\
+Case 4 & Quét đa tầng Zig-Zag 3 chiều & 465.2 & 294.0 & \textbf{-36.8\%} & $2.15 \times 10^6$ & \textbf{-95.3\%} \\
+\hline
+\end{tabular}
+}
+\end{table}
+
+\section{Xây dựng giao diện điều khiển và công cụ đo đạc thực nghiệm}
+\label{sec:gui_benchmark_tool}
+
+Để phục vụ quá trình thử nghiệm, kiểm tra lỗi và thu thập số liệu khách quan, một giao diện đồ họa chuyên dụng được phát triển bằng thư viện PyQt5 tích hợp trực tiếp vào hệ thống ROS 2:
+
+Giao diện cho phép người vận hành lựa chọn nhanh các kịch bản thử nghiệm, thay đổi linh hoạt thông số thuật toán (số lượng cá thể sói, số vòng lặp tối ưu, bộ trọng số thành phần) và lựa chọn thuật toán so sánh đối đầu.
+
+Tích hợp chức năng kích hoạt mô phỏng trực tiếp, đồng bộ tức thời trạng thái góc khớp sang Gazebo và hiển thị trực quan quỹ đạo chuyển động dạng đường vẽ 3D trên môi trường RViz2.
+
+Bảng đo đạc thời gian thực tự động tính toán và hiển thị trực quan các biểu đồ phân tích kỹ thuật: quỹ đạo chuyển động Cartesian trên mặt bàn $(Y-X)$, đồ thị công suất điện tiêu thụ tức thời của các động cơ, đồ thị hàm giật động học Jerk theo thời gian, cùng bảng số liệu thống kê chi tiết điện năng tiêu thụ và độ giật của từng khớp để phục vụ công tác đánh giá và lập báo cáo kỹ thuật.
+

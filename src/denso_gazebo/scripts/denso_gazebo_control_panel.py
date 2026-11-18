@@ -597,7 +597,7 @@ class DensoGazeboPanel(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle('DENSO VS-6556 - BẢNG ĐIỀU KHIỂN ROBOT TRONG GAZEBO')
-        self.resize(1200, 710)
+        self.resize(1300, 740)
         self.move(120, 40)
         self.setMinimumSize(960, 580)
 

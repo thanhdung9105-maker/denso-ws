@@ -166,6 +166,15 @@ class RosBridge(QObject):
         if self.marker_pub and marker_array is not None:
             self.marker_pub.publish(marker_array)
 
+    def clear_markers(self):
+        if self.marker_pub:
+            from visualization_msgs.msg import Marker, MarkerArray
+            ma = MarkerArray()
+            m = Marker()
+            m.action = Marker.DELETEALL
+            ma.markers.append(m)
+            self.marker_pub.publish(ma)
+
 
 # -------------------------------------------------------------
 # MAIN DYNAMICS DASHBOARD GUI
@@ -189,7 +198,7 @@ class DensoKinematicsGUI(QMainWindow):
         self.sim_q = np.zeros(len(JOINT_NAMES))
         self.sim_qd = np.zeros(len(JOINT_NAMES))
         self.sim_tau = np.zeros(len(JOINT_NAMES))
-        self.dynamics_visible = True
+        self.dynamics_visible = False
 
         self.setWindowTitle("DENSO VS-6556 - BẢNG ĐIỀU KHIỂN & GIÁM SÁT ĐỘNG LỰC HỌC (ROS 2)")
         self.resize(1240, 820)
@@ -252,10 +261,10 @@ class DensoKinematicsGUI(QMainWindow):
         )
         header_layout.addWidget(self.status_badge)
 
-        self.btn_toggle_dynamics = QPushButton("VECTOR LỰC RVIZ2: ĐANG HIỆN")
+        self.btn_toggle_dynamics = QPushButton("VECTOR LỰC RVIZ2: ĐÃ ẨN")
         self.btn_toggle_dynamics.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.btn_toggle_dynamics.setStyleSheet(
-            "background-color: #1b4332; color: #74c69d; border: 1px solid #40916c; "
+            "background-color: #495057; color: #adb5bd; border: 1px solid #6c757d; "
             "border-radius: 6px; padding: 6px 14px;"
         )
         self.btn_toggle_dynamics.setToolTip("Bấm để ẨN hoặc HIỆN các vector mô-men xoắn tại các khớp trong RViz2")
@@ -707,8 +716,8 @@ class DensoKinematicsGUI(QMainWindow):
         left_layout.addWidget(self.btn_calc_id)
 
         self.chk_auto_marker = QCheckBox("🔴 Hiển thị Vector Mô-men Xoắn Trên RViz2")
-        self.chk_auto_marker.setChecked(True)
-        self.chk_auto_marker.setStyleSheet("color: #047857; font-weight: bold; margin-top: 5px;")
+        self.chk_auto_marker.setChecked(False)
+        self.chk_auto_marker.setStyleSheet("color: #64748b; font-weight: bold; margin-top: 5px;")
         left_layout.addWidget(self.chk_auto_marker)
 
         left_layout.addStretch()
@@ -1139,9 +1148,11 @@ class DensoKinematicsGUI(QMainWindow):
             self.id_status_msg.setText("✅ Trạng thái an toàn: Tất cả các khớp hoạt động trong ngưỡng cho phép.")
             self.id_status_msg.setStyleSheet("color: #059669; font-weight: bold; font-size: 12px;")
 
-        if self.chk_auto_marker.isChecked():
+        if self.chk_auto_marker.isChecked() and self.dynamics_visible:
             markers = self.dynamics_engine.build_marker_array(q, res['tau'], qdd, frame_id="base_link")
             self.bridge.publish_markers(markers)
+        else:
+            self.bridge.clear_markers()
 
         self.log_label.setText(f"⚡ Đã tính xong Động Lực Học Nghịch. Tổng Torque = {np.round(res['tau'], 2)} N·m")
 
@@ -1255,6 +1266,7 @@ class DensoKinematicsGUI(QMainWindow):
                 "border-radius: 6px; padding: 6px 14px;"
             )
             self.bridge.send_cmd("dynamics_off")
+            self.bridge.clear_markers()
             self.log_label.setText("Đã ẩn các vector mô-men xoắn trong RViz2.")
 
 
