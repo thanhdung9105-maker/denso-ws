@@ -196,8 +196,10 @@ class BiRRTMetaheuristicPlanner:
 
     def solve_dls_ik(self, target_pos, target_rot=None, q_seed=None):
         """
-        Giải Nghịch học Damped Least Squares (DLS) 6-DOF với định hướng công cụ vuông góc mặt bàn.
-        Khóa hướng trục Z công cụ thẳng đứng [0, 0, -1] để Link 5 luôn ở Z ~ 300mm (cao hơn vật cản).
+        Giải Nghịch học Damped Least Squares (DLS) 6-DOF với hệ số cản thích nghi (Adaptive Damping).
+        Tự động điều chỉnh hệ số cản theo chỉ số khả năng thao tác Yoshikawa mu(q):
+        - Ở xa điểm kỳ dị: cản tối thiểu (lambda ~ 0), đảm bảo bám chính xác tuyệt đối tọa độ Descartes.
+        - Khi tiệm cận điểm kỳ dị: tự động tăng cản để triệt tiêu bùng nổ vận tốc góc khớp.
         """
         if q_seed is None:
             q1_init = math.atan2(-float(target_pos[1]), -float(target_pos[0]))
@@ -207,20 +209,29 @@ class BiRRTMetaheuristicPlanner:
                 q_seed = np.array([q1_init, 0.55, 2.22, 0.0, 0.38, 0.0])
 
         q_curr = q_seed.copy()
-        lambda_sq = 0.005 ** 2
         target_z_axis = np.array([0.0, 0.0, -1.0])
 
-        for _ in range(40):
+        for _ in range(45):
             fk = self.engine.compute_forward_kinematics(q_curr, use_flange=True)
             pos_err = target_pos - fk["position_m"]
             current_z_axis = fk["T_target"][:3, 2]
             rot_err = np.cross(current_z_axis, target_z_axis)
 
-            err_6dof = np.hstack([pos_err, 0.75 * rot_err])
             if np.linalg.norm(pos_err) < 1e-4 and np.linalg.norm(rot_err) < 0.01:
                 break
 
             J_geom = self.engine.compute_geometric_jacobian(q_curr, use_flange=True)
+            
+            # Cải tiến: Hệ số cản thích nghi (Adaptive Damping) theo chỉ số Yoshikawa
+            det_jjt = max(0.0, float(np.linalg.det(J_geom @ J_geom.T)))
+            mu_yoshikawa = math.sqrt(det_jjt)
+            mu_threshold = 0.035
+            if mu_yoshikawa >= mu_threshold:
+                lambda_sq = 1e-6
+            else:
+                lambda_sq = (0.015 * (1.0 - mu_yoshikawa / mu_threshold)) ** 2
+
+            err_6dof = np.hstack([pos_err, 0.75 * rot_err])
             JJT = J_geom @ J_geom.T + lambda_sq * np.eye(6)
             dq = J_geom.T @ np.linalg.solve(JJT, err_6dof)
             dq = np.clip(dq, -0.25, 0.25)
@@ -293,6 +304,10 @@ class BiRRTMetaheuristicPlanner:
         qd_traj = np.column_stack([spl_joints[j](t_grid, 1) for j in range(6)])
         qdd_traj = np.column_stack([spl_joints[j](t_grid, 2) for j in range(6)])
         qddd_traj = np.column_stack([spl_joints[j](t_grid, 3) for j in range(6)])
+
+        # Triệt tiêu tuyệt đối vận tốc và gia tốc biên để tương thích hoàn toàn với ROS 2 FollowJointTrajectory
+        qd_traj[0] = 0.0; qd_traj[-1] = 0.0
+        qdd_traj[0] = 0.0; qdd_traj[-1] = 0.0
 
         return t_grid, cart_pts, q_traj, qd_traj, qdd_traj, qddd_traj, total_arclength
 
@@ -653,8 +668,37 @@ class BiRRTMetaheuristicPlanner:
                         normal_3d = diff_3d / max(1e-4, norm_diff)
                         new_pt = obs.center + req_clearance * normal_3d
 
+                # Kiểm tra cự ly an toàn liên tục dọc đoạn nối từ điểm trước tới new_pt (Continuous Segment Clearance)
+                p_prev = current_wps[-1]
+                seg_v = new_pt - p_prev
+                seg_len_sq = float(np.dot(seg_v, seg_v))
+                if seg_len_sq > 1e-6:
+                    for obs in self.obstacles:
+                        u = obs.center - p_prev
+                        proj_t = np.clip(float(np.dot(u, seg_v)) / seg_len_sq, 0.0, 1.0)
+                        p_closest = p_prev + proj_t * seg_v
+                        dist_seg_obs = float(np.linalg.norm(p_closest - obs.center))
+                        req_clear = obs.radius + 0.015
+                        if dist_seg_obs < req_clear:
+                            collision_pen += 5e4 * (req_clear - dist_seg_obs)
+
                 current_wps.append(new_pt)
             current_wps.append(base_wps[-1])
+
+            # Kiểm tra đoạn nối cuối cùng về điểm đích base_wps[-1]
+            p_penult = current_wps[-2]
+            p_final = current_wps[-1]
+            seg_final = p_final - p_penult
+            seg_final_sq = float(np.dot(seg_final, seg_final))
+            if seg_final_sq > 1e-6:
+                for obs in self.obstacles:
+                    u = obs.center - p_penult
+                    proj_t = np.clip(float(np.dot(u, seg_final)) / seg_final_sq, 0.0, 1.0)
+                    p_closest = p_penult + proj_t * seg_final
+                    dist_seg_obs = float(np.linalg.norm(p_closest - obs.center))
+                    req_clear = obs.radius + 0.015
+                    if dist_seg_obs < req_clear:
+                        collision_pen += 5e4 * (req_clear - dist_seg_obs)
 
             # Đánh giá chiều dài cung, thế năng Z và độ êm góc uốn B-spline trong không gian Cartesian (tốc độ cao)
             W_cand = np.array(current_wps, dtype=float)
@@ -719,8 +763,10 @@ class BiRRTMetaheuristicPlanner:
 
             # 2. Vòng lặp săn mồi và bao vây con mồi (Sections 3.3.2 & 3.3.3 và Pseudo-code Hình 3.2a)
             for itr in range(max_iter):
-                # Hệ số a giảm tuyến tính từ 2 về 0 (Eq. 3.3 trong GWO.pdf)
-                a = 2.0 - 2.0 * (itr / max_iter)
+                # Cải tiến: Hệ số a suy giảm phi tuyến dạng Cosine (Nonlinear Cosine Decay)
+                # Giúp bầy sói duy trì khả năng thăm dò toàn cục (Exploration) tốt hơn ở giai đoạn đầu
+                # và hội tụ mượt mà, tinh chỉnh cục bộ (Exploitation) ở giai đoạn cuối mà không bị dao động
+                a = 1.0 + math.cos(math.pi * itr / max_iter)
 
                 # Cập nhật đồng bộ toàn bộ bầy sói theo thế hệ t (Synchronous Generational Update - Fig 3.2a)
                 new_population = []
@@ -799,7 +845,7 @@ class BiRRTMetaheuristicPlanner:
             p_mutation = 0.2
 
             for itr in range(max_iter):
-                a = 2.0 - 2.0 * (itr / max_iter)
+                a = 1.0 + math.cos(math.pi * itr / max_iter)
 
                 for idx in range(pop_size):
                     curr = population[idx]
