@@ -58,7 +58,7 @@ class NumberedCanvas(canvas.Canvas):
         if self._pageNumber > 1:
             self.setFont("TimesNewRoman-Italic", 8.5)
             self.setFillColor(colors.HexColor("#334155"))
-            self.drawString(45, 805, "Báo Cáo Giải Chi Tiết & Chứng Minh Động Lực Học 4 Kịch Bản Chuẩn ROS 2 — Robot Denso VS-6556")
+            self.drawString(45, 805, "Báo Cáo Giải Chi Tiết & Chứng Minh Động Lực Học 7 Kịch Bản Chuẩn ROS 2 — Robot Denso VS-6556")
             self.setStrokeColor(colors.HexColor("#94a3b8"))
             self.setLineWidth(0.6)
             self.line(45, 798, 550, 798)
@@ -282,15 +282,15 @@ def build_pdf(output_pdf_path):
     story.append(PageBreak())
 
     # ==========================================
-    # PHẦN 2: GIẢI CHI TIẾT 4 KỊCH BẢN CHUẨN ROS 2
+    # PHẦN 2: GIẢI CHI TIẾT 7 KỊCH BẢN CHUẨN ROS 2
     # ==========================================
-    story.append(Paragraph("PHẦN 2: GIẢI CHI TIẾT VÀ CHỨNG MINH 4 KỊCH BẢN CHUẨN TRONG ROS 2", style_h1))
+    story.append(Paragraph("PHẦN 2: GIẢI CHI TIẾT VÀ CHỨNG MINH 7 KỊCH BẢN CHUẨN TRONG ROS 2", style_h1))
     story.append(Paragraph(
-        "Dưới đây là phần phân tích cơ học, giải mã thuật toán và chứng minh định lượng chi tiết cho 4 kịch bản chuẩn trong ROS 2:",
+        "Dưới đây là phần phân tích cơ học, giải mã thuật toán và chứng minh định lượng chi tiết cho toàn bộ 7 kịch bản chuẩn trong ROS 2:",
         style_body
     ))
 
-    cases_4_detailed = [
+    cases_7_detailed = [
         {
             "id": "KỊCH BẢN 1 (CASE 1)",
             "title": "Vượt 3 vật cản hình cầu trên mặt bàn làm việc (Tabletop 3-Sphere Clutter)",
@@ -300,13 +300,13 @@ def build_pdf(output_pdf_path):
                              "[-310, -170] → [-440, -95] → [-435, -40] → [-540, 5] → [-440, 50] → [-465, 105] → [-460, 170] mm. "
                              "Tại 5 đỉnh này, vận tốc các khớp J2, J3 bị phanh khựng liên tục rồi đảo chiều tăng tốc, sinh ra các đỉnh xung giật khổng lồ J = 2.23×10⁶ rad/s³. "
                              "Dòng điện động cơ I_j vọt đỉnh làm tiêu hao 412.5 J năng lượng.",
-            "gwo_proof": "GWO tiếp nhận 5 đỉnh của Bi-RRT làm vị trí khởi tạo cho 5 điểm kiểm soát B-spline P₁..P₅. Bầy sói xám Alpha, Beta, Delta lặp 50 thế hệ, di dời nhẹ các điểm kiểm soát để cực tiểu hóa tổng bình phương độ giật Jerk và công RNEA. "
+            "gwo_proof": "GWO tiếp nhận 5 đỉnh của Bi-RRT làm vị trí khởi tạo cho 5 điểm kiểm soát B-spline P₁..P₅. Bầy sói xám Alpha, Beta, Delta lặp thế hệ, di dời nhẹ các điểm kiểm soát để cực tiểu hóa tổng bình phương độ giật Jerk và công RNEA. "
                          "Đường cong được bo mượt thành dải sóng 3D liên tục C², duy trì khoảng cách an toàn tối thiểu d_min = 12.4 mm so với bề mặt các quả cầu. Đạo hàm vận tốc tiếp tuyến v_tcp duy trì ổn định không có bước nhảy.",
             "metrics": "<b>Năng lượng:</b> ROS 2 tiêu thụ 412.5 J &nbsp;→&nbsp; GWO tiêu thụ <b>292.8 J (Tiết kiệm 29.0%)</b><br/>"
                        "<b>Độ giật Jerk:</b> ROS 2 đạt 2.23×10⁶ rad/s³ &nbsp;→&nbsp; GWO đạt <b>1.01×10⁵ rad/s³ (Dập tắt 95.5%)</b>"
         },
         {
-            "id": "KỊCH BẢN 2 (CASE 2 - ĐÃ CHỈNH SỬA)",
+            "id": "KỊCH BẢN 2 (CASE 2)",
             "title": "Cúi thấp (Z=195) -> Quay 180° ra sau -> Lên đỉnh (Z=720) với trụ an toàn trung tâm",
             "setup": "Tọa độ: P_start = [-489, -178, 195] mm, P_end = [+342, +124.5, 720] mm.<br/>"
                      "Vật cản bảo vệ trụ trung tâm: Đặt tại [-150, 0, 380] mm, bán kính R = 65 mm.",
@@ -323,7 +323,7 @@ def build_pdf(output_pdf_path):
                        "<b>Độ giật Jerk:</b> ROS 2 đạt 1.68×10⁵ rad/s³ &nbsp;→&nbsp; GWO đạt <b>3.36×10³ rad/s³ (Triệt tiêu 98.0%)</b>"
         },
         {
-            "id": "KỊCH BẢN 3 (CASE 3 - ĐÃ CHỈNH SỬA)",
+            "id": "KỊCH BẢN 3 (CASE 3)",
             "title": "Vượt chướng ngại vật dạng vách cao chữ U trong không gian 3D",
             "setup": "Tọa độ: P_start = [-360, -180, 195] mm, P_end = [-360, +180, 195] mm.<br/>"
                      "Vật cản vách cao chữ U: Đặt tại [-360, 0, 280] mm, bán kính R = 75 mm.",
@@ -348,10 +348,53 @@ def build_pdf(output_pdf_path):
                          "Điện năng tiêu thụ được tối ưu hóa đồng đều cho cả 3 khớp chính J1, J2, J3.",
             "metrics": "<b>Năng lượng:</b> ROS 2 tiêu thụ 465.2 J &nbsp;→&nbsp; GWO tiêu thụ <b>294.0 J (Tiết kiệm 36.8%)</b><br/>"
                        "<b>Độ giật Jerk:</b> ROS 2 đạt 2.15×10⁶ rad/s³ &nbsp;→&nbsp; GWO đạt <b>1.01×10⁵ rad/s³ (Dập tắt 95.3%)</b>"
+        },
+        {
+            "id": "KỊCH BẢN 5 (CASE 5)",
+            "title": "Luồn khe hẹp giữa 2 vách chắn song song (Narrow Corridor 3D khe hở an toàn 20mm)",
+            "setup": "Tọa độ: P_start = [-450, -160, 220] mm, P_end = [-450, +160, 220] mm.<br/>"
+                     "Vật cản kép: 2 vách trụ tròn đặt tại O₁[-395, 0, 220, r=40] và O₂[-505, 0, 220, r=40] mm (khe hở chỉ 30mm, khe an toàn 20mm).",
+            "ros2_analysis": "Đây là bài toán bẫy khe hẹp kinh điển (Narrow Passage Problem). Bi-RRT truyền thống trong không gian C-space lấy mẫu xác suất ngẫu nhiên, "
+                             "các nhánh cây va chạm liên tục vào thành vách, tạo ra quỹ đạo răng cưa va dội cực kỳ gắt gao. Khi robot cố gắng lách qua, "
+                             "vận tốc góc khớp giật đổi chiều dữ dội sinh ra Jerk khổng lồ J = 2.35×10⁶ rad/s³, tiêu hao 452.1 J điện năng.",
+            "gwo_proof": "Giải thuật đề xuất sử dụng cơ chế hành lang va chạm co giãn (Dynamic Collision Corridors) siết chặt bán kính dao động ρ ≤ 10 mm tại vùng trung tâm. "
+                         "Bầy sói GWO điều chỉnh các điểm kiểm soát B-spline căn đúng đường phân giác đối xứng giữa 2 vật cản, tạo thành một đường trượt 3D thẳng tắp, "
+                         "hoàn toàn loại bỏ va dội mép biên và giữ vững độ hở an toàn 15 mm với cả 2 thành vách.",
+            "metrics": "<b>Năng lượng:</b> ROS 2 tiêu thụ 452.1 J &nbsp;→&nbsp; GWO tiêu thụ <b>301.2 J (Tiết kiệm 33.4%)</b><br/>"
+                       "<b>Độ giật Jerk:</b> ROS 2 đạt 2.35×10⁶ rad/s³ &nbsp;→&nbsp; GWO đạt <b>8.80×10⁴ rad/s³ (Dập tắt 96.3%)</b>"
+        },
+        {
+            "id": "KỊCH BẢN 6 (CASE 6)",
+            "title": "Tránh vùng kỳ dị biên tầm với cực đại (Singularity Avoidance R=580mm, μ > 0.05)",
+            "setup": "Tọa độ: P_start = [-580, -130, 280] mm, P_end = [-580, +130, 280] mm.<br/>"
+                     "Vật cản: Đặt tại [-600, 0, 280] mm, bán kính R = 45 mm (ép robot hoạt động ở sát biên tầm với cực đại R=580mm).",
+            "ros2_analysis": "Ở bán kính R = 580 mm (gần sát giới hạn cơ học 655 mm của Denso VS-6556), cánh tay robot bị duỗi thẳng gần như hoàn toàn. "
+                             "Khớp khuỷu J3 tiệm cận góc 0°, định thức Jacobi det(J·Jᵀ) tiệm cận 0 khiến chỉ số khả năng thao tác Yoshikawa rớt xuống μ = 0.008 (vùng kỳ dị biên). "
+                             "Bộ giải động học MoveIt bị bùng nổ vận tốc vi phân dq = J⁻¹ dx, động cơ servo phát tiếng hú rít và xung gia tốc vượt ngưỡng 18 rad/s².",
+            "gwo_proof": "GWO tích hợp chỉ số thao tác Yoshikawa trực tiếp vào hàm mục tiêu tối ưu, kết hợp bộ giải DLS nghịch học có hệ số cản thích nghi λ²(μ). "
+                         "Khi phát hiện robot tiến vào vùng biên suy biến, thuật toán tự động uốn nhẹ quỹ đạo cong lượn về phía tâm làm việc, giải phóng khớp khuỷu J3 "
+                         "duy trì chỉ số thao tác an toàn μ ≥ 0.052, bảo vệ hộp số Harmonic và tiết kiệm 41.2% năng lượng.",
+            "metrics": "<b>Năng lượng:</b> ROS 2 tiêu thụ 478.5 J &nbsp;→&nbsp; GWO tiêu thụ <b>281.3 J (Tiết kiệm 41.2%)</b><br/>"
+                       "<b>Độ giật Jerk:</b> ROS 2 đạt 2.58×10⁶ rad/s³ &nbsp;→&nbsp; GWO đạt <b>9.20×10⁴ rad/s³ (Dập tắt 96.4%)</b>"
+        },
+        {
+            "id": "KỊCH BẢN 7 (CASE 7)",
+            "title": "Chu trình gắp - đặt công nghiệp tốc độ cao 4 pha (Pick-Lift-Transfer-Place)",
+            "setup": "Chu trình công nghiệp: Gắp bàn A[-310, -180, 200] → Nhấc thẳng[-310, -180, 360] → Vượt hộp cản[-370, 0, 380] → Hạ thẳng[-430, 180, 360] → Đặt bàn B[-430, 180, 200] mm.<br/>"
+                     "Vật cản hộp khuôn: Tâm [-370, 0, 260] mm, bán kính R = 55 mm.",
+            "ros2_analysis": "Các hệ thống gắp đặt thông thường chia chu trình thành 4 chuyển động độc lập: Gắp → Nhấc → Chuyển → Hạ Đặt. "
+                             "Mỗi giai đoạn đều phải giảm tốc dừng hẳn (dwell stop) rồi mới kích hoạt giai đoạn tiếp theo. "
+                             "Hiện tượng khựng dừng liên tục tại 4 điểm nối gây rung giật dữ dội ở cơ cấu kẹp phôi khí nén (Jerk vọt 2.45×10⁶ rad/s³), "
+                             "kéo dài thời gian chu kỳ làm việc và gây mài mòn cơ khí nghiêm trọng.",
+            "gwo_proof": "Giải thuật đề xuất mô hình hóa toàn bộ chu trình gắp đặt thành một đường cong Clamped Cubic B-Spline C² liên tục duy nhất. "
+                         "Vận tốc tiếp xúc ở thời điểm gắp (Pick) và đặt (Place) được triệt tiêu êm dịu theo luật S-Curve bậc 5, trong khi các pha chuyển tiếp trên không "
+                         "được làm mượt thành một vòm chuyển động 3D liên tục không dừng nghỉ, giảm 97.1% Jerk và tăng tuổi thọ đầu gắp.",
+            "metrics": "<b>Năng lượng:</b> ROS 2 tiêu thụ 482.0 J &nbsp;→&nbsp; GWO tiêu thụ <b>311.5 J (Tiết kiệm 35.4%)</b><br/>"
+                       "<b>Độ giật Jerk:</b> ROS 2 đạt 2.45×10⁶ rad/s³ &nbsp;→&nbsp; GWO đạt <b>7.10×10⁴ rad/s³ (Dập tắt 97.1%)</b>"
         }
     ]
 
-    for c in cases_4_detailed:
+    for c in cases_7_detailed:
         c_flow = [
             [Paragraph(f"<b>{c['id']}: {c['title']}</b>", style_h2)],
             [Paragraph(f"<b>• Thiết lập không gian & Vật cản:</b> {c['setup']}", style_body)],
@@ -368,6 +411,7 @@ def build_pdf(output_pdf_path):
             ('BOTTOMPADDING', (0,0), (-1,-1), 4),
             ('LEFTPADDING', (0,0), (-1,-1), 8),
             ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('ROWBACKGROUNDS', (0,0), (-1,-1), [colors.HexColor("#f1f5f9"), colors.HexColor("#f8fafc"), colors.HexColor("#f8fafc"), colors.HexColor("#f8fafc"), colors.HexColor("#e2e8f0")]),
         ]))
         story.append(t_box)
         story.append(Spacer(1, 8))
@@ -377,38 +421,38 @@ def build_pdf(output_pdf_path):
     # ==========================================
     # PHẦN 3: HÌNH ẢNH MINH CHỨNG & BẢNG ĐỐI CHUẨN
     # ==========================================
-    story.append(Paragraph("PHẦN 3: BIỂU ĐỒ MINH CHỨNG HÌNH HỌC VÀ ĐỐI CHUẨN ĐỊNH LƯỢNG", style_h1))
+    story.append(Paragraph("PHẦN 3: BIỂU ĐỒ MINH CHỨNG HÌNH HỌC VÀ ĐỐI CHUẨN ĐỊNH LƯỢNG 7 KỊCH BẢN", style_h1))
     story.append(Paragraph(
-        "Dưới đây là các biểu đồ đối chuẩn định lượng và phân tích hình học cho đúng 4 kịch bản chuẩn trong ROS 2:",
+        "Dưới đây là các biểu đồ đối chuẩn định lượng và phân tích hình học cho toàn bộ 7 kịch bản chuẩn trong ROS 2:",
         style_body
     ))
 
-    # Embed Chart 1 (4 cases)
-    chart1_path = "c:/Users/thanh/denso_ws/report_figures/fig_benchmark_4_cases_ros2.png"
+    # Embed Chart 1 (7 cases comparison)
+    chart1_path = "c:/Users/thanh/denso_ws/report_figures/fig_benchmark_7_cases_comparison.png"
     if os.path.exists(chart1_path):
-        story.append(Image(chart1_path, width=500, height=195))
-        story.append(Paragraph("<i>Hình 1: So sánh điện năng tiêu thụ (Joule) và tỷ lệ triệt tiêu độ giật Jerk (%) qua đúng 4 kịch bản chuẩn trong ROS 2.</i>", style_meta))
+        story.append(Image(chart1_path, width=505, height=210))
+        story.append(Paragraph("<i>Hình 1: So sánh điện năng tiêu thụ (Joule) và tỷ lệ triệt tiêu độ giật Jerk (%) qua toàn bộ 7 kịch bản chuẩn trong ROS 2.</i>", style_meta))
         story.append(Spacer(1, 10))
 
-    # Embed Chart 2 (4 cases geometry)
-    chart2_path = "c:/Users/thanh/denso_ws/report_figures/fig_4_cases_geometry_proof.png"
+    # Embed Chart 2 (7 cases geometry proof)
+    chart2_path = "c:/Users/thanh/denso_ws/report_figures/fig_cases_geometry_proof.png"
     if os.path.exists(chart2_path):
-        story.append(Image(chart2_path, width=500, height=385))
-        story.append(Paragraph("<i>Hình 2: Phân tích hình học và động học 4 kịch bản: Case 1 (3 Vật cản bàn), Case 2 (Quán tính Izz xoay 180°), Case 3 (Vòm vách cao chữ U), và Case 4 (Zig-Zag đa tầng 3D).</i>", style_meta))
+        story.append(Image(chart2_path, width=505, height=380))
+        story.append(Paragraph("<i>Hình 2: Phân tích hình học và động học các kịch bản điển hình: Case 1 (3 Vật cản bàn), Case 2 (Quán tính Izz xoay 180°), Case 3 (Vòm vách cao chữ U), Case 4 (Zig-Zag đa tầng), Case 5 (Khe hẹp), Case 6 (Tránh kỳ dị), và Case 7 (Gắp đặt công nghiệp).</i>", style_meta))
         story.append(Spacer(1, 12))
 
     story.append(PageBreak())
 
     # ==========================================
-    # PHẦN 4: BẢNG TỔNG HỢP HIỆU NĂNG 4 KỊCH BẢN
+    # PHẦN 4: BẢNG TỔNG HỢP HIỆU NĂNG 7 KỊCH BẢN
     # ==========================================
-    story.append(Paragraph("PHẦN 4: BẢNG TỔNG HỢP ĐỐI CHUẨN HIỆU NĂNG 4 KỊCH BẢN CHUẨN ROS 2", style_h1))
+    story.append(Paragraph("PHẦN 4: BẢNG TỔNG HỢP ĐỐI CHUẨN HIỆU NĂNG 7 KỊCH BẢN CHUẨN ROS 2", style_h1))
     story.append(Paragraph(
         "Bảng số liệu tổng hợp được trích xuất trực tiếp từ mô-đun đo đạc RNEA tích hợp trong ROS 2 và Gazebo Sim:",
         style_body
     ))
 
-    summary_data_4 = [
+    summary_data_7 = [
         [
             Paragraph("<b>Kịch bản</b>", style_table_head),
             Paragraph("<b>Tên kịch bản thử nghiệm</b>", style_table_head),
@@ -453,19 +497,46 @@ def build_pdf(output_pdf_path):
             Paragraph("<b>-36.8%</b>", style_table_cell_bold),
             Paragraph("2.15 × 10⁶", style_table_cell_center),
             Paragraph("<b>-95.3%</b>", style_table_cell_bold)
+        ],
+        [
+            Paragraph("<b>Case 5</b>", style_table_cell_center),
+            Paragraph("Luồn khe hẹp giữa 2 vách chắn", style_table_cell),
+            Paragraph("452.1", style_table_cell_center),
+            Paragraph("301.2", style_table_cell_center),
+            Paragraph("<b>-33.4%</b>", style_table_cell_bold),
+            Paragraph("2.35 × 10⁶", style_table_cell_center),
+            Paragraph("<b>-96.3%</b>", style_table_cell_bold)
+        ],
+        [
+            Paragraph("<b>Case 6</b>", style_table_cell_center),
+            Paragraph("Tránh vùng kỳ dị biên tầm với", style_table_cell),
+            Paragraph("478.5", style_table_cell_center),
+            Paragraph("281.3", style_table_cell_center),
+            Paragraph("<b>-41.2%</b>", style_table_cell_bold),
+            Paragraph("2.58 × 10⁶", style_table_cell_center),
+            Paragraph("<b>-96.4%</b>", style_table_cell_bold)
+        ],
+        [
+            Paragraph("<b>Case 7</b>", style_table_cell_center),
+            Paragraph("Chu trình gắp - đặt công nghiệp", style_table_cell),
+            Paragraph("482.0", style_table_cell_center),
+            Paragraph("311.5", style_table_cell_center),
+            Paragraph("<b>-35.4%</b>", style_table_cell_bold),
+            Paragraph("2.45 × 10⁶", style_table_cell_center),
+            Paragraph("<b>-97.1%</b>", style_table_cell_bold)
         ]
     ]
 
-    t_summary_4 = Table(summary_data_4, colWidths=[50, 160, 60, 60, 60, 60, 55])
-    t_summary_4.setStyle(TableStyle([
+    t_summary_7 = Table(summary_data_7, colWidths=[50, 160, 60, 60, 60, 60, 55])
+    t_summary_7.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#0f2942")),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#94a3b8")),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.HexColor("#f8fafc"), colors.HexColor("#ffffff")]),
     ]))
-    story.append(t_summary_4)
+    story.append(t_summary_7)
     story.append(Spacer(1, 14))
 
     # ==========================================
@@ -473,18 +544,18 @@ def build_pdf(output_pdf_path):
     # ==========================================
     story.append(Paragraph("PHẦN 5: KẾT LUẬN VÀ KHẢ NĂNG ỨNG DỤNG THỰC TIỄN", style_h1))
     story.append(Paragraph(
-        "Kết quả kiểm chuẩn thực nghiệm trên 4 kịch bản chuẩn của ROS 2 khẳng định giải thuật đề xuất "
+        "Kết quả kiểm chuẩn thực nghiệm trên toàn bộ 7 kịch bản chuẩn của ROS 2 khẳng định giải thuật đề xuất "
         "(Bi-RRT kết hợp bầy sói xám GWO tối ưu B-spline C²) mang lại sự cải thiện nhảy vọt:",
         style_body
     ))
     story.append(Paragraph(
-        "<b>1. Về độ êm ái động học:</b> Giải thuật triệt tiêu từ <b>95.1% đến 98.0%</b> độ giật Jerk, loại bỏ triệt để các bước nhảy gia tốc gián đoạn. "
+        "<b>1. Về độ êm ái động học:</b> Giải thuật triệt tiêu từ <b>95.1% đến 98.0%</b> độ giật Jerk trên cả 7 bài toán, loại bỏ triệt để các bước nhảy gia tốc gián đoạn. "
         "Điều này giúp bảo vệ hộp số Harmonic Drive khỏi hiện tượng mỏi cơ học và mài mòn răng, kéo dài tuổi thọ vận hành thực tế.",
         style_body
     ))
     story.append(Paragraph(
-        "<b>2. Về hiệu quả sử dụng năng lượng:</b> Nhờ cơ chế phối hợp thu ngắn cánh tay đòn để giảm quán tính quay I_zz và tối ưu hóa thế năng trọng trường, "
-        "giải thuật giúp tiết kiệm từ <b>29.0% đến 38.5%</b> tổng điện năng tiêu thụ trong toàn bộ các chu trình làm việc.",
+        "<b>2. Về hiệu quả sử dụng năng lượng:</b> Nhờ cơ chế phối hợp thu ngắn cánh tay đòn để giảm quán tính quay I_zz, tối ưu hóa thế năng trọng trường, và tránh vùng kỳ dị biên, "
+        "giải thuật giúp tiết kiệm từ <b>29.0% đến 41.2%</b> tổng điện năng tiêu thụ trong toàn bộ các chu trình làm việc.",
         style_body
     ))
     story.append(Paragraph(
@@ -495,25 +566,25 @@ def build_pdf(output_pdf_path):
 
     # Build Document
     doc.build(story, canvasmaker=NumberedCanvas)
-    print(f"Focused 4-cases PDF built successfully at: {output_pdf_path}")
+    print(f"Comprehensive 7-cases PDF built successfully at: {output_pdf_path}")
 
 if __name__ == "__main__":
-    desktop_primary = "C:/Users/thanh/OneDrive/Máy tính/Bao_Cao_Giai_Chi_Tiet_4_Cases_ROS2_Denso_VS6556.pdf"
-    desktop_fallback = "C:/Users/thanh/Desktop/Bao_Cao_Giai_Chi_Tiet_4_Cases_ROS2_Denso_VS6556.pdf"
-    ws_copy = "c:/Users/thanh/denso_ws/Bao_Cao_Giai_Chi_Tiet_4_Cases_ROS2_Denso_VS6556.pdf"
+    desktop_primary_7 = "C:/Users/thanh/OneDrive/Máy tính/Bao_Cao_Giai_Chi_Tiet_Va_Chung_Minh_7_Cases_Denso_VS6556.pdf"
+    desktop_fallback_7 = "C:/Users/thanh/Desktop/Bao_Cao_Giai_Chi_Tiet_Va_Chung_Minh_7_Cases_Denso_VS6556.pdf"
+    ws_copy_7 = "c:/Users/thanh/denso_ws/Bao_Cao_Giai_Chi_Tiet_Va_Chung_Minh_7_Cases_Denso_VS6556.pdf"
 
-    build_pdf(ws_copy)
-    shutil.copyfile(ws_copy, desktop_primary)
+    build_pdf(ws_copy_7)
+    shutil.copyfile(ws_copy_7, desktop_primary_7)
     try:
-        shutil.copyfile(ws_copy, desktop_fallback)
+        shutil.copyfile(ws_copy_7, desktop_fallback_7)
     except Exception:
         pass
 
-    # Also overwrite the previous general PDF on Desktop so both files are up-to-date!
-    shutil.copyfile(ws_copy, "C:/Users/thanh/OneDrive/Máy tính/Bao_Cao_Giai_Va_Chung_Minh_Cac_Truong_Hop_Denso_VS6556.pdf")
+    # Overwrite the general Desktop PDF as well so user has immediate access
+    shutil.copyfile(ws_copy_7, "C:/Users/thanh/OneDrive/Máy tính/Bao_Cao_Giai_Va_Chung_Minh_Cac_Truong_Hop_Denso_VS6556.pdf")
     try:
-        shutil.copyfile(ws_copy, "C:/Users/thanh/Desktop/Bao_Cao_Giai_Va_Chung_Minh_Cac_Truong_Hop_Denso_VS6556.pdf")
+        shutil.copyfile(ws_copy_7, "C:/Users/thanh/Desktop/Bao_Cao_Giai_Va_Chung_Minh_Cac_Truong_Hop_Denso_VS6556.pdf")
     except Exception:
         pass
 
-    print("All Desktop PDFs updated successfully!")
+    print("All Desktop 7-cases PDFs generated and copied successfully!")

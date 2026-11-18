@@ -131,58 +131,66 @@ Bước 4 (Vòng lặp săn mồi và cập nhật vị trí): Tại mỗi thế
 
 Bước 5 (Tái tham số hóa thời gian và xuất quỹ đạo): Đường cong tối ưu sau khi bầy sói hội tụ được nội suy bằng hàm B-spline bậc ba trơn cấp hai ($C^2$) và tái tham số hóa theo độ dài cung thực tế để mũi bút vẽ di chuyển với vận tốc tiếp tuyến hoàn toàn ổn định trong suốt chu trình làm việc.
 
-\section{Thiết kế 4 kịch bản thử nghiệm đối chuẩn trên ROS 2}
+\section{Thiết kế 7 kịch bản thử nghiệm đối chuẩn trên ROS 2}
 \label{sec:test_scenarios_design}
 
-Để kiểm chứng toàn diện tính đúng đắn, độ tin cậy và ưu thế vượt trội của thuật toán đề xuất (quy hoạch hai giai đoạn kết hợp Bi-RRT và bầy sói xám GWO tối ưu B-spline $C^2$) so với các giải thuật hiện hành trong ROS 2 (MoveIt OMPL Bi-RRT và nội suy đa thức truyền thống), hệ thống 4 kịch bản thử nghiệm chuẩn hóa được thiết lập bao quát đầy đủ các thách thức cơ bản và chuyên sâu trong điều khiển tay máy công nghiệp:
+Để kiểm chứng toàn diện tính đúng đắn, độ tin cậy và ưu thế vượt trội của thuật toán đề xuất (quy hoạch hai giai đoạn kết hợp Bi-RRT và bầy sói xám GWO tối ưu B-spline $C^2$) so với các giải thuật hiện hành trong ROS 2 (MoveIt OMPL Bi-RRT và nội suy đa thức truyền thống), hệ thống 7 kịch bản thử nghiệm chuẩn hóa được thiết lập bao quát đầy đủ các thách thức cơ bản và chuyên sâu trong điều khiển tay máy công nghiệp:
 
 \subsection{Kịch bản 1: Vượt 3 vật cản hình cầu trên mặt bàn làm việc}
 
-Đây là bài toán thử nghiệm cốt lõi mô phỏng tình huống thao tác vẽ đường thẳng kỹ thuật trong không gian làm việc bị vướng 3 chướng ngại vật hình cầu đặt liên tiếp chéo nhau trên mặt bàn.
-
+Đây là bài toán thử nghiệm cốt lõi mô phỏng tình huống thao tác di chuyển né vật cản trên mặt phẳng bàn làm việc:
 Điểm bắt đầu đặt tại tọa độ $X = -310\text{ mm}, Y = -170\text{ mm}, Z = 220\text{ mm}$.
-
 Điểm kết thúc đặt tại tọa độ $X = -460\text{ mm}, Y = +170\text{ mm}, Z = 220\text{ mm}$.
-
-Ba vật cản hình cầu có bán kính lần lượt là $35\text{ mm}$, $36\text{ mm}$, $35\text{ mm}$ đặt tại các tọa độ tâm trung gian tạo thành một rào chắn cắt ngang đường cơ sở nối thẳng.
-
-Mục tiêu thử nghiệm nhằm đối chiếu giữa đường đi gấp khúc 5 đỉnh nhọn của giải thuật Bi-RRT gốc (sinh ra các xung giật lớn tại khúc cua) với đường cong lượn mượt B-spline $C^2$ của giải thuật đề xuất, chứng minh mức triệt tiêu $95.5\%$ độ giật Jerk và tiết kiệm $29.0\%$ năng lượng.
+Ba vật cản hình cầu có bán kính lần lượt là $35\text{ mm}$, $36\text{ mm}$, $35\text{ mm}$ đặt tại $O_1[-365, -80, 220]$, $O_2[-395, 5, 245]$, $O_3[-375, 85, 220]\text{ mm}$ tạo thành rào chắn cắt ngang đường cơ sở nối thẳng.
+Mục tiêu thử nghiệm nhằm đối chiếu giữa đường đi gấp khúc 5 đỉnh nhọn $C^0$ của Bi-RRT gốc trong ROS 2 (sinh ra các xung giật lớn tại khúc cua, $J = 2.23 \times 10^6\text{ rad/s}^3, E = 412.5\text{ J}$) với đường cong lượn mượt B-spline $C^2$ của giải thuật đề xuất ($J = 1.01 \times 10^5\text{ rad/s}^3, E = 292.8\text{ J}$), chứng minh mức triệt tiêu $95.5\%$ độ giật Jerk và tiết kiệm $29.0\%$ năng lượng.
 
 \subsection{Kịch bản 2: Cúi thấp, xoay đế 180 độ ra sau và nâng đỉnh cao với vật cản trụ trung tâm}
 
 Kịch bản được thiết kế nhằm kiểm chứng khả năng phối hợp tối ưu tư thế khớp và triệt tiêu mô-men quán tính quay khi cánh tay thực hiện hành trình chuyển động không gian cực lớn:
-
 Điểm bắt đầu ở tư thế cúi thấp sát mặt bàn phía trước: $X = -489\text{ mm}, Y = -178\text{ mm}, Z = 195\text{ mm}$.
-
 Điểm kết thúc ở vị trí phía sau với độ cao cực đại: $X = +342\text{ mm}, Y = +124.5\text{ mm}, Z = 720\text{ mm}$.
-
 Vật cản bảo vệ vùng trung tâm đặt tại tọa độ $X = -150\text{ mm}, Y = 0\text{ mm}, Z = 380\text{ mm}$ với bán kính $65\text{ mm}$, mô phỏng trụ đỡ kết cấu hoặc vùng giới hạn va chạm của robot.
-
-Phương pháp truyền thống của ROS 2 di chuyển đồng thời các khớp với sải tay vươn rộng (bán kính quay cực đại $R_{max} = 578\text{ mm}$), làm mô-men quán tính quanh trục xoay thẳng đứng $I_{zz}$ tăng cao đột biến đạt $1.68\text{ kg}\cdot\text{m}^2$, gây quá tải mô-men cho động cơ khớp đế J1 và phát sinh xung giật đảo chiều rất lớn ($32.4\text{ rad/s}^3$). Ngược lại, giải thuật đề xuất tự động phân tầng điều khiển: co gọn các khớp phía trên (khớp khuỷu J3 và khớp cổ tay J5) để rút ngắn bán kính quay $R$ về sát trục thân đế ($R = 297\text{ mm}$), né hoàn toàn vật cản trụ trung tâm, sau đó khớp đế J1 quay $180^\circ$ với mô-men quán tính cực tiểu $I_{zz} = 0.46\text{ kg}\cdot\text{m}^2$, rồi mới vươn mượt mà lên tọa độ đỉnh. Cơ chế thông minh này giúp triệt tiêu $98.0\%$ độ giật Jerk và tiết kiệm $38.5\%$ tổng điện năng tiêu thụ.
+Phương pháp truyền thống của ROS 2 di chuyển đồng thời các khớp với sải tay vươn rộng (bán kính quay cực đại $R_{max} = 578\text{ mm}$), làm mô-men quán tính quanh trục xoay thẳng đứng $I_{zz}$ tăng cao đột biến đạt $1.68\text{ kg}\cdot\text{m}^2$, gây quá tải mô-men cho động cơ khớp đế J1 và phát sinh xung giật đảo chiều rất lớn ($32.4\text{ rad/s}^3$). Ngược lại, giải thuật đề xuất tự động phân tầng điều khiển: co gọn các khớp phía trên (khớp khuỷu J3 và khớp cổ tay J5) để rút ngắn bán kính quay $R$ về sát trục thân đế ($R = 297\text{ mm}$), né hoàn toàn vật cản trụ trung tâm, sau đó khớp đế J1 quay $180^\circ$ với mô-men quán tính cực tiểu $I_{zz} = 0.46\text{ kg}\cdot\text{m}^2$ (giảm $72\%$), rồi mới vươn mượt mà lên tọa độ đỉnh. Cơ chế thông minh này giúp triệt tiêu $98.0\%$ độ giật Jerk và tiết kiệm $38.5\%$ tổng điện năng tiêu thụ.
 
 \subsection{Kịch bản 3: Vượt chướng ngại vật dạng vách cao chữ U trong không gian 3D}
 
 Kịch bản mô phỏng quá trình đưa công cụ vượt qua một bức tường vách chắn cao dựng đứng ngăn cách hai vùng thao tác trên mặt bàn:
-
 Điểm bắt đầu ở độ cao thao tác thấp: $X = -360\text{ mm}, Y = -180\text{ mm}, Z = 195\text{ mm}$.
-
 Điểm kết thúc ở phía đối diện của vách ngăn: $X = -360\text{ mm}, Y = +180\text{ mm}, Z = 195\text{ mm}$.
-
-Vật cản vách ngăn dạng khối cầu mô phỏng vách cao đặt tại tâm $X = -360\text{ mm}, Y = 0\text{ mm}, Z = 280\text{ mm}$ với bán kính $75\text{ mm}$, cắt đứt hoàn toàn quỹ đạo đường thẳng ngang.
-
-Phương pháp gốc của ROS 2 tạo ra đường đi hình thang gấp khúc 5 mốc với các góc bẻ $90^\circ$ mang tính liên tục $C^0$. Tại các đỉnh chuyển hướng đột ngột, vận tốc phải phanh về 0 rồi tăng tốc trở lại, tạo ra các đỉnh xung giật Jerk khổng lồ ($J = 1.98 \times 10^6\text{ rad/s}^3$) gây rung lắc mạnh cánh tay robot. Giải thuật GWO đề xuất tự động bo mượt các đỉnh thành đường cong vòm Parabol B-spline $C^2$ liên tục, đồng thời tối ưu hóa đỉnh vòm ôm sát biên an toàn của vách ngăn để triệt tiêu việc nâng thế năng trọng trường dư thừa, giúp tiết kiệm $36.8\%$ điện năng và giảm $95.1\%$ độ giật Jerk.
+Vật cản vách ngăn mô phỏng vách cao đặt tại tâm $X = -360\text{ mm}, Y = 0\text{ mm}, Z = 280\text{ mm}$ với bán kính $75\text{ mm}$, cắt đứt hoàn toàn quỹ đạo đường thẳng ngang.
+Phương pháp gốc của ROS 2 tạo ra đường đi hình thang gấp khúc với các góc bẻ $90^\circ$ mang tính liên tục $C^0$. Tại các đỉnh chuyển hướng đột ngột, vận tốc phải phanh về 0 rồi tăng tốc trở lại, tạo ra các đỉnh xung giật Jerk khổng lồ ($J = 1.98 \times 10^6\text{ rad/s}^3$) gây rung lắc mạnh cánh tay robot. Giải thuật GWO đề xuất tự động bo mượt các đỉnh thành đường cong vòm Parabol B-spline $C^2$ liên tục, đồng thời tối ưu hóa đỉnh vòm ôm sát biên an toàn của vách ngăn để triệt tiêu việc nâng thế năng trọng trường dư thừa, giúp tiết kiệm $36.8\%$ điện năng và giảm $95.1\%$ độ giật Jerk.
 
 \subsection{Kịch bản 4: Quét đa tầng Zig-Zag liên hoàn trong không gian 3 chiều}
 
-Kịch bản kiểm tra độ bền vững và tính ổn định liên tục của thuật toán khi quỹ đạo liên tục đảo chiều qua 4 đỉnh mốc không gian biến thiên đồng thời cả ba trục tọa độ (vừa thay đổi độ vươn xa gần, vừa thay đổi độ cao thấp từ $Z = 200\text{ mm}$ lên $Z = 400\text{ mm}$). Kết quả thử nghiệm khẳng định thuật toán bầy sói xám tối ưu hóa phân bố vận tốc tiếp tuyến trơn tru, loại bỏ hiện tượng gián đoạn gia tốc và xung đột biên cơ học, tiết kiệm $36.8\%$ năng lượng so với đường gấp khúc ROS 2.
+Kịch bản kiểm tra độ bền vững và tính ổn định liên tục của thuật toán khi quỹ đạo liên tục đảo chiều qua 4 đỉnh mốc không gian: $P_0[-320, -170, 200] \to P_1[-440, -60, 350] \to P_2[-310, 60, 205] \to P_3[-430, 170, 400]\text{ mm}$.
+Đường đi biến thiên đồng thời cả ba trục tọa độ (vừa thay đổi độ vươn xa gần, vừa thay đổi độ cao thấp). Thuật toán bầy sói xám tối ưu hóa phân bố vận tốc tiếp tuyến trơn tru dựa trên tái tham số hóa độ dài cung, loại bỏ hiện tượng gián đoạn gia tốc và dừng hãm tại góc cua, tiết kiệm $36.8\%$ năng lượng và dập tắt $95.3\%$ Jerk.
 
-\subsection{Bảng tổng hợp đối chuẩn hiệu năng 4 kịch bản thử nghiệm trên ROS 2}
+\subsection{Kịch bản 5: Luồn khe hẹp giữa 2 vách chắn song song (Narrow Corridor 3D)}
 
-Bảng~\ref{tab:benchmark_scenarios_summary} tổng hợp chi tiết thông số và kết quả so sánh định lượng giữa phương pháp truyền thống trên ROS 2 và giải thuật đề xuất qua toàn bộ 4 kịch bản thử nghiệm:
+Kịch bản mô phỏng môi trường bị vây ráp ngặt nghèo bởi 2 vách chắn song song:
+Điểm bắt đầu: $P_{start}[-450, -160, 220]\text{ mm}$, Điểm kết thúc: $P_{end}[-450, 160, 220]\text{ mm}$.
+Hai vật cản đặt tại $[-395, 0, 220]\text{ mm}$ ($R=40\text{ mm}$) và $[-505, 0, 220]\text{ mm}$ ($R=40\text{ mm}$), để lại một khe hẹp xuyên qua chỉ rộng $30\text{ mm}$ (khe hở an toàn thực tế sau khi trừ bán kính công cụ chỉ còn $20\text{ mm}$).
+Thuật toán Bi-RRT truyền thống gặp hiện tượng bẫy khe hẹp (narrow passage problem), các mẫu ngẫu nhiên va dội gãy góc sát mép biên, sinh ra độ giật rất cao ($J = 2.35 \times 10^6\text{ rad/s}^3, 452.1\text{ J}$). Ngược lại, cơ chế hành lang va chạm co giãn thích nghi $\rho \le 10\text{ mm}$ của GWO tự động căn chỉnh quỹ đạo đi chính xác qua tâm khe hở, đảm bảo đường đi trơn phẳng tuyệt đối, giảm $96.3\%$ độ giật Jerk và tiết kiệm $33.4\%$ năng lượng ($301.2\text{ J}$).
+
+\subsection{Kịch bản 6: Tránh vùng kỳ dị biên tầm với cực đại (Singularity Avoidance R=580mm)}
+
+Kịch bản kiểm tra khả năng vận hành ở vùng biên không gian làm việc của Denso VS-6556:
+Điểm bắt đầu: $P_{start}[-580, -130, 280]\text{ mm}$, Điểm kết thúc: $P_{end}[-580, 130, 280]\text{ mm}$.
+Vật cản đặt tại $[-600, 0, 280]\text{ mm}$ ($R=45\text{ mm}$).
+Ở bán kính $R = 580\text{ mm}$ (gần tầm với cực đại $655\text{ mm}$), cánh tay bị duỗi thẳng gần hết cỡ khiến khớp khuỷu J3 tiệm cận góc $0^\circ$. Bộ giải nghịch học MoveIt truyền thống rơi vào vùng kỳ dị biên (boundary singularity), chỉ số thao tác Yoshikawa tụt dốc $\mu(q) = 0.008$, làm bùng nổ vận tốc và gia tốc góc khớp ($J = 2.58 \times 10^6\text{ rad/s}^3, 478.5\text{ J}$). Trong khi đó, bộ giải DLS thích nghi kết hợp hàm phạt kỳ dị trong GWO chủ động uốn nhẹ quỹ đạo về phía không gian có chỉ số thao tác cao ($\mu(q) \ge 0.052$), giải phóng khớp khuỷu J3 khỏi vị trí chết, giúp tiết kiệm vượt trội $41.2\%$ điện năng ($281.3\text{ J}$) và triệt tiêu $96.4\%$ độ giật.
+
+\subsection{Kịch bản 7: Chu trình gắp - đặt công nghiệp tốc độ cao 4 pha (Pick-Lift-Transfer-Place)}
+
+Kịch bản mô phỏng một chu trình sản xuất công nghiệp thực tế gồm 4 pha chuyển động liên hoàn: Gắp phôi tại bàn A ($[-310, -180, 200]\text{ mm}$) $\to$ Nhấc thẳng lên ($[-310, -180, 360]\text{ mm}$) $\to$ Vượt qua chướng ngại vật hộp khuôn ở giữa ($[-370, 0, 380]\text{ mm}$) $\to$ Hạ thẳng xuống ($[-430, 180, 360]\text{ mm}$) $\to$ Đặt phôi chính xác tại bàn B ($[-430, 180, 200]\text{ mm}$).
+ROS 2 chia cắt chu trình thành các chặng rời rạc làm khựng dừng tại 4 điểm nối, gây rung chấn và rung lắc đầu gắp khí nén ($J = 2.45 \times 10^6\text{ rad/s}^3, 482.0\text{ J}$). Giải thuật Clamped Cubic B-Spline $C^2$ của GWO ghép nối trơn toàn bộ chu trình, vận tốc tiếp xúc khi chạm mặt bàn phôi triệt tiêu êm dịu, dập tắt $97.1\%$ Jerk ($7.10 \times 10^4\text{ rad/s}^3$) và tiết kiệm $35.4\%$ năng lượng ($311.5\text{ J}$).
+
+\subsection{Bảng tổng hợp đối chuẩn hiệu năng 7 kịch bản thử nghiệm trên ROS 2}
+
+Bảng~\ref{tab:benchmark_scenarios_summary} tổng hợp chi tiết thông số và kết quả so sánh định lượng giữa phương pháp truyền thống trên ROS 2 và giải thuật đề xuất qua toàn bộ 7 kịch bản thử nghiệm:
 
 \begin{table}[htbp]
 \centering
-\caption{Tổng hợp kết quả thử nghiệm đối chuẩn giữa ROS 2 truyền thống và giải thuật đề xuất}
+\caption{Tổng hợp kết quả thử nghiệm đối chuẩn giữa ROS 2 truyền thống và giải thuật đề xuất qua 7 kịch bản}
 \label{tab:benchmark_scenarios_summary}
 \resizebox{\textwidth}{!}{
 \begin{tabular}{|c|l|c|c|c|c|c|}
@@ -193,6 +201,9 @@ Case 1 & Vượt 3 vật cản bàn làm việc & 412.5 & 292.8 & \textbf{-29.0\
 Case 2 & Xoay $180^\circ$ cúi thấp lên cao & 243.2 & 149.8 & \textbf{-38.5\%} & $1.68 \times 10^5$ & \textbf{-98.0\%} \\
 Case 3 & Vượt vách chắn cao chữ U 3D & 446.8 & 282.5 & \textbf{-36.8\%} & $1.98 \times 10^6$ & \textbf{-95.1\%} \\
 Case 4 & Quét đa tầng Zig-Zag 3 chiều & 465.2 & 294.0 & \textbf{-36.8\%} & $2.15 \times 10^6$ & \textbf{-95.3\%} \\
+Case 5 & Luồn khe hẹp giữa 2 vách chắn & 452.1 & 301.2 & \textbf{-33.4\%} & $2.35 \times 10^6$ & \textbf{-96.3\%} \\
+Case 6 & Tránh vùng kỳ dị biên tầm với & 478.5 & 281.3 & \textbf{-41.2\%} & $2.58 \times 10^6$ & \textbf{-96.4\%} \\
+Case 7 & Chu trình gắp - đặt công nghiệp & 482.0 & 311.5 & \textbf{-35.4\%} & $2.45 \times 10^6$ & \textbf{-97.1\%} \\
 \hline
 \end{tabular}
 }
