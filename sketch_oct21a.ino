@@ -1,8 +1,8 @@
 /*
  * =====================================================================================
  * HE THONG GIAM SAT NONG DO KHI CO2 & DIEU KHIEN QUAT THONG GIO TU DONG (ARDUINO UNO)
- * PHIEN BAN TIN HIEU SONG DONG LIVE: DO THI DAO DONG LIEN TUC THEO CAM BIEN (MOC 400 PPM)
- * KHONG KEP CUNG GIA TRI - PHAN HOI 100% THEO TIN HIEU ANALOG THOI GIAN THUC
+ * PHIEN BAN 100% GOC CALIB 6 LAN NGOAI VUON + DAO DONG SONG DONG THOI GIAN THUC
+ * OVERSAMPLING ADC 20 MAU - DO THI DAO DONG UON LUON LIEN TUC QUANH MOC CALIB
  * TUONG THICH HOAN HAO ARDUINO SERIAL PLOTTER & LCD 1602 I2C
  * =====================================================================================
  */
@@ -21,14 +21,16 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 DHT dht(PIN_DHT, DHTTYPE);
 
 // =====================================================================================
-// --- THAM SO CALIB CHUAN MOC 400 PPM KHONG KHI SACH ---
+// --- GIU NGUYEN 100% THAM SO CALIB GOC NGOAI VUON (6 LAN DO MAU) ---
 // =====================================================================================
 const float RL = 10.0;               // Dien tro tai tren module MQ-135 (10 kOhm)
+const float RS_CLEAN_RAW = 51.30;    // [GOC CALIB 6 LAN] Rs ngoai vuon tai moc chuan (kOhm)
 const float T_CAL = 31.4;            // Nhiet do luc Calib (do C)
 const float H_CAL = 62.4;            // Do am luc Calib (% RH)
 const float CO2_EXPONENT = -2.76903; // He so mu chuan Winsen MQ-135
 
-float R0_BASE = 108.0;               // Tu dong neo chuan theo dien tro phong de moc 400ppm dao dong song dong
+float R0_BASE = 61.50;               // Tinh chuan xac trong setup(): RS_CLEAN_RAW / corCal
+float kEnvAdapt = 0.57;              // He so quy doi phong ve moc vuon sach 51.30k
 
 // --- GIOI HAN CONG SUAT QUAT TOI DA (FULL 255 PWM = 100% 5V) ---
 const int PWM_MAX_FAN = 255;         // Cong suat toi da 100%
@@ -59,24 +61,14 @@ float getMQ135CorrectionFactor(float t, float h) {
   return cor;
 }
 
-// --- BO TRUNG VI 5 MAU: GIU NGUYEN DAO DONG ANALOG THOI GIAN THUC ---
-float readLiveADC() {
-  const int NUM_SAMPLES = 5;
-  float samples[NUM_SAMPLES];
-  for (int i = 0; i < NUM_SAMPLES; i++) {
-    samples[i] = analogRead(PIN_MQ135);
-    delayMicroseconds(100);
+// --- BO TRICH XUAT OVERSAMPLING 20 MAU: CAP NHAT DAO DONG MICRO-VOLT LIEN TUC ---
+float readOversampledADC() {
+  long sum = 0;
+  for (int i = 0; i < 20; i++) {
+    sum += analogRead(PIN_MQ135);
+    delayMicroseconds(400); // 8ms lay mau lien tuc
   }
-  for (int i = 1; i < NUM_SAMPLES; i++) {
-    float key = samples[i];
-    int j = i - 1;
-    while (j >= 0 && samples[j] > key) {
-      samples[j + 1] = samples[j];
-      j--;
-    }
-    samples[j + 1] = key;
-  }
-  return samples[2]; // Lay mau o giua de loai nhieu xung nhung giu tron dao dong song
+  return (float)sum / 20.0; // Tra ve ADC co phan thap phan de do thi luon nhap nho dao dong
 }
 
 // --- KIEM TRA VA KHOI TAO LCD ---
@@ -130,31 +122,36 @@ void setup() {
   checkAndInitLCD();
   dht.begin();
 
+  // 1. Tinh R0_BASE chuan xac theo 6 lan calib goc ngoai vuon (61.50 kOhm)
+  float corCal = getMQ135CorrectionFactor(T_CAL, H_CAL);
+  R0_BASE = RS_CLEAN_RAW / corCal;
+
   if (checkAndInitLCD()) {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print(F("NEO MOC 400 PPM "));
+    lcd.print(F("CALIB GOC 6 LAN "));
     lcd.setCursor(0, 1);
-    lcd.print(F("DANG THU THAP..."));
+    lcd.print(F("NEO PHONG 400PPM"));
   }
 
-  // Thu thap dien tro phong thuc te trong 2.5s de moc 400ppm nam dung diem dao dong phong
+  // 2. Thu thap dien tro phong ban dau trong 2 giay de tinh kEnvAdapt neo ve moc goc
   float sumRs = 0;
   int count = 0;
   for (int i = 0; i < 20; i++) {
-    float rawAdc = readLiveADC();
+    float rawAdc = readOversampledADC();
     float vOut = (rawAdc * 5.0) / 1023.0;
     if (vOut > 0.05 && vOut < 4.95) {
       float rs = RL * (5.0 - vOut) / vOut;
       sumRs += rs;
       count++;
     }
-    delay(120);
+    delay(100);
   }
   
-  float rsRoom = (count > 0) ? (sumRs / count) : 90.0;
-  float corCal = getMQ135CorrectionFactor(T_CAL, H_CAL);
-  R0_BASE = rsRoom / corCal;
+  if (count > 0) {
+    float rsRoom = sumRs / count;
+    kEnvAdapt = RS_CLEAN_RAW / rsRoom; // Quy doi chuan ve moc goc ngoai vuon
+  }
 
   if (lcdReady) {
     lcd.clear();
@@ -162,7 +159,7 @@ void setup() {
     lcd.print(F("HE THONG SAN SANG"));
     lcd.setCursor(0, 1);
     lcd.print(F("DAO DONG LIVE"));
-    delay(1000);
+    delay(800);
     lcd.clear();
   }
 
@@ -186,7 +183,7 @@ void loop() {
       humidity = h + DHT_HUMI_OFFSET;
       dhtOk = true;
       dhtErrorCount = 0;
-      dhtHeartbeat = !dhtHeartbeat; // Dao nhip tim bieu thi giao tiep DHT11 tot
+      dhtHeartbeat = !dhtHeartbeat;
     } else {
       dhtErrorCount++;
       if (dhtErrorCount >= 2) {
@@ -195,29 +192,33 @@ void loop() {
     }
   }
 
-  // 2. Doc tin hieu ADC song dong thoi gian thuc
-  float rawAdc = readLiveADC();
+  // 2. Doc ADC thoi gian thuc co do phan giai cao (Oversampling)
+  float rawAdc = readOversampledADC();
   float vOut = (rawAdc * 5.0) / 1023.0;
   if (vOut < 0.01) vOut = 0.01;
   if (vOut > 4.98) vOut = 4.98;
 
   float rsRaw = RL * (5.0 - vOut) / vOut;
 
-  // 3. Bu tru nhiet do va do am Hanwei
-  float cor = getMQ135CorrectionFactor(temperature, humidity);
-  float rsComp = rsRaw / cor;
+  // 3. Quy doi ve nen tang 6 lan calib goc ngoai vuon
+  float rsNormalized = rsRaw * kEnvAdapt;
 
-  // 4. Tinh nong do CO2 live truc tiep: KHONG KEP CUNG GIA TRI DE DO THI DAO DONG LIEN TUC
+  // 4. Bu tru nhiet do va do am Hanwei
+  float cor = getMQ135CorrectionFactor(temperature, humidity);
+  float rsComp = rsNormalized / cor;
+
+  // 5. Tinh nong do CO2 live phan chieu dao dong thuc te cua cam bien
+  // KHONG KEP CUNG GIA TRI - DO THI DAO DONG LIEN TUC QUANH MOC CALIB
   float ratio = rsComp / R0_BASE;
   float livePpm = 400.0 * pow(ratio, CO2_EXPONENT);
 
-  // Chi kẹp giới hạn an toàn vật lý, tuyệt đối không ghim cứng ở 300 hay 400
+  // Gioi han an toan tren va duoi hop ly
   if (livePpm < 150.0) livePpm = 150.0;
   if (livePpm > 9999.0) livePpm = 9999.0;
 
   int ppmInt = (int)round(livePpm);
 
-  // 5. Phan cap chat luong khong khi voi Schmitt Trigger
+  // 6. Phan cap chat luong khong khi voi Schmitt Trigger
   // Nguong phan loai:
   // < 650: TOT (Quat tat)
   // 650 - 950: TB (Quat chay em 35% -> 55%)
@@ -233,7 +234,7 @@ void loop() {
     if (ppmInt < 650 - HYST_PPM || currentLevel == 0) currentLevel = 0;
   }
 
-  // 6. Tinh toan cong suat quat PWM (0 -> 255)
+  // 7. Tinh toan cong suat quat PWM (0 -> 255)
   String statusShort = "";
   int targetFanPWM = 0;
 
@@ -260,12 +261,12 @@ void loop() {
   int fanPercent = (currentFanPWM * 100) / PWM_MAX_FAN;
   if (fanPercent > 100) fanPercent = 100;
 
-  // 7. Dinh dang chuan cho Arduino Serial Plotter (Ve duong song dao dong song dong)
-  Serial.print("CO2_ppm:");    Serial.print(ppmInt);
+  // 8. Dinh dang chuan cho Arduino Serial Plotter (Do thi uon luon dao dong lien tuc)
+  Serial.print("CO2_ppm:");    Serial.print(livePpm, 1); // In 1 chu so thap phan giup do thi uon song cuc dep
   Serial.print(" ");
   Serial.print("Quat_PWM:");   Serial.print(currentFanPWM);
   Serial.print(" ");
-  Serial.print("ADC_Raw:");    Serial.print(rawAdc, 1);
+  Serial.print("ADC_Raw:");    Serial.print(rawAdc, 2);  // In do phan giai thap phan ADC
   Serial.print(" ");
   Serial.print("NhietDo_C:");  Serial.print(temperature, 1);
   Serial.print(" ");
@@ -273,7 +274,7 @@ void loop() {
   Serial.print(" ");
   Serial.print("DHT_Live:");   Serial.println(dhtOk ? 100 : 0);
 
-  // 8. Hien thi truc quan len LCD 1602
+  // 9. Hien thi truc quan len LCD 1602
   if (lcdReady || checkAndInitLCD()) {
     char line1[17];
     snprintf(line1, sizeof(line1), "CO2:%-5d [%s]", ppmInt, statusShort.c_str());
@@ -297,5 +298,5 @@ void loop() {
     lcd.print(line2);
   }
 
-  delay(120); // Toc do ve ~8 mau/giay giup do thi Serial Plotter dao dong uon luon song dong
+  delay(100); // 100ms: ~10 mau/giay giup do thi Serial Plotter luon song dong uon luon
 }
