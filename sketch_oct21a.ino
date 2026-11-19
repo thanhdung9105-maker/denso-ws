@@ -325,16 +325,17 @@ void loop() {
   int fanPercent = (currentFanPWM * 100) / PWM_MAX_FAN;
   if (fanPercent > 100) fanPercent = 100;
 
-  // 8. Xuat Serial Monitor (dinh dang sach, ro rang)
-  Serial.print("ADC: "); Serial.print(avgAdc, 1);
-  Serial.print(" | Vout: "); Serial.print(vOut, 2);
-  Serial.print("V | Rs: "); Serial.print(rsRaw, 2);
-  Serial.print("k | RsQuyDoi: "); Serial.print(rsNormalized, 2);
-  Serial.print("k | CO2: "); Serial.print(ppmInt);
-  Serial.print("ppm | T: "); Serial.print(temperature, 1);
-  Serial.print("C | H: "); Serial.print(humidity, 1);
-  Serial.print("% | Quat: "); Serial.print(fanPercent);
-  Serial.print("% ["); Serial.print(statusShort); Serial.println("]");
+  // 8. Xuat du lieu chuan hoa do thi tin hieu cho Arduino Serial Plotter (Ctrl + Shift + L) & Serial Monitor
+  Serial.print("CO2_ppm:");    Serial.print(ppmInt);
+  Serial.print(" ");
+  Serial.print("Quat_PWM:");   Serial.print(currentFanPWM);
+  Serial.print(" ");
+  Serial.print("ADC_Raw:");    Serial.print(avgAdc, 1);
+  Serial.print(" ");
+  Serial.print("NhietDo_C:");  Serial.print(temperature, 1);
+  Serial.print(" ");
+  Serial.print("DoAm_pct:");   Serial.print(humidity, 1);
+  Serial.print(" | TT:[");     Serial.print(statusShort); Serial.println("]");
 
   // 9. Hien thi truc quan len LCD 1602
   if (lcdReady || checkAndInitLCD()) {
