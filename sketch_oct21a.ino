@@ -2,7 +2,7 @@
  * =====================================================================================
  * HE THONG GIAM SAT NONG DO KHI CO2 & DIEU KHIEN QUAT THONG GIO TU DONG (ARDUINO UNO)
  * PHIEN BAN GIU NGUYEN 100% GOC CALIB 6 LAN NGOAI VUON + CHUAN HOA MOC 400 PPM
- * CHE DO PHAN UNG TUC THI (FAST-ATTACK ZERO-LAG): SO TANG NGAY KHI VUA THOI VAO
+ * CHE DO TIN HIEU DONG LIVE (REAL-TIME JUMP): SO NHAY LIEN TUC THEO DAO DONG CAM BIEN
  * TUONG THICH HOAN HAO ARDUINO SERIAL PLOTTER & LCD 1602 I2C
  * =====================================================================================
  */
@@ -30,7 +30,7 @@ const float H_CAL = 62.4;            // Do am luc Calib (% RH)
 const float CO2_EXPONENT = -2.76903; // He so mu chuan Winsen MQ-135
 
 float R0_BASE = 61.50;               // Tinh chuan xac trong setup() theo goc calib
-float kEnvAdapt = 1.00;              // He so chuan 1.00 (khong gay chim nguong)
+float kEnvAdapt = 1.00;              // He so chuan 1.00
 
 // --- GIOI HAN CONG SUAT QUAT TOI DA (FULL 255 PWM = 100% 5V) ---
 const int PWM_MAX_FAN = 255;         // Cong suat toi da 100%
@@ -42,7 +42,6 @@ const float DHT_HUMI_OFFSET = 0.0;
 // Biến trạng thái
 float temperature = T_CAL;
 float humidity = H_CAL;
-float filteredPpm = -1.0;
 int currentLevel = 0;                // 0: TOT, 1: TB, 2: CAO, 3: NGUY
 int currentFanPWM = 0;
 bool lcdReady = false;
@@ -62,13 +61,13 @@ float getMQ135CorrectionFactor(float t, float h) {
   return cor;
 }
 
-// --- BO LOC TRUNG VI ADC 9 MAU (LAY MAU SIEU NHANH TRONG 1.5MS) ---
-float readMedianADC() {
-  const int NUM_SAMPLES = 9;
+// --- BO TRUNG VI 7 MAU NHANH: LOC XUNG NHIEU NHUNG GIU NGUYEN DAO DONG THUC TE ---
+float readFastADC() {
+  const int NUM_SAMPLES = 7;
   float samples[NUM_SAMPLES];
   for (int i = 0; i < NUM_SAMPLES; i++) {
     samples[i] = analogRead(PIN_MQ135);
-    delayMicroseconds(150);
+    delayMicroseconds(100);
   }
   for (int i = 1; i < NUM_SAMPLES; i++) {
     float key = samples[i];
@@ -79,12 +78,7 @@ float readMedianADC() {
     }
     samples[j + 1] = key;
   }
-  // Lay trung binh 5 mau o giua sau khi sap xep
-  float sum = 0;
-  for (int i = 2; i < NUM_SAMPLES - 2; i++) {
-    sum += samples[i];
-  }
-  return sum / (NUM_SAMPLES - 4);
+  return samples[3]; // Lay mau trung vi truc tiep, khong lam bet phang tin hieu
 }
 
 // --- KIEM TRA VA KHOI TAO LCD ---
@@ -115,7 +109,7 @@ bool checkAndInitLCD() {
 // --- SOFT RAMP DIEU TOC QUAT EM DIU CHONG SUT AP ---
 void setFanSoftPWM(int target) {
   if (currentFanPWM < target) {
-    currentFanPWM += 12; // Tang toc dap ung quat nhanh hon
+    currentFanPWM += 14; // Tang toc quat nhanh
     if (currentFanPWM > target) currentFanPWM = target;
   } else if (currentFanPWM > target) {
     currentFanPWM -= 6;
@@ -138,16 +132,16 @@ void setup() {
   checkAndInitLCD();
   dht.begin();
 
-  // 1. Tinh R0 chuan hoa theo 6 lan calib goc ngoai vuon
+  // Tinh R0 chuan hoa theo 6 lan calib goc ngoai vuon
   float corCal = getMQ135CorrectionFactor(T_CAL, H_CAL);
   R0_BASE = RS_CLEAN_RAW / corCal;
 
   if (checkAndInitLCD()) {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print(F("CO2 SAN SANG!"));
+    lcd.print(F("HE THONG CO2"));
     lcd.setCursor(0, 1);
-    lcd.print(F("PHAN UNG TUC THI"));
+    lcd.print(F("DONG LIVE 100%"));
     delay(1000);
     lcd.clear();
   }
@@ -181,60 +175,30 @@ void loop() {
     }
   }
 
-  // 2. Doc cam bien MQ-135 qua bo loc trung vi sieu nhanh
-  float avgAdc = readMedianADC();
-  float vOut = (avgAdc * 5.0) / 1023.0;
+  // 2. Doc tin hieu ADC truc tiep (phu hop che do so nhay lien tuc)
+  float rawAdc = readFastADC();
+  float vOut = (rawAdc * 5.0) / 1023.0;
   if (vOut < 0.01) vOut = 0.01;
   if (vOut > 4.98) vOut = 4.98;
 
   float rsRaw = RL * (5.0 - vOut) / vOut;
 
-  // 3. Quy doi theo goc calib (kEnvAdapt = 1.00 giu dung do nhay goc)
+  // 3. Quy doi theo goc calib (kEnvAdapt = 1.00)
   float rsNormalized = rsRaw * kEnvAdapt;
 
   // 4. Bu tru nhiet do va do am Hanwei
   float cor = getMQ135CorrectionFactor(temperature, humidity);
   float rsComp = rsNormalized / cor;
 
-  // 5. Tinh nong do CO2 tuc thoi (Moc calib khong khi sach chuan: 400.0 ppm)
+  // 5. Tinh nong do CO2 thoi gian thuc truc tiep theo tin hieu cam bien
+  // KHONG KEP CUNG O 400.0 DE SO CO THE DAO DONG VA NHAY LIEN TUC
   float ratio = rsComp / R0_BASE;
-  float rawPpm = 400.0 * pow(ratio, CO2_EXPONENT);
+  float livePpm = 400.0 * pow(ratio, CO2_EXPONENT);
 
-  if (rawPpm < 400.0) rawPpm = 400.0;
-  if (rawPpm > 5000.0) rawPpm = 5000.0;
+  if (livePpm < 300.0) livePpm = 300.0;
+  if (livePpm > 5000.0) livePpm = 5000.0;
 
-  // ---------------------------------------------------------------------------------
-  // CO CHE PHAN UNG TUC THI (FAST-ATTACK ZERO-LAG):
-  // - KHI THOI HOI THO (rawPpm > filteredPpm): SO NHAY LEN NGAY LAP TUC (100% TUC THI)
-  // - KHI NGUNG THOI VA QUAT QUAY: Quat keo CO2 giam sach ve moc 400 ppm
-  // - KHI HA XUONG TU TU: Loc muot ma em ai (alpha = 0.15)
-  // ---------------------------------------------------------------------------------
-  if (filteredPpm < 0.0) {
-    filteredPpm = rawPpm;
-  } 
-  else {
-    if (rawPpm > filteredPpm) {
-      // CO HOI THO: GAN THANG rawPpm TUC THI, KHONG CO DO TRE BO LOC!
-      filteredPpm = rawPpm; 
-    } 
-    else if (currentFanPWM > 0) {
-      // DANG QUAY QUAT MANH: Keo nhanh nong do CO2 ve moc sach
-      float fanClearSpeed = map(currentFanPWM, 1, PWM_MAX_FAN, 10, 30);
-      if (filteredPpm > 400.0) {
-        filteredPpm -= fanClearSpeed;
-        if (filteredPpm < 400.0) filteredPpm = 400.0;
-      }
-      if (rawPpm < filteredPpm) {
-        filteredPpm = 0.25 * rawPpm + 0.75 * filteredPpm;
-      }
-    } 
-    else {
-      // HA XUONG TU TU: Loc mem muot ma
-      filteredPpm = 0.15 * rawPpm + 0.85 * filteredPpm;
-    }
-  }
-
-  int ppmInt = (int)round(filteredPpm);
+  int ppmInt = (int)round(livePpm);
 
   // 6. Phan cap chat luong khong khi voi Schmitt Trigger
   // Nguong phan loai:
@@ -284,7 +248,7 @@ void loop() {
   Serial.print(" ");
   Serial.print("Quat_PWM:");   Serial.print(currentFanPWM);
   Serial.print(" ");
-  Serial.print("ADC_Raw:");    Serial.print(avgAdc, 1);
+  Serial.print("ADC_Raw:");    Serial.print(rawAdc, 1);
   Serial.print(" ");
   Serial.print("NhietDo_C:");  Serial.print(temperature, 1);
   Serial.print(" ");
@@ -316,5 +280,5 @@ void loop() {
     lcd.print(line2);
   }
 
-  delay(120); // Toc do cap nhat cuc nhanh: ~8 lan moi giay (0.12s)
+  delay(120); // Cap nhat toc do cao ~8 lan / giay giup so nhay song dong lien tuc
 }
