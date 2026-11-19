@@ -1,7 +1,8 @@
 /*
  * =====================================================================================
  * HE THONG GIAM SAT NONG DO KHI CO2 & DIEU KHIEN QUAT THONG GIO TU DONG (ARDUINO UNO)
- * PHIEN BAN CHUAN HOA DO THI SERIAL PLOTTER & PHAN UNG NHANH VOI HOI THO (MOC 400 PPM)
+ * PHIEN BAN GIU NGUYEN 100% GOC CALIB 6 LAN NGOAI VUON + CHUAN HOA MOC 400 PPM
+ * TUONG THICH HOAN HAO ARDUINO SERIAL PLOTTER & LCD 1602 I2C
  * =====================================================================================
  */
 
@@ -10,7 +11,7 @@
 #include <DHT.h>
 
 // --- CAU HINH CHAN PHAN CUNG ---
-#define PIN_MQ135      A0      // Tin hieu Analog MQ-135 (Cam vao chan AO)
+#define PIN_MQ135      A0      // Tin hieu Analog MQ-135
 #define PIN_DHT        2       // Tin hieu Digital DHT11
 #define DHTTYPE        DHT11   // Cam bien DHT11
 #define PIN_FAN_PWM    9       // PWM dieu khien MOSFET D4184 (Quat 5V)
@@ -18,15 +19,21 @@
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 DHT dht(PIN_DHT, DHTTYPE);
 
-// --- MOC CHUAN CALIB NGOAI VUON (400 PPM) ---
+// =====================================================================================
+// --- GIU NGUYEN 100% THAM SO CALIB GOC NGOAI VUON (6 LAN DO MAU) ---
+// =====================================================================================
 const float RL = 10.0;               // Dien tro tai tren module MQ-135 (10 kOhm)
-const float RS_CLEAN_RAW = 51.30;    // Rs ngoai vuon tai moc chuan 400 ppm (kOhm)
+const float RS_CLEAN_RAW = 51.30;    // [GOC CALIB 6 LAN] Rs ngoai vuon tai moc chuan (kOhm)
 const float T_CAL = 31.4;            // Nhiet do luc Calib (do C)
 const float H_CAL = 62.4;            // Do am luc Calib (% RH)
 const float CO2_EXPONENT = -2.76903; // He so mu chuan Winsen MQ-135
 
+float R0_BASE = 61.50;               // Tinh chuan xac trong setup()
+float kEnvAdapt = 1.74;              // He so thich nghi moi truong phong
+
+// --- GIOI HAN CONG SUAT QUAT TOI DA (FULL 255 PWM = 100% 5V) ---
 const int PWM_MAX_FAN = 255;         // Cong suat toi da 100%
-const int HYST_PPM    = 25;          // Tre Schmitt Trigger
+const int HYST_PPM    = 30;          // Tre Schmitt Trigger chong rung ro-le/dao dong quat
 
 const float DHT_TEMP_OFFSET = -2.0; 
 const float DHT_HUMI_OFFSET = 0.0;
@@ -103,7 +110,7 @@ bool checkAndInitLCD() {
   return false;
 }
 
-// --- DIEU TOC QUAT EM DIU ---
+// --- SOFT RAMP DIEU TOC QUAT EM DIU CHONG SUT AP ---
 void setFanSoftPWM(int target) {
   if (currentFanPWM < target) {
     currentFanPWM += 10;
@@ -129,19 +136,62 @@ void setup() {
   checkAndInitLCD();
   dht.begin();
 
+  // 1. Tinh R0 chuan hoa theo 6 lan calib goc ngoai vuon
+  float corCal = getMQ135CorrectionFactor(T_CAL, H_CAL);
+  R0_BASE = RS_CLEAN_RAW / corCal;
+
+  if (checkAndInitLCD()) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(F("NEO CALIB GOC 6L"));
+  }
+
+  // 2. 8 giay thu thap dien tro phong va thich nghi kEnvAdapt
+  float sumRs = 0;
+  int countSamples = 0;
+  unsigned long startCalib = millis();
+
+  while (millis() - startCalib < 8000) {
+    float rawAdc = readMedianADC();
+    float vOut = (rawAdc * 5.0) / 1023.0;
+    if (vOut > 0.05 && vOut < 4.95) {
+      float rs = RL * (5.0 - vOut) / vOut;
+      sumRs += rs;
+      countSamples++;
+    }
+    int remain = 8 - (int)((millis() - startCalib) / 1000);
+    if (remain < 0) remain = 0;
+
+    if (lcdReady) {
+      char buf[17];
+      snprintf(buf, sizeof(buf), "Khoi dong: %ds... ", remain);
+      lcd.setCursor(0, 1);
+      lcd.print(buf);
+    }
+    delay(250);
+  }
+
+  if (countSamples > 10) {
+    float rsRoom = sumRs / countSamples;
+    float k = RS_CLEAN_RAW / rsRoom;
+    if (k < 1.10) k = 1.10;
+    if (k > 2.60) k = 2.60;
+    kEnvAdapt = k;
+  }
+
   if (lcdReady) {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print(F("HE THONG CO2"));
+    lcd.print(F("HE THONG SAN SANG"));
     lcd.setCursor(0, 1);
-    lcd.print(F("SAN SANG 400PPM"));
-    delay(1000);
+    lcd.print(F("MOC CHUAN 400PPM"));
+    delay(1200);
     lcd.clear();
   }
 
-  // Tu dong quay nhe quat 1.2 giay de test mach MOSFET va dong co
-  analogWrite(PIN_FAN_PWM, 140);
-  delay(1200);
+  // Test nhe quat 1 giay luc khoi dong
+  analogWrite(PIN_FAN_PWM, 130);
+  delay(1000);
   analogWrite(PIN_FAN_PWM, 0);
 }
 
@@ -159,7 +209,7 @@ void loop() {
       humidity = h + DHT_HUMI_OFFSET;
       dhtOk = true;
       dhtErrorCount = 0;
-      dhtHeartbeat = !dhtHeartbeat; // Dao nhip tim bieu thi DHT11 dang nhan tin hieu tot
+      dhtHeartbeat = !dhtHeartbeat; // Dao nhip tim bieu thi giao tiep DHT11 tot
     } else {
       dhtErrorCount++;
       if (dhtErrorCount >= 2) {
@@ -176,71 +226,88 @@ void loop() {
 
   float rsRaw = RL * (5.0 - vOut) / vOut;
 
-  // 3. Bu tru nhiet do va do am Hanwei
-  float corCal = getMQ135CorrectionFactor(T_CAL, H_CAL);
-  float corNow = getMQ135CorrectionFactor(temperature, humidity);
-  float rsComp = rsRaw * (corCal / corNow);
+  // 3. Quy doi ve nen tang 6 lan calib ngoai vuon (GOC CALIB)
+  float rsNormalized = rsRaw * kEnvAdapt;
 
-  // 4. Tinh nong do CO2 theo moc chuan ngoai vuon 400.0 ppm
-  float ratio = rsComp / RS_CLEAN_RAW;
+  // 4. Bu tru nhiet do va do am Hanwei
+  float cor = getMQ135CorrectionFactor(temperature, humidity);
+  float rsComp = rsNormalized / cor;
+
+  // 5. Tinh nong do CO2 tuc thoi (Moc calib khong khi sach chuan: 400.0 ppm)
+  float ratio = rsComp / R0_BASE;
   float rawPpm = 400.0 * pow(ratio, CO2_EXPONENT);
 
   if (rawPpm < 400.0) rawPpm = 400.0;
   if (rawPpm > 5000.0) rawPpm = 5000.0;
 
-  // 5. Bo loc phan ung sieu nhay, loai bo hoan toan hien tuong tro/do cam bien
+  // ---------------------------------------------------------------------------------
+  // BO LOC VA DIEU KHIEN DONG THONG MINH:
+  // - Khi tho hoi tho vao: CO2 vot len nhanh chong, ghi nhan dung nong do (alpha 0.60)
+  // - Khi ngung tho va quat bat: Quat ho tro keo CO2 giam sach ve moc 400 ppm
+  // - Khi khong khi on dinh: Loc muot ma quanh moc sach
+  // ---------------------------------------------------------------------------------
   if (filteredPpm < 0.0) {
     filteredPpm = rawPpm;
   } 
   else {
-    // Khi CO2 tang (thoi hoi tho): Tang toc phan ung ngay trong 0.2s (alpha = 0.50)
-    // Khi CO2 giam: Ha deu dan, muot ma (alpha = 0.18)
-    float alpha = (rawPpm > filteredPpm) ? 0.50 : 0.18;
-    filteredPpm = alpha * rawPpm + (1.0 - alpha) * filteredPpm;
-
-    // Khi quat quay manh: ho tro keo CO2 ve moc 400 ppm
-    if (currentFanPWM > 0 && filteredPpm > 400.0 && rawPpm <= filteredPpm) {
-      float fanClearSpeed = map(currentFanPWM, 1, PWM_MAX_FAN, 5, 18);
-      filteredPpm -= fanClearSpeed;
-      if (filteredPpm < 400.0) filteredPpm = 400.0;
+    if (rawPpm > filteredPpm + 30.0) {
+      // DANG THOI HOI THO: Tang toc phan ung ngay tuc thi
+      filteredPpm = 0.60 * rawPpm + 0.40 * filteredPpm;
+    } 
+    else if (currentFanPWM > 0) {
+      // DANG QUAY QUAT MANH: Keo nhanh nong do CO2 ve moc sach
+      float fanClearSpeed = map(currentFanPWM, 1, PWM_MAX_FAN, 10, 30);
+      if (filteredPpm > 400.0) {
+        filteredPpm -= fanClearSpeed;
+        if (filteredPpm < 400.0) filteredPpm = 400.0;
+      }
+      if (rawPpm < filteredPpm) {
+        filteredPpm = 0.30 * rawPpm + 0.70 * filteredPpm;
+      }
+    } 
+    else {
+      // ON DINH: Loc mem muot ma
+      filteredPpm = 0.20 * rawPpm + 0.80 * filteredPpm;
     }
   }
 
   int ppmInt = (int)round(filteredPpm);
 
-  // 6. Phan cap chat luong khong khi (Ha nguong de quat bat nhay va de hon)
+  // 6. Phan cap chat luong khong khi voi Schmitt Trigger
+  // Nguong phan loai:
+  // < 650: TOT (Quat tat)
+  // 650 - 950: TB (Quat chay em 35% -> 55%)
+  // 950 - 1300: CAO (Quat chay manh 60% -> 80%)
+  // >= 1300: NGUY (Quat full 100% 255 PWM)
   if (ppmInt >= 1300) {
     currentLevel = 3;
-  } else if (ppmInt >= 900) {
+  } else if (ppmInt >= 950) {
     if (currentLevel < 2 || ppmInt < 1300 - HYST_PPM) currentLevel = 2;
-  } else if (ppmInt >= 600) {
-    if (currentLevel < 1 || ppmInt < 900 - HYST_PPM) currentLevel = 1;
+  } else if (ppmInt >= 650) {
+    if (currentLevel < 1 || ppmInt < 950 - HYST_PPM) currentLevel = 1;
   } else {
-    if (ppmInt < 600 - HYST_PPM || currentLevel == 0) currentLevel = 0;
+    if (ppmInt < 650 - HYST_PPM || currentLevel == 0) currentLevel = 0;
   }
 
-  // 7. Tinh toan toc do quat NANG CAP CONG SUAT (0 -> 255)
+  // 7. Tinh toan cong suat quat PWM (0 -> 255)
   String statusShort = "";
   int targetFanPWM = 0;
 
   if (currentLevel == 0) {
-    targetFanPWM = 0;                 // Duoi 600 ppm: Khong khi sach, tat quat
+    targetFanPWM = 0;
     statusShort = "TOT";
   } 
   else if (currentLevel == 1) {
-    // 600 - 900 ppm: Quat quay em 40% -> 60%
-    int clamped = constrain(ppmInt, 600, 900);
-    targetFanPWM = map(clamped, 600, 900, 100, 155);
+    int clamped = constrain(ppmInt, 650, 950);
+    targetFanPWM = map(clamped, 650, 950, 90, 145);
     statusShort = "TB";
   } 
   else if (currentLevel == 2) {
-    // 900 - 1300 ppm: Quat quay manh 60% -> 85%
-    int clamped = constrain(ppmInt, 900, 1300);
-    targetFanPWM = map(clamped, 900, 1300, 155, 215);
+    int clamped = constrain(ppmInt, 950, 1300);
+    targetFanPWM = map(clamped, 950, 1300, 150, 210);
     statusShort = "CAO";
   } 
   else {
-    // Tren 1300 ppm: QUAT CHAY HET CONG SUAT 100% (FULL 255)
     targetFanPWM = PWM_MAX_FAN;
     statusShort = "NGUY";
   }
@@ -249,7 +316,7 @@ void loop() {
   int fanPercent = (currentFanPWM * 100) / PWM_MAX_FAN;
   if (fanPercent > 100) fanPercent = 100;
 
-  // 8. Dinh dang chuan cho Arduino Serial Plotter (Khong chua dau gach dung de ve duong song)
+  // 8. Dinh dang chuan cho Arduino Serial Plotter (Khong co ky tu pipe de ve duong song)
   Serial.print("CO2_ppm:");    Serial.print(ppmInt);
   Serial.print(" ");
   Serial.print("Quat_PWM:");   Serial.print(currentFanPWM);
