@@ -2,7 +2,7 @@
  * =====================================================================================
  * HE THONG GIAM SAT NONG DO KHI CO2 & DIEU KHIEN QUAT THONG GIO TU DONG (ARDUINO UNO)
  * PHIEN BAN GIU NGUYEN 100% GOC CALIB 6 LAN NGOAI VUON + CHUAN HOA MOC 400 PPM
- * KHAC PHUC TRIET DE HIEN TUONG CO2 BI DO / CHIM NGUONG KHI THOI HOI THO
+ * CHE DO PHAN UNG TUC THI (FAST-ATTACK ZERO-LAG): SO TANG NGAY KHI VUA THOI VAO
  * TUONG THICH HOAN HAO ARDUINO SERIAL PLOTTER & LCD 1602 I2C
  * =====================================================================================
  */
@@ -30,7 +30,7 @@ const float H_CAL = 62.4;            // Do am luc Calib (% RH)
 const float CO2_EXPONENT = -2.76903; // He so mu chuan Winsen MQ-135
 
 float R0_BASE = 61.50;               // Tinh chuan xac trong setup() theo goc calib
-float kEnvAdapt = 1.00;              // Khoi tao chuan 1.00 (khong gay chim nguong)
+float kEnvAdapt = 1.00;              // He so chuan 1.00 (khong gay chim nguong)
 
 // --- GIOI HAN CONG SUAT QUAT TOI DA (FULL 255 PWM = 100% 5V) ---
 const int PWM_MAX_FAN = 255;         // Cong suat toi da 100%
@@ -62,13 +62,13 @@ float getMQ135CorrectionFactor(float t, float h) {
   return cor;
 }
 
-// --- BO LOC TRUNG VI ADC 15 MAU ---
+// --- BO LOC TRUNG VI ADC 9 MAU (LAY MAU SIEU NHANH TRONG 1.5MS) ---
 float readMedianADC() {
-  const int NUM_SAMPLES = 15;
+  const int NUM_SAMPLES = 9;
   float samples[NUM_SAMPLES];
   for (int i = 0; i < NUM_SAMPLES; i++) {
     samples[i] = analogRead(PIN_MQ135);
-    delayMicroseconds(200);
+    delayMicroseconds(150);
   }
   for (int i = 1; i < NUM_SAMPLES; i++) {
     float key = samples[i];
@@ -79,11 +79,12 @@ float readMedianADC() {
     }
     samples[j + 1] = key;
   }
+  // Lay trung binh 5 mau o giua sau khi sap xep
   float sum = 0;
-  for (int i = 3; i < NUM_SAMPLES - 3; i++) {
+  for (int i = 2; i < NUM_SAMPLES - 2; i++) {
     sum += samples[i];
   }
-  return sum / (NUM_SAMPLES - 6);
+  return sum / (NUM_SAMPLES - 4);
 }
 
 // --- KIEM TRA VA KHOI TAO LCD ---
@@ -114,7 +115,7 @@ bool checkAndInitLCD() {
 // --- SOFT RAMP DIEU TOC QUAT EM DIU CHONG SUT AP ---
 void setFanSoftPWM(int target) {
   if (currentFanPWM < target) {
-    currentFanPWM += 10;
+    currentFanPWM += 12; // Tang toc dap ung quat nhanh hon
     if (currentFanPWM > target) currentFanPWM = target;
   } else if (currentFanPWM > target) {
     currentFanPWM -= 6;
@@ -144,56 +145,16 @@ void setup() {
   if (checkAndInitLCD()) {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print(F("NEO CALIB GOC 6L"));
-  }
-
-  // 2. 8 giay thu thap va thich nghi moi truong phong (khong ep buoc > 1.10)
-  float sumRs = 0;
-  int countSamples = 0;
-  unsigned long startCalib = millis();
-
-  while (millis() - startCalib < 8000) {
-    float rawAdc = readMedianADC();
-    float vOut = (rawAdc * 5.0) / 1023.0;
-    if (vOut > 0.05 && vOut < 4.95) {
-      float rs = RL * (5.0 - vOut) / vOut;
-      sumRs += rs;
-      countSamples++;
-    }
-    int remain = 8 - (int)((millis() - startCalib) / 1000);
-    if (remain < 0) remain = 0;
-
-    if (lcdReady) {
-      char buf[17];
-      snprintf(buf, sizeof(buf), "Khoi dong: %ds... ", remain);
-      lcd.setCursor(0, 1);
-      lcd.print(buf);
-    }
-    delay(250);
-  }
-
-  if (countSamples > 10) {
-    float rsRoom = sumRs / countSamples;
-    float k = RS_CLEAN_RAW / rsRoom;
-    // Cho phep k nam quanh 1.00 de tranh lam chim nong do CO2 xuong duoi 400ppm
-    if (k < 0.70) k = 0.70;
-    if (k > 1.35) k = 1.35;
-    kEnvAdapt = k;
-  }
-
-  if (lcdReady) {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(F("HE THONG SAN SANG"));
+    lcd.print(F("CO2 SAN SANG!"));
     lcd.setCursor(0, 1);
-    lcd.print(F("MOC CHUAN 400PPM"));
-    delay(1200);
+    lcd.print(F("PHAN UNG TUC THI"));
+    delay(1000);
     lcd.clear();
   }
 
-  // Test nhe quat 1 giay luc khoi dong
+  // Test nhe quat 0.8 giay luc khoi dong
   analogWrite(PIN_FAN_PWM, 130);
-  delay(1000);
+  delay(800);
   analogWrite(PIN_FAN_PWM, 0);
 }
 
@@ -220,7 +181,7 @@ void loop() {
     }
   }
 
-  // 2. Doc cam bien MQ-135 qua bo loc trung vi 15 mau
+  // 2. Doc cam bien MQ-135 qua bo loc trung vi sieu nhanh
   float avgAdc = readMedianADC();
   float vOut = (avgAdc * 5.0) / 1023.0;
   if (vOut < 0.01) vOut = 0.01;
@@ -228,7 +189,7 @@ void loop() {
 
   float rsRaw = RL * (5.0 - vOut) / vOut;
 
-  // 3. Quy doi ve nen tang 6 lan calib ngoai vuon (GOC CALIB)
+  // 3. Quy doi theo goc calib (kEnvAdapt = 1.00 giu dung do nhay goc)
   float rsNormalized = rsRaw * kEnvAdapt;
 
   // 4. Bu tru nhiet do va do am Hanwei
@@ -243,18 +204,18 @@ void loop() {
   if (rawPpm > 5000.0) rawPpm = 5000.0;
 
   // ---------------------------------------------------------------------------------
-  // BO LOC PHAN UNG NHANH, TRIET TIEU HOAN TOAN VUNG CHET / CAM BIEN DO:
-  // - Khi CO2 tang (thoi hoi tho): Dap ung ngay lap tuc khong co nguong chet (alpha = 0.55)
-  // - Khi ngung tho va quat bat: Quat keo CO2 giam sach ve moc 400 ppm
-  // - Khi khong khi on dinh / ha xuong: Loc muot ma (alpha = 0.20)
+  // CO CHE PHAN UNG TUC THI (FAST-ATTACK ZERO-LAG):
+  // - KHI THOI HOI THO (rawPpm > filteredPpm): SO NHAY LEN NGAY LAP TUC (100% TUC THI)
+  // - KHI NGUNG THOI VA QUAT QUAY: Quat keo CO2 giam sach ve moc 400 ppm
+  // - KHI HA XUONG TU TU: Loc muot ma em ai (alpha = 0.15)
   // ---------------------------------------------------------------------------------
   if (filteredPpm < 0.0) {
     filteredPpm = rawPpm;
   } 
   else {
     if (rawPpm > filteredPpm) {
-      // DANG CO KHI CO2 / THOI HOI THO: Tang toc phan ung ngay lap tuc
-      filteredPpm = 0.55 * rawPpm + 0.45 * filteredPpm;
+      // CO HOI THO: GAN THANG rawPpm TUC THI, KHONG CO DO TRE BO LOC!
+      filteredPpm = rawPpm; 
     } 
     else if (currentFanPWM > 0) {
       // DANG QUAY QUAT MANH: Keo nhanh nong do CO2 ve moc sach
@@ -264,12 +225,12 @@ void loop() {
         if (filteredPpm < 400.0) filteredPpm = 400.0;
       }
       if (rawPpm < filteredPpm) {
-        filteredPpm = 0.30 * rawPpm + 0.70 * filteredPpm;
+        filteredPpm = 0.25 * rawPpm + 0.75 * filteredPpm;
       }
     } 
     else {
-      // ON DINH / HA XUONG: Loc mem muot ma
-      filteredPpm = 0.20 * rawPpm + 0.80 * filteredPpm;
+      // HA XUONG TU TU: Loc mem muot ma
+      filteredPpm = 0.15 * rawPpm + 0.85 * filteredPpm;
     }
   }
 
@@ -355,5 +316,5 @@ void loop() {
     lcd.print(line2);
   }
 
-  delay(300);
+  delay(120); // Toc do cap nhat cuc nhanh: ~8 lan moi giay (0.12s)
 }
