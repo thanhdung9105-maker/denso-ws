@@ -188,30 +188,19 @@ void loop() {
   if (rawPpm < 400.0) rawPpm = 400.0;
   if (rawPpm > 5000.0) rawPpm = 5000.0;
 
-  // 5. Bo loc thich nghi chong rung dao dong so (Anti-Jitter Adaptive Filter)
+  // 5. Bo loc phan ung sieu nhay, loai bo hoan toan hien tuong tro/do cam bien
   if (filteredPpm < 0.0) {
     filteredPpm = rawPpm;
   } 
   else {
-    float diff = rawPpm - filteredPpm;
-    float alpha;
-    if (diff > 40.0) {
-      // Khi thoi hoi tho manh: Bat len tuc thi trong 0.2 giay
-      alpha = 0.60;
-    } 
-    else if (diff < -50.0) {
-      // Khi quat dang hut giam nhanh
-      alpha = 0.25;
-    } 
-    else {
-      // Khi khong khi on dinh: Loc muot ma on dinh tuyet doi, triet tieu nhap nhay so
-      alpha = 0.08;
-    }
+    // Khi CO2 tang (thoi hoi tho): Tang toc phan ung ngay trong 0.2s (alpha = 0.50)
+    // Khi CO2 giam: Ha deu dan, muot ma (alpha = 0.18)
+    float alpha = (rawPpm > filteredPpm) ? 0.50 : 0.18;
     filteredPpm = alpha * rawPpm + (1.0 - alpha) * filteredPpm;
 
     // Khi quat quay manh: ho tro keo CO2 ve moc 400 ppm
     if (currentFanPWM > 0 && filteredPpm > 400.0 && rawPpm <= filteredPpm) {
-      float fanClearSpeed = map(currentFanPWM, 1, PWM_MAX_FAN, 6, 20);
+      float fanClearSpeed = map(currentFanPWM, 1, PWM_MAX_FAN, 5, 18);
       filteredPpm -= fanClearSpeed;
       if (filteredPpm < 400.0) filteredPpm = 400.0;
     }
