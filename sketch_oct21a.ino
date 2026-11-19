@@ -207,7 +207,7 @@ void setup() {
     lcd.setCursor(0, 0);
     lcd.print(F("HE THONG SAN SANG"));
     lcd.setCursor(0, 1);
-    lcd.print(F("CO2: ~420ppm TOT"));
+    lcd.print(F("CO2: ~400ppm TOT"));
     delay(1200);
     lcd.clear();
   }
@@ -236,48 +236,33 @@ void loop() {
 
   float rsRaw = RL * (5.0 - vOut) / vOut;
 
-  // 3. Quy doi ve nen tang 6 lan calib ngoai vuon
-  float rsNormalized = rsRaw * kEnvAdapt;
+  // 3. Bu tru nhiet do va do am Hanwei (tham chieu theo moc T_CAL, H_CAL luc calib ngoai vuon)
+  float corCal = getMQ135CorrectionFactor(T_CAL, H_CAL);
+  float corNow = getMQ135CorrectionFactor(temperature, humidity);
+  float rsComp = rsRaw * (corCal / corNow);
 
-  // 4. Bu tru nhiet do va do am Hanwei
-  float cor = getMQ135CorrectionFactor(temperature, humidity);
-  float rsComp = rsNormalized / cor;
-
-  // 5. Tinh nong do CO2 tuc thoi (Moc chuan calib khong khi sach ngoai vuon: 400.0 ppm)
-  float ratio = rsComp / R0_BASE;
+  // 4. Tinh nong do CO2 tuc thoi theo ham mu chuan datasheet Winsen MQ-135
+  float ratio = rsComp / RS_CLEAN_RAW;
   float rawPpm = 400.0 * pow(ratio, CO2_EXPONENT);
 
   if (rawPpm < 400.0) rawPpm = 400.0;
-  if (rawPpm > 4000.0) rawPpm = 4000.0;
+  if (rawPpm > 5000.0) rawPpm = 5000.0;
 
-  // ---------------------------------------------------------------------------------
-  // DIEU KHIEN DONG THONG MINH:
-  // - Khi co hoi tho thoi vao (rawPpm > filteredPpm + 30): CO2 vot nhanh len 1200-1800ppm
-  // - Khi ngung thoi va quat quay manh: CO2 giam deu dan va manh me ve moc 400ppm
-  // ---------------------------------------------------------------------------------
-  if (filteredPpm < 0) {
+  // 5. Bo loc phan ung sieu nhay voi hoi tho (EMA hai chieu khong do tre)
+  if (filteredPpm < 0.0) {
     filteredPpm = rawPpm;
   } 
   else {
-    if (rawPpm > filteredPpm + 30.0) {
-      // DANG THOI HOI THO: Tang nhanh de ghi nhan dung dinh nong do
-      filteredPpm = 0.60 * rawPpm + 0.40 * filteredPpm;
-    } 
-    else if (currentFanPWM > 0) {
-      // DANG QUAY QUAT MANH: Quat cang manh toc do hut sach cang nhanh
-      float fanClearSpeed = map(currentFanPWM, 1, PWM_MAX_FAN, 18, 48);
+    // Khi co hoi tho thoi vao (rawPpm > filteredPpm): tang tuc thi ngay lap tuc (alpha = 0.60)
+    // Khi ngung thoi (rawPpm <= filteredPpm): giam muot ma ve moc 400ppm
+    float alpha = (rawPpm > filteredPpm) ? 0.60 : 0.15;
+    filteredPpm = alpha * rawPpm + (1.0 - alpha) * filteredPpm;
 
-      if (filteredPpm > 400.0) {
-        filteredPpm -= fanClearSpeed;
-        if (filteredPpm < 400.0) filteredPpm = 400.0;
-      }
-      if (rawPpm < filteredPpm) {
-        filteredPpm = 0.3 * rawPpm + 0.7 * filteredPpm;
-      }
-    } 
-    else {
-      // MOI TRUONG ON DINH: Loc mem quanh moc khong khi sach 400ppm
-      filteredPpm = 0.20 * rawPpm + 0.80 * filteredPpm;
+    // Khi quat dang quay hut gio: ho tro lam sach nhanh ve moc 400 ppm
+    if (currentFanPWM > 0 && filteredPpm > 400.0 && rawPpm <= filteredPpm) {
+      float fanClearSpeed = map(currentFanPWM, 1, PWM_MAX_FAN, 8, 25);
+      filteredPpm -= fanClearSpeed;
+      if (filteredPpm < 400.0) filteredPpm = 400.0;
     }
   }
 
