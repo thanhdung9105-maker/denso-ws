@@ -87,7 +87,7 @@ class TrajectoryExecutionWorker(QThread):
             elif self.trail_color == "#ec4899":
                 self.trail_pub.set_algo_mode("pink")
             else:
-                self.trail_pub.set_algo_mode("iga")
+                self.trail_pub.set_algo_mode("pink")
 
         # 2. CHUYỂN TIẾP THÍCH ỨNG ÊM ÁI VỀ TƯ THẾ ĐẦU TIÊN
         q_start = self.q_traj[0]
@@ -133,7 +133,7 @@ class TrajectoryExecutionWorker(QThread):
             
             pct = int((i + 1) / N * 100)
             if i % max(1, N // 20) == 0 or is_last:
-                self.sig_progress.emit(pct, f"🎨 Đang vẽ [{self.case_title}] mượt C²: {pct}% ({i+1}/{N})")
+                self.sig_progress.emit(pct, f"🎨 Đang vẽ [{self.case_title}] (Chuẩn CNC): {pct}% ({i+1}/{N})")
             
             time.sleep(dt_step * 0.95)
 
@@ -181,8 +181,7 @@ class DualComparisonExecutionWorker(QThread):
         badge_1 = self.res_up.get("badge", "Lượt 1")
         if self.trail_pub:
             if color_1 == "#f59e0b": self.trail_pub.set_algo_mode("ros2")
-            elif color_1 == "#22c55e": self.trail_pub.set_algo_mode("iga")
-            else: self.trail_pub.set_algo_mode("iga")
+            else: self.trail_pub.set_algo_mode("ros2")
 
         q_curr = getattr(self.bridge, 'latest_positions', None)
         transit_1 = 3.0
@@ -600,9 +599,10 @@ class DensoGCodeEnergyOptimizerTab(QWidget):
         self.card_best.lbl_sub.setText(f"{best_res['e_total_j']:.1f} J (Tiết kiệm -{comp['energy_saved_pct']:.1f}%)")
 
         # So sánh trực tiếp ROS 2 Baseline vs MPC Balanced
-        if "case_1_ros2_baseline" in results and "case_5_mpc_balanced" in results:
+        mpc_balanced_k = "case_4_mpc_balanced" if "case_4_mpc_balanced" in results else ("case_5_mpc_balanced" if "case_5_mpc_balanced" in results else None)
+        if "case_1_ros2_baseline" in results and mpc_balanced_k and mpc_balanced_k in results:
             e_ros2 = results["case_1_ros2_baseline"]["e_total_j"]
-            e_mpc = results["case_5_mpc_balanced"]["e_total_j"]
+            e_mpc = results[mpc_balanced_k]["e_total_j"]
             saved = ((e_ros2 - e_mpc) / e_ros2) * 100.0 if e_ros2 > 0 else 0.0
             self.card_up_vs_down.lbl_val.setText(f"-{saved:.1f} %")
             self.card_up_vs_down.lbl_sub.setText(f"ROS 2: {e_ros2:.1f} J vs MPC: {e_mpc:.1f} J")
@@ -621,7 +621,7 @@ class DensoGCodeEnergyOptimizerTab(QWidget):
         self.card_torque.lbl_sub.setText(f"Tải {tau_j2/TORQUE_LIMITS[1]*100:.1f}% giới hạn vai (100 N·m)")
 
         # Cập nhật thẻ MPC nếu có dữ liệu Case MPC
-        mpc_case_key = "case_5_mpc_balanced" if "case_5_mpc_balanced" in results else ("case_6_mpc_predictive" if "case_6_mpc_predictive" in results else None)
+        mpc_case_key = "case_4_mpc_balanced" if "case_4_mpc_balanced" in results else ("case_5_mpc_balanced" if "case_5_mpc_balanced" in results else ("case_6_mpc_predictive" if "case_6_mpc_predictive" in results else None))
         if mpc_case_key and mpc_case_key in results:
             mpc_res_data = results[mpc_case_key]
             self.card_mpc.lbl_val.setText(f"{mpc_res_data['e_total_j']:.1f} J")
@@ -698,8 +698,7 @@ class DensoGCodeEnergyOptimizerTab(QWidget):
     def _plot_graphs(self, comp: Dict[str, Any]):
         results = comp["results"]
         base_res = results.get("case_1_ros2_baseline", results.get("case_1_elbow_up"))
-        mpc_res = results.get("case_5_mpc_balanced", results.get("case_6_mpc_predictive", results.get("case_2_elbow_down")))
-        geom_res = results.get("case_2_elbow_up_geometric", None)
+        mpc_res = results.get("case_4_mpc_balanced", results.get("case_5_mpc_balanced", results.get("case_6_mpc_predictive")))
 
         if not base_res or not mpc_res:
             return
@@ -718,9 +717,6 @@ class DensoGCodeEnergyOptimizerTab(QWidget):
                  label=f"Vai J2 - ROS 2 Baseline (Đỉnh {base_res['peak_torques_nm'][1]:.1f} N·m)")
         ax1.plot(t_mpc, mpc_res["tau_traj"][:, 1], color='#ec4899', linewidth=2.5,
                  label=f"Vai J2 - MPC Balanced (Đỉnh {mpc_res['peak_torques_nm'][1]:.1f} N·m)")
-        if geom_res is not None:
-            ax1.plot(geom_res["time_vec"], geom_res["tau_traj"][:, 1], color='#22c55e', linewidth=1.5, alpha=0.8,
-                     label=f"Vai J2 - Hình Học C² (Đỉnh {geom_res['peak_torques_nm'][1]:.1f} N·m)")
 
         ax1.set_title("So Sánh Mô-Men Vai J2 (400W): ROS 2 Baseline (Cam) vs MPC Balanced (Hồng)", color='#38bdf8', fontsize=10, pad=8)
         ax1.set_xlabel("Thời gian quỹ đạo (s)", color='#94a3b8', fontsize=9)
@@ -745,10 +741,6 @@ class DensoGCodeEnergyOptimizerTab(QWidget):
                  label=f"ROS 2 Baseline: Đỉnh {np.max(p_base):.1f} W")
         ax2.plot(t_mpc, p_mpc, color='#ec4899', linewidth=2.5,
                  label=f"MPC Balanced: Đỉnh {np.max(p_mpc):.1f} W")
-        if geom_res is not None:
-            p_geom = np.sum(geom_res["p_total_traj"], axis=1)
-            ax2.plot(geom_res["time_vec"], p_geom, color='#22c55e', linewidth=1.5, alpha=0.8,
-                     label=f"Hình Học C²: Đỉnh {np.max(p_geom):.1f} W")
 
         ax2.set_title("Công Suất Tiêu Thụ Tức Thời P_total(t) Toàn Cánh Tay (Watts)", color='#38bdf8', fontsize=10, pad=8)
         ax2.set_xlabel("Thời gian quỹ đạo (s)", color='#94a3b8', fontsize=9)
@@ -834,7 +826,7 @@ class DensoGCodeEnergyOptimizerTab(QWidget):
 
         results = self.latest_comp["results"]
         res_1 = results.get("case_1_ros2_baseline", results.get("case_1_elbow_up"))
-        res_2 = results.get("case_5_mpc_balanced", results.get("case_2_elbow_down"))
+        res_2 = results.get("case_4_mpc_balanced", results.get("case_5_mpc_balanced", results.get("case_2_elbow_down")))
         if not res_1 or not res_2:
             QMessageBox.warning(self, "Chưa đủ dữ liệu", "Cần có dữ liệu so sánh giữa 2 trường hợp.")
             return
@@ -864,7 +856,7 @@ class DensoGCodeEnergyOptimizerTab(QWidget):
             return
 
         results = self.latest_comp["results"]
-        case_k = "case_5_mpc_balanced" if "case_5_mpc_balanced" in results else ("case_6_mpc_predictive" if "case_6_mpc_predictive" in results else None)
+        case_k = "case_4_mpc_balanced" if "case_4_mpc_balanced" in results else ("case_5_mpc_balanced" if "case_5_mpc_balanced" in results else None)
         if not case_k or case_k not in results:
             QMessageBox.warning(self, "Chưa có dữ liệu MPC", "Module MPC chưa được tính toán.")
             return

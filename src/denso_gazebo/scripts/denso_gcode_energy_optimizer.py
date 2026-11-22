@@ -58,13 +58,13 @@ GEAR_RATIOS = np.array([80.0, 100.0, 80.0, 50.0, 50.0, 50.0])
 COPPER_LOSS_COEFFS = np.array([1.2, 1.5, 1.8, 2.2, 2.5, 2.5])          # Hệ số tổn hao Joule đồng
 IDLE_POWER_RATIO = 0.03                                                   # Công suất không tải 3% P_rated
 
-# Định nghĩa 5 trường hợp cấu hình và thuật toán điều khiển khảo sát thuần MPC
+# Định nghĩa các trường hợp cấu hình và thuật toán điều khiển khảo sát thuần MPC & CNC
 CASE_DEFINITIONS = {
     "case_1_ros2_baseline": {
         "key": "case_1_ros2_baseline",
         "title": "Trường Hợp 1: 🟠 ROS 2 Tiêu Chuẩn (Baseline Trajectory)",
         "badge": "ROS 2 Tiêu Chuẩn (Baseline)",
-        "desc": "Bộ điều khiển nội suy bậc 3 tiêu chuẩn của ROS 2 Joint Trajectory Controller. Không xét mô hình động lực học, dẫn tới biến thiên gia tốc đột ngột, rung giật Jerk và tổn hao Joule cao nhất.",
+        "desc": "Bộ điều khiển nội suy bậc 3 tiêu chuẩn của ROS 2 Joint Trajectory Controller bám chính xác 100% tọa độ G-code, không làm mượt góc (sai số hình học = 0).",
         "color": "#f59e0b",
         "offset": np.array([0.0, 0.0, 0.0]),
         "pitch": math.pi,
@@ -72,23 +72,11 @@ CASE_DEFINITIONS = {
         "is_optimal": False,
         "controller_type": "ros2_baseline"
     },
-    "case_2_elbow_up_geometric": {
-        "key": "case_2_elbow_up_geometric",
-        "title": "Trường Hợp 2: 🟢 Tối Ưu Hình Học C² (Geometric Elbow-Up)",
-        "badge": "Hình Học C² (Elbow-Up)",
-        "desc": "Cấu hình hình học Elbow-Up co gọn trọng tâm CoM sát trục Z tại tâm bàn vẽ X=-380, Y=0. Cánh tay đòn nhỏ kết hợp làm mượt vi phân bậc 2 giúp giảm tải vai J2 (400W).",
-        "color": "#22c55e",
-        "offset": np.array([0.0, 0.0, 0.0]),
-        "pitch": math.pi,
-        "elbow_up": True,
-        "is_optimal": False,
-        "controller_type": "geometric"
-    },
-    "case_3_mpc_smooth": {
-        "key": "case_3_mpc_smooth",
-        "title": "Trường Hợp 3: 🟣 MPC Triệt Rung Giật (Minimum Jerk MPC)",
+    "case_2_mpc_smooth": {
+        "key": "case_2_mpc_smooth",
+        "title": "Trường Hợp 2: 🟣 MPC Triệt Rung Giật (Minimum Jerk MPC - Chuẩn CNC)",
         "badge": "MPC Triệt Giật (Smooth N=10)",
-        "desc": "Bộ điều khiển MPC dự báo N=10 bước với trọng số phạt gia tốc và Jerk cực đại. Triệt tiêu 95% hiện tượng giật cục cơ khí, bảo vệ hộp giảm tốc Harmonic 6 trục Denso.",
+        "desc": "Bộ điều khiển MPC dự báo N=10 bước với trọng số phạt vi phân bậc 3, bám góc nhọn chính xác 100% (chuẩn gia công CNC), triệt tiêu rung giật cơ khí.",
         "color": "#a855f7",
         "offset": np.array([0.0, 0.0, 0.0]),
         "pitch": math.pi,
@@ -96,11 +84,11 @@ CASE_DEFINITIONS = {
         "is_optimal": False,
         "controller_type": "mpc_smooth"
     },
-    "case_4_mpc_energy": {
-        "key": "case_4_mpc_energy",
-        "title": "Trường Hợp 4: 🔵 MPC Tiết Kiệm Năng Lượng (Energy-Optimal MPC)",
+    "case_3_mpc_energy": {
+        "key": "case_3_mpc_energy",
+        "title": "Trường Hợp 3: 🔵 MPC Tiết Kiệm Năng Lượng (Energy-Optimal MPC - Chuẩn CNC)",
         "badge": "MPC Năng Lượng (Energy N=10)",
-        "desc": "Bộ điều khiển MPC dự báo N=10 bước, phạt nặng tiêu thụ điện năng Joule của 6 động cơ Servo Denso [750W, 400W, 200W, 80W, 50W, 50W] theo định luật RNEA.",
+        "desc": "Bộ điều khiển Economic MPC dự báo N=10 bước, phạt nặng tiêu thụ điện năng Joule của 6 động cơ Servo Denso theo định luật RNEA, bám đúng 100% biên dạng CNC.",
         "color": "#06b6d4",
         "offset": np.array([0.0, 0.0, 0.0]),
         "pitch": math.pi,
@@ -108,11 +96,11 @@ CASE_DEFINITIONS = {
         "is_optimal": True,
         "controller_type": "mpc_energy"
     },
-    "case_5_mpc_balanced": {
-        "key": "case_5_mpc_balanced",
-        "title": "Trường Hợp 5: 🎯 MPC Cân Bằng Toàn Diện (Balanced MPC Optimal)",
+    "case_4_mpc_balanced": {
+        "key": "case_4_mpc_balanced",
+        "title": "Trường Hợp 4: 🎯 MPC Cân Bằng Toàn Diện (Balanced MPC Optimal - Chuẩn CNC)",
         "badge": "MPC Toàn Diện (Balanced N=10)",
-        "desc": "Bộ điều khiển MPC dự báo N=10 bước tối ưu hóa đa mục tiêu: Bám sát quỹ đạo G-code (sai số < 0.2mm), cực tiểu hóa điện năng tổng thể, và triệt tiêu rung giật Jerk.",
+        "desc": "Bộ điều khiển MPC dự báo N=10 bước tối ưu hóa đa mục tiêu: Bám chuẩn xác 100% biên dạng CNC, cực tiểu hóa điện năng tổng thể và triệt tiêu rung giật.",
         "color": "#ec4899",
         "offset": np.array([0.0, 0.0, 0.0]),
         "pitch": math.pi,
@@ -337,23 +325,13 @@ class DensoGCodeEnergyOptimizer:
             diff = q_traj[i] - q_traj[i - 1]
             q_traj[i] -= 2.0 * np.pi * np.round(diff / (2.0 * np.pi))
 
-        # Phân nhánh theo loại bộ điều khiển
-        ctrl_type = case_info.get("controller_type", "geometric")
+        # Phân nhánh theo loại bộ điều khiển (Thuần bám sát quỹ đạo CNC, không làm tròn/méo góc)
+        ctrl_type = case_info.get("controller_type", "ros2_baseline")
         if ctrl_type.startswith("mpc_"):
             ew = 1.2
             if ctrl_type == "mpc_smooth": ew = 0.2
             elif ctrl_type == "mpc_energy": ew = 3.5
             return self.evaluate_mpc_trajectory(waypoints_m, dt=dt, energy_weight=ew, case_key=case_key)
-
-        # Đối với ROS 2 Baseline: Không lọc làm mượt vi phân (mô phỏng nội suy bậc 3 cơ bản có bước gián đoạn gia tốc)
-        # Đối với Geometric: Áp dụng bộ lọc trơn vi phân 5-point moving average C2
-        if ctrl_type == "geometric":
-            window_size = 5
-            if len(q_traj) >= window_size:
-                kernel = np.ones(window_size) / window_size
-                for j in range(6):
-                    padded = np.pad(q_traj[:, j], (window_size // 2, window_size // 2), mode='edge')
-                    q_traj[:, j] = np.convolve(padded, kernel, mode='valid')
         
         # Đạo hàm vận tốc và gia tốc góc
         qd_traj = np.zeros_like(q_traj)

@@ -1443,15 +1443,14 @@ class TrajectoryExecutionWorker(QThread):
                         cos_a = float(np.clip(np.dot(v1 / n1, v2 / n2), -1.0, 1.0))
                         if cos_a < 0.80:  # Góc gãy > ~36 độ
                             is_sharp_corner = True
-                            if self.algo_mode == "iga":
-                                # IGA làm mượt góc C2 nhẹ nhàng
-                                x_draw = 0.20 * p_prev.x + 0.60 * pt.x + 0.20 * p_next.x
-                                y_draw = 0.20 * p_prev.y + 0.60 * pt.y + 0.20 * p_next.y
+                            # Giữ nguyên 100% tọa độ góc nhọn (Chuẩn gia công CNC, không làm tròn/méo góc)
+                            x_draw = pt.x
+                            y_draw = pt.y
 
                 pos_m = [x_draw / 1000.0, y_draw / 1000.0, z_draw / 1000.0]
                 if (s_idx, p_idx) in mpc_lookup:
                     q_target = mpc_lookup[(s_idx, p_idx)]
-                elif pt.q_sol is not None and not (is_sharp_corner and self.algo_mode == "iga"):
+                elif pt.q_sol is not None:
                     q_target = pt.q_sol
                 else:
                     q_sol, ok, _, _ = self.engine.inverse_kinematics(
