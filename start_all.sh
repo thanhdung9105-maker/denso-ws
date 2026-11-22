@@ -41,12 +41,15 @@ export IGN_GAZEBO_RESOURCE_PATH=""
 export GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/ros/jazzy/lib:
 export LD_LIBRARY_PATH=/opt/ros/jazzy/lib:
 
-# BƯỚC 3: Cấu hình hiển thị đồ họa GPU NVIDIA D3D12 tăng tốc phần cứng cho WSLg
-unset LIBGL_ALWAYS_SOFTWARE MESA_GL_VERSION_OVERRIDE
-export GALLIUM_DRIVER=d3d12
-export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-unset LP_NUM_THREADS
+# BƯỚC 3: Cấu hình hiển thị đồ họa ổn định 100% cho WSLg (LLVMpipe OpenGL 4.5 đa luồng)
+# Triệt tiêu hoàn toàn lỗi 'D3D12: Removing Device' và hiện tượng xám màn hình khi mở đồng thời 3 cửa sổ
 export DISPLAY=${DISPLAY:-:0}
+export WAYLAND_DISPLAY=""
+export LIBGL_ALWAYS_SOFTWARE=1
+export GALLIUM_DRIVER=llvmpipe
+export LP_NUM_THREADS=4
+export MESA_GL_VERSION_OVERRIDE=4.5
+unset MESA_D3D12_DEFAULT_ADAPTER_NAME
 export OGRE_RTT_MODE=FBO
 export QT_QPA_PLATFORM=xcb
 export QT_AUTO_SCREEN_SCALE_FACTOR=0
@@ -76,13 +79,16 @@ SIM_PID=$!
 
 # BƯỚC 6: Chờ hệ thống mô phỏng sẵn sàng rồi mở ngay Bảng điều khiển
 echo "⏳ Đang kiểm tra tín hiệu khởi động các cửa sổ..."
-for i in {1..40}; do
+for i in {1..50}; do
     if ros2 topic list 2>/dev/null | grep -q "/joint_states"; then
-        echo "✅ Gazebo Sim & MoveIt 2 đã sẵn sàng! Mở Bảng Điều Khiển ngay lập tức..."
-        break
+        if ros2 service list 2>/dev/null | grep -q "/compute_ik"; then
+            echo "✅ Gazebo Sim & MoveIt 2 đã sẵn sàng 100%! Mở Bảng Điều Khiển..."
+            break
+        fi
     fi
     sleep 0.5
 done
+sleep 1.0
 
 # BƯỚC 7: Khởi động Bảng điều khiển GUI
 exec python3 /home/dung/denso_ws/src/denso_gazebo/scripts/denso_gazebo_control_panel.py "$@"

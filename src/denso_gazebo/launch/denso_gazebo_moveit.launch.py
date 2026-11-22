@@ -9,7 +9,7 @@ from launch.actions import (
     RegisterEventHandler,
 )
 from launch.conditions import IfCondition
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -92,6 +92,19 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}],
     )
 
+    # Cấu hình môi trường đồ họa độc lập cho RViz2:
+    # Sử dụng LLVMpipe (OpenGL 4.5) để RViz2 không bao giờ tranh chấp Direct3D 12 với Gazebo Sim,
+    # loại bỏ hoàn toàn lỗi 'D3D12: Removing Device' và hiện tượng xám màn hình trong WSLg.
+    rviz_env = {
+        "LIBGL_ALWAYS_SOFTWARE": "1",
+        "GALLIUM_DRIVER": "llvmpipe",
+        "LP_NUM_THREADS": "4",
+        "MESA_GL_VERSION_OVERRIDE": "4.5",
+        "OGRE_RTT_MODE": "FBO",
+        "QT_QPA_PLATFORM": "xcb",
+        "WAYLAND_DISPLAY": "",
+    }
+
     # RViz2 Node (with use_sim_time)
     rviz_node = Node(
         package="rviz2",
@@ -100,6 +113,7 @@ def generate_launch_description():
         output="screen",
         condition=IfCondition(LaunchConfiguration('launch_rviz')),
         arguments=["-d", rviz_config],
+        additional_env=rviz_env,
         ros_arguments=[
             "--log-level", "rcl.logging_rosout:=ERROR",
             "--log-level", "rviz_visualizer.moveit.ros.motion_planning_frame:=FATAL",
@@ -126,17 +140,26 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}],
     )
 
-    # Kích hoạt MoveGroup và RViz2 ngay khi TF sẵn sàng
-    start_moveit_and_rviz = RegisterEventHandler(
+    # RViz khởi động sau khi MoveGroup đã sẵn sàng và Gazebo GUI đã khởi tạo xong cửa sổ (tránh giật lag và xung đột đồ họa)
+    start_rviz_after_move_group = RegisterEventHandler(
+        event_handler=OnProcessStart(
+            target_action=move_group_node,
+            on_start=[
+                TimerAction(
+                    period=3.0,
+                    actions=[rviz_node]
+                )
+            ],
+        )
+    )
+
+    # Kích hoạt MoveGroup và COM Visualizer ngay khi controllers & TF sẵn sàng
+    start_moveit = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=wait_node,
             on_exit=[
                 move_group_node,
                 com_visualizer_node,
-                TimerAction(
-                    period=0.2,
-                    actions=[rviz_node]
-                ),
             ],
         )
     )
@@ -153,5 +176,6 @@ def generate_launch_description():
         launch_rviz_arg,
         gazebo_launch,
         wait_node,
-        start_moveit_and_rviz,
+        start_moveit,
+        start_rviz_after_move_group,
     ])
