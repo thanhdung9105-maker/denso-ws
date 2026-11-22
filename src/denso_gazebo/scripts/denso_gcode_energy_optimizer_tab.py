@@ -275,6 +275,29 @@ class DualComparisonExecutionWorker(QThread):
         self._is_running = False
 
 
+class ComparisonCalculationWorker(QThread):
+    """Thread tính toán toàn diện 6 trường hợp Động lực học & MPC để UI không bao giờ bị đơ / xám màn."""
+    sig_finished = pyqtSignal(dict)
+    sig_error = pyqtSignal(str)
+
+    def __init__(self, optimizer, gcode, step_mm=2.5, dt=0.02):
+        super().__init__()
+        self.optimizer = optimizer
+        self.gcode = gcode
+        self.step_mm = step_mm
+        self.dt = dt
+
+    def run(self):
+        try:
+            comp = self.optimizer.compare_all_cases(self.gcode, step_mm=self.step_mm, dt=self.dt)
+            if "error" in comp:
+                self.sig_error.emit(str(comp["error"]))
+            else:
+                self.sig_finished.emit(comp)
+        except Exception as e:
+            self.sig_error.emit(str(e))
+
+
 class DensoGCodeEnergyOptimizerTab(QWidget):
     """Tab 7: Tối Ưu Hóa Năng Lượng Quỹ Đạo Vẽ G-Code theo Các Trường Hợp Khớp Up / Down."""
 
@@ -571,24 +594,33 @@ class DensoGCodeEnergyOptimizerTab(QWidget):
                     QMessageBox.critical(self, "Lỗi đọc file", f"Không thể đọc file: {e}")
 
     def run_comparison_analysis(self):
-        """Tính toán và nạp bảng so sánh năng lượng cho toàn bộ 6 trường hợp."""
+        """Tính toán và nạp bảng so sánh năng lượng cho toàn bộ 6 trường hợp dưới nền (Non-blocking)."""
         self.lbl_status.setText("⏳ Đang giải Động học & Động lực học ngược RNEA cho cả 6 trường hợp (bao gồm AI Hybrid RL+MPC)...")
         self.progress_bar.setValue(30)
-        QApplication.processEvents()
+        if hasattr(self, 'btn_run_case'): self.btn_run_case.setEnabled(False)
+        if hasattr(self, 'btn_run_dual'): self.btn_run_dual.setEnabled(False)
 
-        feed = self.sp_feedrate.value()
-        comp = self.optimizer.compare_all_cases(self.current_gcode, step_mm=2.5, dt=0.02)
-        if "error" in comp:
-            self.lbl_status.setText(f"❌ {comp['error']}")
-            self.progress_bar.setValue(0)
-            return
+        self._calc_worker = ComparisonCalculationWorker(self.optimizer, self.current_gcode, step_mm=2.5, dt=0.02)
+        self._calc_worker.sig_finished.connect(self._on_comparison_finished)
+        self._calc_worker.sig_error.connect(self._on_comparison_error)
+        self._calc_worker.start()
 
+    def _on_comparison_finished(self, comp: Dict[str, Any]):
         self.latest_comp = comp
         self._update_kpi_cards(comp)
         self._populate_energy_table(comp)
         self._plot_graphs(comp)
         self.progress_bar.setValue(100)
-        self.lbl_status.setText(f"✅ Đã tính toán xong bảng so sánh! Trường hợp tối ưu nhất: [{comp['results'][comp['best_case']]['title']}].")
+        best_title = comp['results'][comp['best_case']]['title']
+        self.lbl_status.setText(f"✅ Đã tính toán xong bảng so sánh! Trường hợp tối ưu nhất: [{best_title}].")
+        if hasattr(self, 'btn_run_case'): self.btn_run_case.setEnabled(True)
+        if hasattr(self, 'btn_run_dual'): self.btn_run_dual.setEnabled(True)
+
+    def _on_comparison_error(self, err_msg: str):
+        self.lbl_status.setText(f"❌ {err_msg}")
+        self.progress_bar.setValue(0)
+        if hasattr(self, 'btn_run_case'): self.btn_run_case.setEnabled(True)
+        if hasattr(self, 'btn_run_dual'): self.btn_run_dual.setEnabled(True)
 
     def _update_kpi_cards(self, comp: Dict[str, Any]):
         results = comp["results"]

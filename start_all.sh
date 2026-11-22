@@ -42,12 +42,10 @@ export GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/ros/jazzy/lib:
 export LD_LIBRARY_PATH=/opt/ros/jazzy/lib:
 
 # BƯỚC 3: Cấu hình hiển thị đồ họa GPU NVIDIA D3D12 tăng tốc phần cứng cho WSLg
-# CAU HINH DO HOA ON DINH 100% CHO WSL2 (LLVMPIPE SOFTWARE RASTERIZER - CHONG TREO DXG)
 unset LIBGL_ALWAYS_SOFTWARE MESA_GL_VERSION_OVERRIDE
-unset GALLIUM_DRIVER
+export GALLIUM_DRIVER=d3d12
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
 unset LP_NUM_THREADS
-# Keep the WSLg-provided WAYLAND_DISPLAY.
-unset MESA_D3D12_DEFAULT_ADAPTER_NAME
 export DISPLAY=${DISPLAY:-:0}
 export OGRE_RTT_MODE=FBO
 export QT_QPA_PLATFORM=xcb
@@ -78,16 +76,14 @@ SIM_PID=$!
 
 # BƯỚC 6: Chờ hệ thống mô phỏng sẵn sàng rồi mở ngay Bảng điều khiển
 echo "⏳ Đang kiểm tra tín hiệu khởi động các cửa sổ..."
-for i in {1..30}; do
-    if ros2 node list 2>/dev/null | grep -q "/robot_state_publisher"; then
+for i in {1..40}; do
+    if ros2 topic list 2>/dev/null | grep -q "/joint_states"; then
         echo "✅ Gazebo Sim & MoveIt 2 đã sẵn sàng! Mở Bảng Điều Khiển ngay lập tức..."
         break
     fi
     sleep 0.5
 done
 
-
 # BƯỚC 7: Khởi động Bảng điều khiển GUI
-python3 /home/dung/denso_ws/src/denso_gazebo/scripts/denso_window_arranger.py &
 exec python3 /home/dung/denso_ws/src/denso_gazebo/scripts/denso_gazebo_control_panel.py "$@"
 
