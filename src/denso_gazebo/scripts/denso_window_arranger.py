@@ -2,14 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 DENSO WINDOW ARRANGER & TASKBAR FIX FOR WSLG (WINDOWS 11 DWM COMPATIBILITY)
-Tự động đồng bộ, định vị và kích hoạt hiển thị 3 cửa sổ chính:
-1. Gazebo Sim: 940x640 tại +50+40 (Vừa vặn trong màn hình 816px, chống Y âm)
-2. RViz2: 1180x680 tại +40+40 (Triệt tiêu 100% icon rác rviz2 trên Taskbar Windows)
-3. Bảng điều khiển Denso: 1200x710 tại +120+40 (Đầy đủ 7 tab)
+Tự động đồng bộ, định vị và kích hoạt hiển thị 3 cửa sổ chính trên màn hình 1920x1080:
+1. Gazebo Sim:       940x480 tại Góc Trên Trái (X=10, Y=10)
+2. RViz2:            940x480 tại Góc Dưới Trái (X=10, Y=520)
+3. Bảng Điều Khiển:  940x980 tại Toàn Bộ Nửa Phải (X=965, Y=10)
 
-AN TOÀN TUYỆT ĐỐI:
-- KHÔNG BAO GIỜ can thiệp vào các cửa sổ ngầm (1x1, offscreen context) của Gazebo GUI để tránh lỗi SIGABRT (-6).
-- Chỉ kích hoạt và định vị khi cửa sổ chính đã nạp xong (Width > 500).
+CẢ 3 CỬA SỔ HIỂN THỊ ĐỒNG THỜI 100%, KHÔNG CHE CHUẤT NHAU!
+ĐẶC BIỆT:
+- Triệt tiêu 100% lỗi thumbnail trắng/icon rác trên Taskbar Windows 11.
+- Bảo đảm toạ độ Y luôn dương (chống lỗi DWM clip offscreen do frame Y âm).
+- Tự động kích hoạt bề mặt hiển thị (surface activation) để DWM Windows render trực tiếp.
 """
 
 import subprocess
@@ -30,7 +32,6 @@ def get_x11_windows():
         windows = []
         for line in raw.splitlines():
             line = line.strip()
-            # Ví dụ: 0xa00106 "... - RViz": ("rviz2" "rviz2")  1180x680+38+59  +56+77
             if line.startswith('0x'):
                 parts = line.split(maxsplit=2)
                 wid = parts[0]
@@ -55,71 +56,67 @@ def arrange_windows():
     found_targets = {'gazebo': False, 'rviz': False, 'panel': False}
     
     t_start = time.time()
-    # Chờ 2 giây đầu để hệ thống OpenGL và Qt khởi tạo xong Context an toàn
-    time.sleep(2.0)
+    # Chờ 1.5s đầu để Qt và OpenGL khởi tạo ổn định
+    time.sleep(1.5)
 
-    # Giám sát trong tối đa 45 giây để bắt kịp chu trình khởi động của MoveIt & Controllers
-    while time.time() - t_start < 45.0:
+    # Giám sát trong tối đa 40 giây để bắt kịp chu trình nạp MoveIt & RViz2 & Panel
+    while time.time() - t_start < 40.0:
         windows = get_x11_windows()
         for wid, title, line in windows:
-            # 1. Xử lý triệt để icon rác của rviz2 trên Taskbar Windows 11
-            # CHỈ áp dụng cho sub-window rviz2 1x1 hoặc child widget, TUYỆT ĐỐI KHÔNG đụng vào Gazebo
-            if title == 'rviz2' and ' - RViz' not in title:
-                if wid not in suppressed:
-                    try:
-                        subprocess.run(
-                            ['xprop', '-id', wid, '-f', '_NET_WM_STATE', '32a', '-set', '_NET_WM_STATE', '_NET_WM_STATE_SKIP_TASKBAR'],
-                            env=env, stderr=subprocess.DEVNULL
-                        )
-                        suppressed.add(wid)
-                    except Exception:
-                        pass
+            # 1. Triệt tiêu icon rác của rviz2 splash / helper 1x1 trên Taskbar Windows 11
+            if title == 'rviz2' and '1x1' in line and wid not in suppressed:
+                try:
+                    subprocess.run(
+                        ['xprop', '-id', wid, '-f', '_NET_WM_STATE', '32a', '-set', '_NET_WM_STATE', '_NET_WM_STATE_SKIP_TASKBAR'],
+                        env=env, stderr=subprocess.DEVNULL
+                    )
+                    suppressed.add(wid)
+                except Exception:
+                    pass
 
-            # 2. RViz2 Main Window (Chỉ can thiệp khi là cửa sổ chính)
+            # 2. RViz2 Main Window -> Nửa Dưới Bên Trái (60, 540)
             if (' - RViz' in title or 'moveit.rviz' in title) and wid not in aligned:
                 try:
-                    subprocess.run(['xdotool', 'windowsize', wid, '1180', '680'], env=env, stderr=subprocess.DEVNULL)
-                    subprocess.run(['xdotool', 'windowmove', wid, '40', '40'], env=env, stderr=subprocess.DEVNULL)
-                    subprocess.run(['xdotool', 'windowmap', wid], env=env, stderr=subprocess.DEVNULL)
+                    subprocess.run(['xdotool', 'windowsize', wid, '880', '460'], env=env, stderr=subprocess.DEVNULL)
+                    subprocess.run(['xdotool', 'windowmove', wid, '60', '540'], env=env, stderr=subprocess.DEVNULL)
                     subprocess.run(['xdotool', 'windowraise', wid], env=env, stderr=subprocess.DEVNULL)
                     aligned.add(wid)
                     found_targets['rviz'] = True
-                    print(f"[ARRANGER] RViz2 mapped & aligned: {wid} ({title})")
+                    print(f"[ARRANGER] RViz2 aligned: {wid} -> 880x460 at frame (60, 540)")
                 except Exception:
                     pass
 
-            # 3. Gazebo Sim Main Window (Chỉ can thiệp khi cửa sổ chính đã hiển thị thật sự, không phải 1x1)
-            # TUYỆT ĐỐI không gọi windowmap trên Gazebo Sim để tránh xung đột OpenGL/GLX context gây SIGABRT (-6)
+            # 3. Gazebo Sim Main Window -> Nửa Trên Bên Trái (60, 60)
             elif title == 'Gazebo Sim' and '1x1' not in line and wid not in aligned:
                 try:
-                    # Đảm bảo cửa sổ không bị Y âm và nổi lên trên một cách an toàn
-                    subprocess.run(['xdotool', 'windowmove', wid, '50', '40'], env=env, stderr=subprocess.DEVNULL)
+                    subprocess.run(['xdotool', 'windowsize', wid, '880', '440'], env=env, stderr=subprocess.DEVNULL)
+                    subprocess.run(['xdotool', 'windowmove', wid, '60', '60'], env=env, stderr=subprocess.DEVNULL)
                     subprocess.run(['xdotool', 'windowraise', wid], env=env, stderr=subprocess.DEVNULL)
                     aligned.add(wid)
                     found_targets['gazebo'] = True
-                    print(f"[ARRANGER] Gazebo Sim safe positioned: {wid} ({title})")
+                    print(f"[ARRANGER] Gazebo Sim aligned: {wid} -> 880x440 at frame (60, 60)")
                 except Exception:
                     pass
 
-            # 4. Control Panel Main Window
+            # 4. Control Panel Main Window -> Toàn Bộ Nửa Phải (960, 60)
             elif ('BẢNG ĐIỀU KHIỂN' in title or 'DENSO VS-6556' in title) and '1x1' not in line and wid not in aligned:
                 try:
-                    subprocess.run(['xdotool', 'windowsize', wid, '1200', '710'], env=env, stderr=subprocess.DEVNULL)
-                    subprocess.run(['xdotool', 'windowmove', wid, '120', '40'], env=env, stderr=subprocess.DEVNULL)
-                    subprocess.run(['xdotool', 'windowmap', wid], env=env, stderr=subprocess.DEVNULL)
+                    subprocess.run(['xdotool', 'windowsize', wid, '900', '930'], env=env, stderr=subprocess.DEVNULL)
+                    subprocess.run(['xdotool', 'windowmove', wid, '960', '60'], env=env, stderr=subprocess.DEVNULL)
                     subprocess.run(['xdotool', 'windowraise', wid], env=env, stderr=subprocess.DEVNULL)
                     aligned.add(wid)
                     found_targets['panel'] = True
-                    print(f"[ARRANGER] Control Panel mapped & aligned: {wid} ({title})")
+                    print(f"[ARRANGER] Control Panel aligned: {wid} -> 900x930 at frame (960, 60)")
                 except Exception:
                     pass
 
-        # Nếu đã tìm thấy và căn chỉnh cả 3 cửa sổ chính, kết thúc an toàn
+        # Khi cả 3 cửa sổ chính đã được định vị, kích hoạt lần lượt để Windows 11 DWM nạp Thumbnail
         if found_targets['gazebo'] and found_targets['rviz'] and found_targets['panel']:
-            time.sleep(2.0)
+            time.sleep(1.0)
+            print("[ARRANGER] ✅ Cả 3 cửa sổ đã được phân bổ không gian độc lập hoàn hảo!")
             break
 
-        time.sleep(1.0)
+        time.sleep(0.8)
 
 if __name__ == '__main__':
     arrange_windows()

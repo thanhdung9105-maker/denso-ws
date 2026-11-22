@@ -265,7 +265,7 @@ void loop() {
 
   // - Quat PWM: Khi quat nghi (0 PWM), nhap nho nhe (0.5 -> 2.5) the hien quat o trang thai cho san sang
   //   Khi quat quay (PWM > 0), xuat dung toc do thuc te manh me
-  float fanPlot = (currentFanPWM > 0) ? (float)currentFanPWM : (1.5 + sin(currentMillis * 0.003) * 1.2);
+  float fanPlot = (float)currentFanPWM; // Dung yen hoan toan tai 0 khi quat khong chay
 
   // - ADC Raw: Khuech dai nhe dao dong micro-volt de duong song nhap nho ro net
   float adcPlot = rawAdc + (sin(currentMillis * 0.0035) * 1.5) + ((random(-15, 16)) / 100.0);

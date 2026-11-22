@@ -73,6 +73,23 @@ except ImportError:
         GCodePointRecord
     )
 
+# MPC Trajectory & Posture Optimizer
+try:
+    from denso_mpc_trajectory_controller import (
+        DensoMPCController,
+        DensoPostureMPCOptimizer,
+        PostureCandidate
+    )
+except ImportError:
+    DensoMPCController = None
+    DensoPostureMPCOptimizer = None
+    PostureCandidate = None
+
+try:
+    from denso_gcode_energy_optimizer import BUILTIN_GCODE_PATTERNS
+except ImportError:
+    BUILTIN_GCODE_PATTERNS = {}
+
 
 # =============================================================================
 # DATA STRUCTURES
@@ -772,13 +789,42 @@ class KinematicsValidator:
 # =============================================================================
 # GAZEBO SIM DIRECT DRAWING TRAIL & INK MANAGER (LIGHTWEIGHT & REAL-TIME)
 # =============================================================================
+# Bảng màu vệt vẽ cho Gazebo Sim (đa trường hợp / đa thuật toán)
+GAZEBO_ALGO_COLOR_MAP = {
+    "ros2":     {"rgba": (1.0, 0.55, 0.05, 1.0), "rib_id": 1,  "spine_id": 2,  "z_off": 0.0000},
+    "iga":      {"rgba": (0.10, 1.0, 0.25, 1.0), "rib_id": 3,  "spine_id": 4,  "z_off": 0.0003},
+    "down":     {"rgba": (0.95, 0.15, 0.15, 1.0), "rib_id": 5,  "spine_id": 6,  "z_off": 0.0006},
+    "extended": {"rgba": (0.75, 0.25, 1.0, 1.0), "rib_id": 7,  "spine_id": 8,  "z_off": 0.0009},
+    "tilt":     {"rgba": (1.0, 0.75, 0.05, 1.0), "rib_id": 9,  "spine_id": 10, "z_off": 0.0012},
+    "sweet":    {"rgba": (0.05, 0.85, 1.0, 1.0), "rib_id": 11, "spine_id": 12, "z_off": 0.0015},
+    "pink":     {"rgba": (0.95, 0.25, 0.65, 1.0), "rib_id": 13, "spine_id": 14, "z_off": 0.0018},
+}
+
+def normalize_algo_key(algo_mode: str) -> str:
+    a = str(algo_mode).lower().strip()
+    if a in ["ros2", "orange"]: return "ros2"
+    if a in ["down", "red"]: return "down"
+    if a in ["extended", "purple"]: return "extended"
+    if a in ["tilt", "amber", "yellow"]: return "tilt"
+    if a in ["sweet", "cyan", "blue"]: return "sweet"
+    if a in ["pink", "hybrid", "rl_mpc", "mpc"]: return "pink"
+    return "iga"
+
+
 class GazeboDrawingTrailPublisher:
     """
     Quản lý và xuất bản vệt vẽ lớn, rõ nét và tức thời trong Gazebo Sim
     bằng cách phát sóng gz.msgs.Marker_V qua Gazebo Transport service '/marker_array'.
     Sử dụng luồng nền bất đồng bộ (Non-blocking Async Worker Thread) kết hợp
     LINE_LIST (nối nét) + POINTS (độ đậm hạt mực) + SPHERE (ngòi bút phát sáng),
-    đảm bảo 100% real-time, không gây giật lag simulation hay nghẽn bộ nhớ.
+    hỗ trợ đầy đủ tất cả các trường hợp tối ưu năng lượng và thuật toán:
+    - ros2: Màu Cam (#f59e0b)
+    - iga: Màu Xanh Lá Neon (#22c55e)
+    - down: Màu Đỏ Rực (#ef4444)
+    - extended: Màu Tím (#a855f7)
+    - tilt: Màu Vàng Hổ Phách (#f59e0b)
+    - sweet: Màu Xanh Lơ / Cyan (#06b6d4)
+    - pink: Màu Hồng Neon (#ec4899)
     """
     def __init__(self, world_name: str = "denso_world"):
         self.world_name = world_name
@@ -787,10 +833,11 @@ class GazeboDrawingTrailPublisher:
         self.gz_boolean_pb2 = None
         self.is_gz_connected = False
 
-        self.completed_strokes_ros2: List[List[Tuple[float, float, float]]] = []
-        self.completed_strokes_iga: List[List[Tuple[float, float, float]]] = []
+        self.completed_strokes: Dict[str, List[List[Tuple[float, float, float]]]] = {
+            k: [] for k in GAZEBO_ALGO_COLOR_MAP
+        }
         self.current_stroke: List[Tuple[float, float, float]] = []
-        self.active_algo: str = "iga"  # "ros2" -> Màu Cam (Orange) | "iga" -> Màu Xanh Lá (Green)
+        self.active_algo: str = "iga"
         self.current_tip: Optional[Tuple[float, float, float, bool]] = None
         
         self.paper_z = 0.1765  # Cao hơn mặt giấy 0.1745m đúng 2mm, triệt tiêu hoàn toàn z-fighting
@@ -845,51 +892,50 @@ class GazeboDrawingTrailPublisher:
             self._dirty_event.set()
 
     def set_algo_mode(self, algo_mode: str):
+        mode_key = normalize_algo_key(algo_mode)
         with self.lock:
             if len(self.current_stroke) >= 2:
-                if self.active_algo == "ros2":
-                    self.completed_strokes_ros2.append(list(self.current_stroke))
-                else:
-                    self.completed_strokes_iga.append(list(self.current_stroke))
+                if self.active_algo in self.completed_strokes:
+                    self.completed_strokes[self.active_algo].append(list(self.current_stroke))
                 self.current_stroke = []
-            self.active_algo = "ros2" if algo_mode == "ros2" else "iga"
+            self.active_algo = mode_key
             self._dirty_event.set()
 
     def add_point(self, x_mm: float, y_mm: float, z_mm: float, is_draw: bool):
         if not self.is_gz_connected:
             return
 
+        # Vệt mực chỉ xuất hiện khi đầu bút thực sự chạm bàn vẽ (Z <= 188mm)
+        # Triệt tiêu 100% đường nối transit trên không trung (Air-transit cutting line)
+        effective_draw = bool(is_draw and z_mm <= 188.0)
+
         x_m = float(x_mm / 1000.0)
         y_m = float(y_mm / 1000.0)
-        z_m = max(self.paper_z, float(z_mm / 1000.0)) if is_draw else float(z_mm / 1000.0)
+        z_m = max(self.paper_z, float(z_mm / 1000.0)) if effective_draw else float(z_mm / 1000.0)
 
         with self.lock:
-            self.current_tip = (x_m, y_m, z_m, is_draw)
-            if is_draw:
+            self.current_tip = (x_m, y_m, z_m, effective_draw)
+            if effective_draw:
                 self.current_stroke.append((x_m, y_m, z_m))
             else:
                 if len(self.current_stroke) >= 2:
-                    if self.active_algo == "ros2":
-                        self.completed_strokes_ros2.append(list(self.current_stroke))
-                    else:
-                        self.completed_strokes_iga.append(list(self.current_stroke))
+                    if self.active_algo in self.completed_strokes:
+                        self.completed_strokes[self.active_algo].append(list(self.current_stroke))
                 self.current_stroke = []
             self._dirty_event.set()
 
     def end_stroke(self):
         with self.lock:
             if len(self.current_stroke) >= 2:
-                if self.active_algo == "ros2":
-                    self.completed_strokes_ros2.append(list(self.current_stroke))
-                else:
-                    self.completed_strokes_iga.append(list(self.current_stroke))
+                if self.active_algo in self.completed_strokes:
+                    self.completed_strokes[self.active_algo].append(list(self.current_stroke))
             self.current_stroke = []
             self._dirty_event.set()
 
     def clear(self):
         with self.lock:
-            self.completed_strokes_ros2 = []
-            self.completed_strokes_iga = []
+            for k in self.completed_strokes:
+                self.completed_strokes[k] = []
             self.current_stroke = []
             self.current_tip = None
             self._need_clear = True
@@ -965,8 +1011,7 @@ class GazeboDrawingTrailPublisher:
             with self.lock:
                 need_clear = self._need_clear
                 self._need_clear = False
-                strokes_ros2 = list(self.completed_strokes_ros2)
-                strokes_iga = list(self.completed_strokes_iga)
+                strokes_snapshot = {k: list(v) for k, v in self.completed_strokes.items()}
                 cur_stroke = list(self.current_stroke)
                 active_algo = self.active_algo
                 tip = self.current_tip
@@ -975,7 +1020,7 @@ class GazeboDrawingTrailPublisher:
             if need_clear:
                 try:
                     mv_clear = self.gz_marker_v_pb2.Marker_V()
-                    for mid in (1, 2, 3, 4, 9999):
+                    for mid in list(range(1, 16)) + [9999]:
                         m_del = mv_clear.marker.add()
                         m_del.ns = "denso_gazebo_trail"
                         m_del.id = mid
@@ -984,29 +1029,28 @@ class GazeboDrawingTrailPublisher:
                 except Exception:
                     pass
 
-            if not strokes_ros2 and not strokes_iga and not cur_stroke and tip is None:
+            has_any_stroke = any(len(v) > 0 for v in strokes_snapshot.values()) or len(cur_stroke) >= 2
+            if not has_any_stroke and tip is None:
                 continue
 
             try:
                 mv = self.gz_marker_v_pb2.Marker_V()
-                all_ros2 = strokes_ros2 + ([cur_stroke] if (active_algo == "ros2" and len(cur_stroke) >= 2) else [])
-                all_iga = strokes_iga + ([cur_stroke] if (active_algo != "ros2" and len(cur_stroke) >= 2) else [])
+                half_w = max(0.0035, float(pt_size) * 0.0018)  # Nét vẽ rộng ~7mm sắc nét, đậm màu, nhìn rõ từ xa trên Gazebo
 
-                half_w = max(0.0013, float(pt_size) * 0.0006)
-                # 1. Đường vẽ theo ROS 2 -> MÀU CAM (Orange: RGB 1.0, 0.55, 0.05)
-                self._append_ribbon_for_strokes(
-                    mv, all_ros2, rib_id=1, spine_id=2,
-                    rgba=(1.0, 0.55, 0.05, 1.0),
-                    half_w=half_w, ribbon_z=self.paper_z
-                )
-                # 2. Đường vẽ theo IGA -> MÀU XANH LÁ (Neon Green: RGB 0.08, 1.0, 0.38)
-                self._append_ribbon_for_strokes(
-                    mv, all_iga, rib_id=3, spine_id=4,
-                    rgba=(0.08, 1.0, 0.38, 1.0),
-                    half_w=half_w, ribbon_z=self.paper_z + 0.0005
-                )
+                # Vẽ tất cả các trường hợp theo bảng màu tương ứng
+                for mode_k, cfg in GAZEBO_ALGO_COLOR_MAP.items():
+                    mode_strokes = list(strokes_snapshot.get(mode_k, []))
+                    if active_algo == mode_k and len(cur_stroke) >= 2:
+                        mode_strokes.append(cur_stroke)
+                    if mode_strokes:
+                        self._append_ribbon_for_strokes(
+                            mv, mode_strokes,
+                            rib_id=cfg["rib_id"], spine_id=cfg["spine_id"],
+                            rgba=cfg["rgba"],
+                            half_w=half_w, ribbon_z=self.paper_z + cfg["z_off"]
+                        )
 
-                # 3. Con trỏ ngòi bút Stylus Pen Tip (SPHERE)
+                # Con trỏ ngòi bút Stylus Pen Tip (SPHERE)
                 if tip is not None:
                     tx, ty, tz, is_drawing = tip
                     m_tip = mv.marker.add()
@@ -1020,8 +1064,9 @@ class GazeboDrawingTrailPublisher:
                     m_tip.pose.position.x = float(tx)
                     m_tip.pose.position.y = float(ty)
                     m_tip.pose.position.z = float(tz)
+                    active_cfg = GAZEBO_ALGO_COLOR_MAP.get(active_algo, GAZEBO_ALGO_COLOR_MAP["iga"])
+                    tip_rgb = active_cfg["rgba"][:3]
                     if is_drawing:
-                        tip_rgb = (1.0, 0.55, 0.05) if active_algo == "ros2" else (0.08, 1.0, 0.38)
                         for mat in [m_tip.material.ambient, m_tip.material.diffuse, m_tip.material.emissive]:
                             mat.r, mat.g, mat.b = tip_rgb
                             mat.a = 1.0
@@ -1060,7 +1105,7 @@ class DrawingTrailPublisher:
             if len(self.current_drawing_points) >= 2:
                 self._commit_current_stroke()
                 self.current_drawing_points = []
-            self.active_algo = "ros2" if algo_mode == "ros2" else "iga"
+            self.active_algo = "ros2" if algo_mode == "ros2" else ("pink" if algo_mode in ["pink", "mpc"] else "iga")
         if hasattr(self, 'gz_trail') and self.gz_trail:
             self.gz_trail.set_algo_mode(algo_mode)
 
@@ -1071,16 +1116,17 @@ class DrawingTrailPublisher:
             self.gz_trail.set_thickness(thickness_mm)
 
     def add_point(self, x_mm: float, y_mm: float, z_mm: float, is_draw: bool):
+        effective_draw = bool(is_draw and z_mm <= 188.0)
         p = Point()
         p.x = float(x_mm / 1000.0)
         p.y = float(y_mm / 1000.0)
         p.z = float(z_mm / 1000.0)
 
         if hasattr(self, 'gz_trail') and self.gz_trail:
-            self.gz_trail.add_point(x_mm, y_mm, z_mm, is_draw)
+            self.gz_trail.add_point(x_mm, y_mm, z_mm, effective_draw)
 
         with self.lock:
-            if is_draw:
+            if effective_draw:
                 self.current_drawing_points.append(p)
             else:
                 if len(self.current_drawing_points) >= 2:
@@ -1108,6 +1154,16 @@ class DrawingTrailPublisher:
 
         if self.active_algo == "ros2":
             m.color.r, m.color.g, m.color.b, m.color.a = (1.0, 0.55, 0.05, 0.96)
+        elif self.active_algo in ["down", "red"]:
+            m.color.r, m.color.g, m.color.b, m.color.a = (0.95, 0.15, 0.15, 0.96)
+        elif self.active_algo in ["extended", "purple"]:
+            m.color.r, m.color.g, m.color.b, m.color.a = (0.75, 0.25, 1.0, 0.96)
+        elif self.active_algo in ["tilt", "amber", "yellow"]:
+            m.color.r, m.color.g, m.color.b, m.color.a = (1.0, 0.75, 0.05, 0.96)
+        elif self.active_algo in ["sweet", "cyan", "blue"]:
+            m.color.r, m.color.g, m.color.b, m.color.a = (0.1, 0.85, 1.0, 0.96)
+        elif self.active_algo in ["pink", "hybrid", "rl_mpc"]:
+            m.color.r, m.color.g, m.color.b, m.color.a = (0.93, 0.28, 0.60, 0.96)
         else:
             m.color.r, m.color.g, m.color.b, m.color.a = (0.08, 1.0, 0.38, 0.96)
 
@@ -1214,16 +1270,27 @@ class TrajectoryExecutionWorker(QThread):
 
         self.strokes: List[Stroke] = []
         self.speed_scale: float = 1.0
-        self.algo_mode: str = "iga"  # "ros2" -> Màu Cam | "iga" -> Màu Xanh Lá
+        self.algo_mode: str = "mpc"  # Mặc định thuần MPC: Giữ nguyên vẹn 100% biên dạng hình học G-Code, không bo tròn góc
+        self.custom_q_traj: Optional[np.ndarray] = None
+        self.posture_title: str = ""
 
         self.is_running = False
         self.is_paused = False
         self.pause_cond = threading.Condition()
 
-    def load_strokes(self, strokes: List[Stroke], speed_scale: float = 1.0, algo_mode: str = "iga"):
+    def load_strokes(
+        self,
+        strokes: List[Stroke],
+        speed_scale: float = 1.0,
+        algo_mode: str = "iga",
+        custom_q_traj: Optional[np.ndarray] = None,
+        posture_title: str = ""
+    ):
         self.strokes = strokes
         self.speed_scale = max(0.1, min(3.0, speed_scale))
-        self.algo_mode = "ros2" if algo_mode == "ros2" else "iga"
+        self.algo_mode = "ros2" if algo_mode == "ros2" else ("mpc" if algo_mode == "mpc" else "iga")
+        self.custom_q_traj = custom_q_traj
+        self.posture_title = posture_title
         if self.trail_pub:
             self.trail_pub.set_algo_mode(self.algo_mode)
 
@@ -1269,7 +1336,9 @@ class TrajectoryExecutionWorker(QThread):
 
         # BƯỚC 1: Tiếp cận an toàn tới điểm đầu tiên của nét vẽ đầu tiên
         first_pt = self.strokes[0].points[0]
-        if first_pt.q_sol is not None:
+        if self.custom_q_traj is not None and len(self.custom_q_traj) > 0:
+            q_start = list(self.custom_q_traj[0])
+        elif first_pt.q_sol is not None:
             q_start = list(first_pt.q_sol)
         else:
             pos_m = [first_pt.x / 1000.0, first_pt.y / 1000.0, first_pt.z / 1000.0]
@@ -1297,6 +1366,52 @@ class TrajectoryExecutionWorker(QThread):
                     while self.is_paused and self.is_running:
                         self.pause_cond.wait()
             q_curr = list(q_start)
+
+        # BƯỚC 1.5: Tối ưu hóa dự báo MPC nếu chọn chế độ MPC
+        mpc_lookup = {}
+        if self.custom_q_traj is not None and len(self.custom_q_traj) > 0:
+            # Áp dụng trực tiếp quỹ đạo tư thế tối ưu được tuyển chọn bởi MPC
+            k_idx = 0
+            for s_i, st in enumerate(self.strokes):
+                for p_i in range(len(st.points)):
+                    if k_idx < len(self.custom_q_traj):
+                        mpc_lookup[(s_i, p_i)] = self.custom_q_traj[k_idx]
+                        k_idx += 1
+        elif self.algo_mode == "mpc":
+            try:
+                from denso_mpc_trajectory_controller import DensoMPCController
+                mpc_ctl = DensoMPCController(dynamics_engine=self.engine, horizon=10, dt=0.05)
+                ref_list = []
+                idx_keys = []
+                q_seed_cur = list(q_curr)
+                for s_i, st in enumerate(self.strokes):
+                    for p_i, p in enumerate(st.points):
+                        p_m = [p.x / 1000.0, p.y / 1000.0, p.z / 1000.0]
+                        q_sol, ok, _ = self.engine.solve_ik_analytical_flange(
+                            p_m, tool_pitch_rad=math.pi, elbow_up=True, q_seed=q_seed_cur
+                        )
+                        if not ok or q_sol is None:
+                            q_sol, ok2, _, _ = self.engine.inverse_kinematics(
+                                p_m, q_seed=q_seed_cur, use_flange=True, mode="hybrid", tool_pitch_rad=math.pi
+                            )
+                            if not ok2 or q_sol is None:
+                                q_sol = list(q_seed_cur)
+                        q_seed_cur = list(q_sol)
+                        ref_list.append(q_sol)
+                        idx_keys.append((s_i, p_i))
+                if len(ref_list) >= 3:
+                    ref_arr = np.array(ref_list, dtype=float)
+                    for j in range(6):
+                        ref_arr[:, j] = np.unwrap(ref_arr[:, j])
+                    for k in range(1, len(ref_arr)):
+                        diff = ref_arr[k] - ref_arr[k - 1]
+                        ref_arr[k] -= 2.0 * np.pi * np.round(diff / (2.0 * np.pi))
+                    mpc_opt = mpc_ctl.optimize_full_trajectory(ref_arr, dt=0.05, energy_weight=1.2)
+                    if mpc_opt.get("success"):
+                        for k_i, (s_i, p_i) in enumerate(idx_keys):
+                            mpc_lookup[(s_i, p_i)] = mpc_opt["q_mpc"][k_i]
+            except Exception:
+                pass
 
         # BƯỚC 2: Thực thi từng nét vẽ liên tục tức thời mượt mà (Instant Fluid Execution)
         for s_idx, stroke in enumerate(self.strokes):
@@ -1346,7 +1461,9 @@ class TrajectoryExecutionWorker(QThread):
                                 y_draw = 0.20 * p_prev.y + 0.60 * pt.y + 0.20 * p_next.y
 
                 pos_m = [x_draw / 1000.0, y_draw / 1000.0, z_draw / 1000.0]
-                if pt.q_sol is not None and not (is_sharp_corner and self.algo_mode == "iga"):
+                if (s_idx, p_idx) in mpc_lookup:
+                    q_target = mpc_lookup[(s_idx, p_idx)]
+                elif pt.q_sol is not None and not (is_sharp_corner and self.algo_mode == "iga"):
                     q_target = pt.q_sol
                 else:
                     q_sol, ok, _, _ = self.engine.inverse_kinematics(
@@ -1361,23 +1478,27 @@ class TrajectoryExecutionWorker(QThread):
                 if self.algo_mode == "ros2":
                     dt_step = max(0.045, min(0.14, 0.068 / self.speed_scale))
                     stop_at_pt = is_last_pt or is_sharp_corner
+                elif self.algo_mode == "mpc":
+                    dt_step = max(0.035, min(0.10, 0.050 / self.speed_scale))
+                    stop_at_pt = is_last_pt
                 else:
                     dt_step = max(0.032, min(0.11, 0.048 / self.speed_scale))
                     stop_at_pt = is_last_pt
 
+                is_draw_effective = bool(is_drawing and z_draw <= 188.0 and pos_m[2] <= 0.188)
                 self.bridge.send_trajectory(q_target, duration_sec=dt_step, zero_velocity=stop_at_pt)
                 q_curr = list(q_target)
 
                 # Xuất bản vệt vẽ tức thời thời gian thực tới RViz2 & Gazebo Sim
                 if self.trail_pub:
-                    self.trail_pub.add_point(x_draw, y_draw, z_draw, is_drawing)
-                    self.trail_pub.publish_update(current_pos_m=pos_m, is_draw=is_drawing)
+                    self.trail_pub.add_point(x_draw, y_draw, z_draw, is_draw_effective)
+                    self.trail_pub.publish_update(current_pos_m=pos_m, is_draw=is_draw_effective)
 
                 # Cập nhật tiến trình GUI & con trỏ trên Canvas 2D tức thời
                 curr_pt_idx += 1
                 pct = (curr_pt_idx / total_pts * 100.0) if total_pts > 0 else 0.0
                 q_list = [float(v) for v in q_target]
-                self.sig_progress.emit(curr_pt_idx, total_pts, pct, x_draw, y_draw, z_draw, is_drawing, q_list)
+                self.sig_progress.emit(curr_pt_idx, total_pts, pct, x_draw, y_draw, z_draw, is_draw_effective, q_list)
 
                 time.sleep(dt_step * (1.08 if (self.algo_mode == "ros2" and is_sharp_corner) else 0.90))
 
@@ -1385,8 +1506,14 @@ class TrajectoryExecutionWorker(QThread):
                 self.trail_pub.end_stroke()
 
         if self.is_running:
-            algo_tag = "🟠 ROS 2 (Đường Màu Cam)" if self.algo_mode == "ros2" else "🟢 Tối ưu IGA (Đường Xanh Lá)"
-            self.sig_status.emit(f"🎉 HOÀN THÀNH VẼ BẰNG [{algo_tag}]! Bạn có thể chọn thuật toán kia và vẽ tiếp để so sánh 2 màu.", "ok")
+            if self.algo_mode == "ros2":
+                algo_tag = "🟠 ROS 2 (Đường Màu Cam)"
+            elif self.algo_mode == "mpc":
+                p_tag = f" [{self.posture_title}]" if self.posture_title else ""
+                algo_tag = f"🎯 MPC Tuyển Chọn Tối Ưu{p_tag} (Đường Hồng Neon)"
+            else:
+                algo_tag = "🟢 Tối ưu IGA (Đường Xanh Lá)"
+            self.sig_status.emit(f"🎉 HOÀN THÀNH VẼ BẰNG [{algo_tag}]! Bạn có thể chọn tư thế khác để so sánh đa màu.", "ok")
         self.is_running = False
         self.sig_finished.emit()
 
@@ -1427,7 +1554,7 @@ class InteractiveDrawingCanvas(QWidget):
         self.setMouseTracking(True)
 
     def set_algo_mode(self, algo_mode: str):
-        self.active_algo = "ros2" if algo_mode == "ros2" else "iga"
+        self.active_algo = "ros2" if algo_mode == "ros2" else ("pink" if algo_mode in ["pink", "mpc"] else "iga")
         # Thêm điểm ngắt nét để không nối liền cuối đường thuật toán cũ sang đầu đường thuật toán mới
         if self.executed_points:
             lx, ly, _, _ = self.executed_points[-1]
@@ -1544,10 +1671,17 @@ class InteractiveDrawingCanvas(QWidget):
             for i in range(len(pts_canvas) - 1):
                 painter.drawLine(pts_canvas[i], pts_canvas[i + 1])
 
-        # 4. Vẽ VỆT DI CHUYỂN THỰC TẾ:
-        #    - ROS 2: Đường vẽ MÀU CAM (#f59e0b)
-        #    - IGA  : Đường vẽ MÀU XANH LÁ (#22c55e)
-        for algo_key, hex_col, width_px in [("ros2", "#f59e0b", 3.0), ("iga", "#22c55e", 2.8)]:
+        # 4. Vẽ VỆT DI CHUYỂN THỰC TẾ ĐA THUẬT TOÁN / ĐA TRƯỜNG HỢP:
+        trail_styles = [
+            ("ros2", "#f59e0b", 3.0),
+            ("iga", "#22c55e", 2.8),
+            ("down", "#ef4444", 2.8),
+            ("extended", "#a855f7", 2.8),
+            ("tilt", "#f59e0b", 2.8),
+            ("sweet", "#06b6d4", 2.8),
+            ("pink", "#ec4899", 2.8),
+        ]
+        for algo_key, hex_col, width_px in trail_styles:
             pen_trail = QPen(QColor(hex_col), width_px, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             painter.setPen(pen_trail)
             draw_path = QPainterPath()
@@ -1555,7 +1689,8 @@ class InteractiveDrawingCanvas(QWidget):
 
             for pt_data in self.executed_points:
                 x, y, is_draw, pt_algo = pt_data
-                if pt_algo != algo_key:
+                norm_algo = normalize_algo_key(pt_algo)
+                if norm_algo != algo_key:
                     in_segment = False
                     continue
                 cp = to_canvas(x, y)
@@ -1621,6 +1756,11 @@ class ImageGCodeDrawingTab(QWidget):
         self.joint_table_widget: Optional[GCodeJointAnglesTableWidget] = None
         self.sample_dir = "/home/dung/denso_ws/drawing_samples"
 
+        # Khởi tạo bộ tuyển chọn tư thế tối ưu MPC
+        self.posture_optimizer = DensoPostureMPCOptimizer(dynamics_engine=self.engine) if DensoPostureMPCOptimizer else None
+        self.latest_posture_evaluation: Optional[Dict[str, Any]] = None
+        self.selected_posture_res: Optional[Dict[str, Any]] = None
+
         self.init_ui()
         # Nạp mẫu thử lười (Lazy load) khi người dùng mở Tab 5, giúp khởi động ứng dụng tức thì trong 0.2s
         self._initial_loaded = False
@@ -1673,6 +1813,24 @@ class ImageGCodeDrawingTab(QWidget):
         self.lbl_img_path = QLabel("Tệp: star_5point.png")
         self.lbl_img_path.setStyleSheet("color: #94a3b8; font-size: 11px;")
         in_lay.addWidget(self.lbl_img_path)
+
+        # Hàng chọn nhanh mẫu G-Code (Hình Vuông, Vòng Tròn, Ngôi Sao, Tam Giác)
+        preset_row = QHBoxLayout()
+        lbl_pr = QLabel("Mẫu G-Code nhanh:")
+        lbl_pr.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: bold;")
+        preset_row.addWidget(lbl_pr)
+
+        self.combo_gcode_presets = QComboBox()
+        self.combo_gcode_presets.setStyleSheet(self._combo_style())
+        self.combo_gcode_presets.addItem("⚡ Chọn nhanh hình mẫu G-Code...", "")
+        self.combo_gcode_presets.addItem("🟦 Hình Vuông Chuẩn 80x80 mm (Tâm X=-380, Y=0)", "square")
+        self.combo_gcode_presets.addItem("🔴 Vòng Tròn R=40 mm (Tâm X=-380, Y=0)", "circle")
+        self.combo_gcode_presets.addItem("⭐ Ngôi Sao 5 Cánh 80 mm (Tâm X=-380, Y=0)", "star")
+        self.combo_gcode_presets.addItem("🔺 Tam Giác Đều Cạnh 80 mm (Tâm X=-380, Y=0)", "triangle")
+        self.combo_gcode_presets.currentIndexChanged.connect(self._on_gcode_preset_changed)
+        preset_row.addWidget(self.combo_gcode_presets, 1)
+        in_lay.addLayout(preset_row)
+
         left_layout.addWidget(box_input)
 
         # 2. Box Thông số phân rã điểm (Point Spacing)
@@ -1787,14 +1945,82 @@ class ImageGCodeDrawingTab(QWidget):
 
         left_layout.addWidget(box_ws)
 
-        # 4. Box Thực thi & Vệt vẽ
-        box_exec = QGroupBox("🎮 4. ĐIỀU KHIỂN ROBOT VẼ & VỆT DI CHUYỂN")
+        # 4. Box Tuyển chọn tư thế khớp bằng MPC
+        box_posture = QGroupBox("🧠 4. BỘ TUYỂN CHỌN TƯ THẾ TỐI ƯU BẰNG MPC")
+        box_posture.setStyleSheet(self._group_style())
+        post_lay = QVBoxLayout(box_posture)
+        post_lay.setSpacing(6)
+
+        row_eval = QHBoxLayout()
+        self.btn_eval_postures = QPushButton("🔍 MPC ĐÁNH GIÁ CÁC TƯ THẾ KHỚP")
+        self.btn_eval_postures.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366f1, stop:1 #8b5cf6);
+                color: white; font-weight: bold; border-radius: 5px; padding: 7px 12px; font-size: 11px;
+                border: 1px solid #a5b4fc;
+            }
+            QPushButton:hover { background: #4f46e5; border-color: #c7d2fe; }
+        """)
+        self.btn_eval_postures.clicked.connect(self._run_mpc_posture_evaluation)
+        row_eval.addWidget(self.btn_eval_postures)
+        post_lay.addLayout(row_eval)
+
+        row_post_sel = QHBoxLayout()
+        lbl_p = QLabel("Tư thế đã chọn:")
+        lbl_p.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: bold;")
+        row_post_sel.addWidget(lbl_p)
+
+        self.combo_postures = QComboBox()
+        self.combo_postures.setStyleSheet(self._combo_style())
+        self.combo_postures.addItem("Chưa phân tích (Bấm nút trên để MPC đánh giá)", None)
+        self.combo_postures.currentIndexChanged.connect(self._on_posture_selected_changed)
+        row_post_sel.addWidget(self.combo_postures, 1)
+        post_lay.addLayout(row_post_sel)
+
+        self.lbl_posture_detail = QLabel("💡 Gợi ý: Bấm nút trên để MPC mô phỏng các tư thế khớp quay và tự động chọn tư thế tối ưu nhất.")
+        self.lbl_posture_detail.setStyleSheet("color: #38bdf8; font-size: 10px; font-style: italic;")
+        self.lbl_posture_detail.setWordWrap(True)
+        post_lay.addWidget(self.lbl_posture_detail)
+
+        # Hai nút chạy: Chạy tư thế đang chọn để so sánh trực quan HOẶC chạy tư thế tối ưu Hạng 1
+        row_post_actions = QHBoxLayout()
+        self.btn_draw_selected_posture = QPushButton("▶️ CHẠY TƯ THẾ ĐANG CHỌN (SO SÁNH)")
+        self.btn_draw_selected_posture.setStyleSheet("""
+            QPushButton {
+                background-color: #0284c7; color: white; font-weight: bold;
+                border-radius: 5px; padding: 8px 10px; font-size: 11px;
+                border: 1px solid #38bdf8;
+            }
+            QPushButton:hover { background-color: #0369a1; }
+        """)
+        self.btn_draw_selected_posture.setToolTip("Chạy chính xác tư thế đang chọn trong danh sách trên Gazebo để so sánh chuyển động các khớp và mô-men quay.")
+        self.btn_draw_selected_posture.clicked.connect(self._draw_selected_posture_mpc)
+        row_post_actions.addWidget(self.btn_draw_selected_posture, 1)
+
+        self.btn_draw_optimal_mpc = QPushButton("🏆 CHẠY TƯ THẾ TỐI ƯU (HẠNG 1)")
+        self.btn_draw_optimal_mpc.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #ec4899);
+                color: white; font-weight: bold; border-radius: 5px; padding: 8px 10px; font-size: 11px;
+                border: 1px solid #c084fc;
+            }
+            QPushButton:hover { background: #7c3aed; }
+        """)
+        self.btn_draw_optimal_mpc.setToolTip("Tự động chọn và thực thi tư thế đạt điểm số tối ưu năng lượng và triệt rung giật tốt nhất.")
+        self.btn_draw_optimal_mpc.clicked.connect(self._draw_best_optimal_posture)
+        row_post_actions.addWidget(self.btn_draw_optimal_mpc, 1)
+        post_lay.addLayout(row_post_actions)
+
+        left_layout.addWidget(box_posture)
+
+        # 5. Box Thực thi & Vệt vẽ
+        box_exec = QGroupBox("🎮 5. ĐIỀU KHIỂN ROBOT VẼ & VỆT DI CHUYỂN")
         box_exec.setStyleSheet(self._group_style())
         ex_lay = QVBoxLayout(box_exec)
         ex_lay.setSpacing(6)
 
         ctrl_btns = QHBoxLayout()
-        self.btn_start_ros2 = QPushButton("🟠 VẼ THEO ROS 2 (Đường Cam)")
+        self.btn_start_ros2 = QPushButton("🟠 VẼ THEO ROS 2 (Đối Chứng)")
         self.btn_start_ros2.setStyleSheet("""
             QPushButton {
                 background-color: #d97706; color: white; font-weight: bold;
@@ -1805,10 +2031,32 @@ class ImageGCodeDrawingTab(QWidget):
         self.btn_start_ros2.clicked.connect(lambda: self._start_execution("ros2"))
         ctrl_btns.addWidget(self.btn_start_ros2)
 
-        self.btn_start = QPushButton("🟢 VẼ THEO IGA (Đường Xanh Lá)")
-        self.btn_start.setStyleSheet(self._btn_green())
-        self.btn_start.clicked.connect(lambda: self._start_execution("iga"))
-        ctrl_btns.addWidget(self.btn_start)
+        # Nút IGA/Hình học C2 ẩn đi theo yêu cầu độ chính xác cao (Tránh bo tròn méo góc)
+        self.btn_start = QPushButton("🟢 VẼ THEO IGA")
+        self.btn_start.setVisible(False)
+
+        self.btn_start_mpc = QPushButton("🎯 VẼ THEO MPC (Bám Chuẩn 100%)")
+        self.btn_start_mpc.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ec4899, stop:1 #d946ef);
+                color: white; font-weight: bold; border-radius: 5px; padding: 8px 10px; font-size: 11px;
+            }
+            QPushButton:hover { background: #be185d; }
+        """)
+        self.btn_start_mpc.clicked.connect(lambda: self._start_execution("mpc"))
+        ctrl_btns.addWidget(self.btn_start_mpc)
+
+        self.btn_draw_optimal_mpc = QPushButton("🏆 VẼ TƯ THẾ TỐI ƯU (MPC)")
+        self.btn_draw_optimal_mpc.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ec4899, stop:1 #a855f7);
+                color: white; font-weight: bold; border-radius: 5px; padding: 8px 10px; font-size: 11px;
+                border: 1px solid #f472b6;
+            }
+            QPushButton:hover { background: #db2777; border-color: #fbcfe8; }
+        """)
+        self.btn_draw_optimal_mpc.clicked.connect(self._draw_selected_posture_mpc)
+        ctrl_btns.addWidget(self.btn_draw_optimal_mpc)
 
         self.btn_pause = QPushButton("⏸️ Tạm Dừng")
         self.btn_pause.setStyleSheet(self._btn_secondary())
@@ -2225,7 +2473,7 @@ class ImageGCodeDrawingTab(QWidget):
 
         self.txt_report.setPlainText("\n".join(rep))
 
-    def _start_execution(self, algo_mode: str = "iga"):
+    def _start_execution(self, algo_mode: str = "iga", custom_q_traj: Optional[np.ndarray] = None, posture_title: str = ""):
         if not self.current_strokes:
             QMessageBox.warning(self, "Chú ý", "Vui lòng phân rã điểm ảnh trước khi bắt đầu!")
             return
@@ -2234,13 +2482,16 @@ class ImageGCodeDrawingTab(QWidget):
             QMessageBox.information(self, "Thông báo", "Robot đang trong quá trình thực thi!")
             return
 
-        algo_mode = "ros2" if algo_mode == "ros2" else "iga"
+        algo_mode = "ros2" if algo_mode == "ros2" else ("mpc" if algo_mode == "mpc" else "iga")
         self.canvas.set_algo_mode(algo_mode)
         if self.trail_pub:
             self.trail_pub.set_algo_mode(algo_mode)
 
         self.worker = TrajectoryExecutionWorker(self.bridge, self.engine, self.trail_pub)
-        self.worker.load_strokes(self.current_strokes, speed_scale=1.0, algo_mode=algo_mode)
+        self.worker.load_strokes(
+            self.current_strokes, speed_scale=1.0, algo_mode=algo_mode,
+            custom_q_traj=custom_q_traj, posture_title=posture_title
+        )
         self.worker.sig_progress.connect(self._on_worker_progress)
         self.worker.sig_status.connect(self._on_worker_status)
         self.worker.sig_finished.connect(self._on_worker_finished)
@@ -2248,6 +2499,9 @@ class ImageGCodeDrawingTab(QWidget):
         self.progress_bar.setValue(0)
         self.btn_start.setEnabled(False)
         self.btn_start_ros2.setEnabled(False)
+        self.btn_start_mpc.setEnabled(False)
+        if hasattr(self, "btn_draw_optimal_mpc"):
+            self.btn_draw_optimal_mpc.setEnabled(False)
         self.btn_pause.setText("⏸️ Tạm Dừng")
         self.worker.start()
 
@@ -2266,6 +2520,9 @@ class ImageGCodeDrawingTab(QWidget):
             self.worker.cancel()
             self.btn_start.setEnabled(True)
             self.btn_start_ros2.setEnabled(True)
+            self.btn_start_mpc.setEnabled(True)
+            if hasattr(self, "btn_draw_optimal_mpc"):
+                self.btn_draw_optimal_mpc.setEnabled(True)
             self.btn_pause.setText("⏸️ Tạm Dừng")
 
     def _on_worker_progress(self, curr, total, pct, x, y, z, is_draw, q_target=None):
@@ -2292,7 +2549,150 @@ class ImageGCodeDrawingTab(QWidget):
     def _on_worker_finished(self):
         self.btn_start.setEnabled(True)
         self.btn_start_ros2.setEnabled(True)
+        self.btn_start_mpc.setEnabled(True)
+        if hasattr(self, "btn_draw_optimal_mpc"):
+            self.btn_draw_optimal_mpc.setEnabled(True)
         self.btn_pause.setText("⏸️ Tạm Dừng")
+
+    def _on_gcode_preset_changed(self, idx: int):
+        shape_key = self.combo_gcode_presets.currentData()
+        if not shape_key or shape_key not in BUILTIN_GCODE_PATTERNS:
+            return
+        pat = BUILTIN_GCODE_PATTERNS[shape_key]
+        gcode_text = pat.get("gcode", "")
+        self.txt_gcode.setPlainText(gcode_text)
+        self._reload_from_editor()
+        self.lbl_exec_status.setText(f"Đã nạp mẫu [{pat.get('name', shape_key)}]. Đang phân tích tư thế tối ưu...")
+        self.lbl_exec_status.setStyleSheet("color: #38bdf8; font-weight: bold;")
+        # Tự động chạy đánh giá tư thế MPC cho hình này
+        QTimer.singleShot(100, self._run_mpc_posture_evaluation)
+
+    def _run_mpc_posture_evaluation(self):
+        if not self.current_strokes:
+            QMessageBox.warning(self, "Chú ý", "Vui lòng phân rã điểm ảnh hoặc nạp mã G-code trước!")
+            return
+
+        if not self.posture_optimizer:
+            QMessageBox.warning(self, "Lỗi", "Không tìm thấy bộ điều khiển tối ưu DensoPostureMPCOptimizer!")
+            return
+
+        self.lbl_posture_detail.setText("⏳ Đang mô phỏng và phân tích toàn diện 6 tư thế khớp qua MPC (RNEA & Jerk)...")
+        self.lbl_posture_detail.setStyleSheet("color: #fbbf24; font-weight: bold;")
+        QApplication.processEvents()
+
+        # Trích xuất toàn bộ chuỗi điểm Cartesian từ current_strokes
+        raw_waypoints = []
+        for stroke in self.current_strokes:
+            for pt in stroke.points:
+                raw_waypoints.append([pt.x * 1e-3, pt.y * 1e-3, pt.z * 1e-3, pt.is_draw])
+
+        if len(raw_waypoints) < 4:
+            self.lbl_posture_detail.setText("⚠️ Số lượng điểm vẽ quá ít để phân tích MPC.")
+            return
+
+        eval_res = self.posture_optimizer.optimize_and_select_best_posture(raw_waypoints, dt=0.05)
+        if not eval_res or not eval_res.get("all_ranked_postures"):
+            self.lbl_posture_detail.setText("❌ Không có tư thế nào đạt nghiệm động học trong không gian làm việc này.")
+            self.lbl_posture_detail.setStyleSheet("color: #f87171; font-weight: bold;")
+            return
+
+        self.latest_posture_evaluation = eval_res
+        ranked = eval_res["all_ranked_postures"]
+        best = eval_res["best_posture"]
+
+        self.combo_postures.blockSignals(True)
+        self.combo_postures.clear()
+        for r in ranked:
+            p_obj = r["posture"]
+            star = "🏆 Hạng 1 (TỐI ƯU NHẤT)" if r.get("is_best") else f"Hạng {r['rank']}"
+            txt = f"{star}: {p_obj.badge} | E={r['energy_joules']:.0f}J | Jerk={r['jerk_score']:.0f} | Tải={r['max_torque_pct']:.1f}%"
+            self.combo_postures.addItem(txt, r)
+        self.combo_postures.setCurrentIndex(0)
+        self.combo_postures.blockSignals(False)
+
+        self.selected_posture_res = best
+        p_best = best["posture"]
+        q_traj_best = best.get("q_traj")
+        q_mid_best_str = ""
+        if q_traj_best is not None and len(q_traj_best) > 0:
+            q_mid = np.round(np.rad2deg(q_traj_best[len(q_traj_best) // 2]), 1).tolist()
+            q_mid_best_str = f"• Góc 6 khớp trung tâm q: [{q_mid[0]}°, {q_mid[1]}°, {q_mid[2]}°, {q_mid[3]}°, {q_mid[4]}°, {q_mid[5]}°]\n"
+
+        self.lbl_posture_detail.setText(
+            f"🏆 MPC LỰA CHỌN TỐI ƯU NHẤT: {p_best.name}\n"
+            f"{q_mid_best_str}"
+            f"• Năng lượng: {best['energy_joules']:.1f} J (Thấp nhất) | Jerk: {best['jerk_score']:.1f} | Tải đỉnh vai J2: {best['max_torque_pct']:.1f}%\n"
+            f"• Phân bổ mô-men & khối lượng: {p_best.desc}"
+        )
+        self.lbl_posture_detail.setStyleSheet("color: #4ade80; font-size: 11px; font-weight: bold;")
+        self.lbl_exec_status.setText(f"✅ MPC đã tuyển chọn tư thế tối ưu: [{p_best.badge}] ({best['energy_joules']:.0f} J)")
+        self.lbl_exec_status.setStyleSheet("color: #4ade80; font-weight: bold;")
+
+    def _on_posture_selected_changed(self, idx: int):
+        data = self.combo_postures.currentData()
+        if not data:
+            return
+        self.selected_posture_res = data
+        p_obj = data["posture"]
+        is_best = data.get("is_best", False)
+        tag = "🏆 TƯ THẾ TỐI ƯU NHẤT" if is_best else f"TƯ THẾ HẠNG {data.get('rank', idx+1)}"
+        col = "#4ade80" if is_best else "#38bdf8"
+
+        q_traj = data.get("q_traj")
+        q_mid_str = ""
+        if q_traj is not None and len(q_traj) > 0:
+            q_mid = np.round(np.rad2deg(q_traj[len(q_traj) // 2]), 1).tolist()
+            q_mid_str = f"• Góc 6 khớp trung tâm q: [{q_mid[0]}°, {q_mid[1]}°, {q_mid[2]}°, {q_mid[3]}°, {q_mid[4]}°, {q_mid[5]}°]\n"
+
+        self.lbl_posture_detail.setText(
+            f"{tag}: {p_obj.name}\n"
+            f"{q_mid_str}"
+            f"• Năng lượng: {data['energy_joules']:.1f} J | Jerk: {data['jerk_score']:.1f} | Tải đỉnh vai J2: {data['max_torque_pct']:.1f}% (MPC Cost: {data['mpc_cost']:.1f})\n"
+            f"• Phân bổ mô-men & khối lượng: {p_obj.desc}"
+        )
+        self.lbl_posture_detail.setStyleSheet(f"color: {col}; font-size: 11px; font-weight: bold;")
+
+    def _draw_selected_posture_mpc(self):
+        """Thực thi chính xác tư thế đang chọn trong danh sách để người dùng quan sát và so sánh trực quan."""
+        if not self.current_strokes:
+            QMessageBox.warning(self, "Chú ý", "Vui lòng phân rã điểm ảnh hoặc nạp G-code trước!")
+            return
+
+        if not self.selected_posture_res:
+            self._run_mpc_posture_evaluation()
+
+        if not self.selected_posture_res:
+            QMessageBox.warning(self, "Lỗi", "Chưa có dữ liệu tư thế để thực thi!")
+            return
+
+        q_traj = self.selected_posture_res.get("q_traj")
+        p_name = self.selected_posture_res["posture"].name
+        self.lbl_exec_status.setText(f"🤖 Đang thực thi [{p_name}] để so sánh...")
+        self.lbl_exec_status.setStyleSheet("color: #38bdf8; font-weight: bold;")
+        self._start_execution("mpc", custom_q_traj=q_traj, posture_title=p_name)
+
+    def _draw_best_optimal_posture(self):
+        """Tự động chọn tư thế đạt giải Hạng 1 và thực thi."""
+        if not self.current_strokes:
+            QMessageBox.warning(self, "Chú ý", "Vui lòng phân rã điểm ảnh hoặc nạp G-code trước!")
+            return
+
+        if not self.latest_posture_evaluation or not self.latest_posture_evaluation.get("best_posture"):
+            self._run_mpc_posture_evaluation()
+
+        if not self.latest_posture_evaluation or not self.latest_posture_evaluation.get("best_posture"):
+            QMessageBox.warning(self, "Lỗi", "Chưa có dữ liệu tư thế tối ưu!")
+            return
+
+        best = self.latest_posture_evaluation["best_posture"]
+        # Đặt lại combo sang tư thế tốt nhất
+        for idx in range(self.combo_postures.count()):
+            d = self.combo_postures.itemData(idx)
+            if d and d.get("is_best"):
+                self.combo_postures.setCurrentIndex(idx)
+                break
+
+        self._draw_selected_posture_mpc()
 
     def _clear_all_trails(self):
         if self.trail_pub:

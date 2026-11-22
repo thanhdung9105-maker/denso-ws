@@ -13,7 +13,7 @@
     "icon": "⭕",
     "filename": "starter_circle_r40.gcode",
     "created_at": "Mặc định hệ thống",
-    "description": "Quỹ đạo vòng tròn bán kính 40mm nội suy cung G02"
+    "description": "Quỹ đạo vòng tròn bán kính 40mm nội suy cung G02 tại tâm X=-380, Y=0"
   },
   {
     "id": "starter_triangle_80",
@@ -21,7 +21,23 @@
     "icon": "🔺",
     "filename": "starter_triangle_80.gcode",
     "created_at": "Mặc định hệ thống",
-    "description": "Tam giác đều cạnh 80mm cân đối tại tâm bàn vẽ"
+    "description": "Tam giác đều cạnh 80mm cân đối chính xác tại tâm bàn vẽ X=-380, Y=0"
+  },
+  {
+    "id": "starter_star_80",
+    "name": "Ngôi sao 5 cánh (Star 80mm)",
+    "icon": "⭐",
+    "filename": "starter_star_80.gcode",
+    "created_at": "Mặc định hệ thống",
+    "description": "Ngôi sao 5 cánh đường kính 80mm đối xứng qua tâm bàn vẽ X=-380, Y=0"
+  },
+  {
+    "id": "starter_spiral_archimedes",
+    "name": "Hoa văn xoắn ốc (Spiral Archimedes)",
+    "icon": "🌀",
+    "filename": "starter_spiral_archimedes.gcode",
+    "created_at": "Mặc định hệ thống",
+    "description": "Quỹ đạo xoắn ốc Archimedes trơn mượt tỏa đều từ tâm bàn vẽ X=-380, Y=0"
   },
   {
     "id": "starter_denso_text",
@@ -29,6 +45,6 @@
     "icon": "⚡",
     "filename": "starter_denso_lettering.gcode",
     "created_at": "Mặc định hệ thống",
-    "description": "Khắc chữ DENSO nét đơn giản trên bề mặt gia công"
+    "description": "Khắc chữ DENSO nét đơn giản cân đối trên bề mặt bàn vẽ"
   }
 ]

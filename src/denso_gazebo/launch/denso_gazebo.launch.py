@@ -242,14 +242,17 @@ def generate_launch_description():
         "GZ_RELAY": "127.0.0.1",
         "DISPLAY": os.environ.get("DISPLAY", ":0"),
         "WAYLAND_DISPLAY": "",
-        "GALLIUM_DRIVER": os.environ.get("GALLIUM_DRIVER", "d3d12"),
+        "LIBGL_ALWAYS_SOFTWARE": "1",
+        "GALLIUM_DRIVER": "llvmpipe",
+        "LP_NUM_THREADS": "4",
         "OGRE_RTT_MODE": "FBO",
         "QT_QPA_PLATFORM": "xcb",
         "QT_AUTO_SCREEN_SCALE_FACTOR": "0",
         "QT_SCALE_FACTOR": "1",
     }
-    if "MESA_D3D12_DEFAULT_ADAPTER_NAME" in os.environ:
-        gz_gui_env["MESA_D3D12_DEFAULT_ADAPTER_NAME"] = os.environ["MESA_D3D12_DEFAULT_ADAPTER_NAME"]
+    # Tuyệt đối không nạp MESA_D3D12_DEFAULT_ADAPTER_NAME để tránh crash dxg ioctl
+    if "MESA_D3D12_DEFAULT_ADAPTER_NAME" in gz_gui_env:
+        del gz_gui_env["MESA_D3D12_DEFAULT_ADAPTER_NAME"]
 
     start_gazebo_gui = RegisterEventHandler(
         event_handler=OnProcessExit(

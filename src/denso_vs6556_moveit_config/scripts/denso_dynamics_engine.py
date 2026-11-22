@@ -27,7 +27,7 @@ TORQUE_LIMITS = np.array([80.0, 100.0, 60.0, 25.0, 20.0, 15.0])
 
 # DENSO VS-6556 AC Servomotor Specifications (Denso Manual No. 410590-0080)
 # Rated Power (Watts) per joint
-MOTOR_POWER_WATTS = np.array([400.0, 750.0, 400.0, 100.0, 100.0, 100.0])
+MOTOR_POWER_WATTS = np.array([750.0, 400.0, 200.0, 80.0, 50.0, 50.0])  # User specs: 750W 400W 200W 80W 50W 50W
 
 # Rated Motor Speed (RPM)
 MOTOR_RATED_RPM = 3000.0

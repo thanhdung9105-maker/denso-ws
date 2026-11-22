@@ -55,17 +55,33 @@ G00 X-380.00 Y0.00
 M30
 ''',
     'triangle': '''; --- Hinh Tam Giac Deu Canh 80mm ---
-; Tam ve: X=-380.00, Y=0.00
+; Tam ve: X=-380.00, Y=0.00 | Cao do Z_draw=180.00, Z_lift=205.00
 G21
 G90
-G00 Z205.00 F2500
-G00 X-340.00 Y0.00
-G01 Z180.00 F1000
-G01 X-400.00 Y-40.00 F2000
-G01 X-400.00 Y40.00 F2000
-G01 X-340.00 Y0.00 F2000
-G00 Z205.00 F2500
-G00 X-380.00 Y0.00
+G00 Z205.00 F2500 ; Nhac but an toan
+G00 X-333.81 Y0.00 ; Dinh tren
+G01 Z180.00 F1000 ; Ha but tiep xuc ban ve
+G01 X-403.09 Y-40.00 F2000 ; Canh 1 (80.00mm)
+G01 X-403.09 Y40.00 F2000 ; Canh 2 (80.00mm)
+G01 X-333.81 Y0.00 F2000 ; Canh 3 khep kin (80.00mm)
+G00 Z205.00 F2500 ; Nhac but
+G00 X-380.00 Y0.00 ; Ve tam san sang
+M30
+''',
+    'star': '''; --- Ngoi Sao 5 Canh 80mm Can Doi ---
+; Tam ve: X=-380.00, Y=0.00 | Cao do Z_draw=180.00, Z_lift=205.00
+G21
+G90
+G00 Z205.00 F2500 ; Nhac but an toan
+G00 X-340.00 Y0.00 ; Dinh 1 (Top)
+G01 Z180.00 F1000 ; Ha but tiep xuc ban ve
+G01 X-403.51 Y-38.04 F2000 ; Dinh 3 (Bottom-Left)
+G01 X-367.64 Y23.51 F2000 ; Dinh 5 (Top-Right)
+G01 X-367.64 Y-23.51 F2000 ; Dinh 2 (Top-Left)
+G01 X-403.51 Y38.04 F2000 ; Dinh 4 (Bottom-Right)
+G01 X-340.00 Y0.00 F2000 ; Ve lai Dinh 1 khep kin
+G00 Z205.00 F2500 ; Nhac but
+G00 X-380.00 Y0.00 ; Ve tam san sang
 M30
 ''',
     'denso': '''; --- Khac Chu DENSO Don Net ---
@@ -337,6 +353,7 @@ class GCodeCatalogManager:
             'starter_square_80x80.gcode': GCODE_TEMPLATES['square'],
             'starter_circle_r40.gcode': GCODE_TEMPLATES['circle'],
             'starter_triangle_80.gcode': GCODE_TEMPLATES['triangle'],
+            'starter_star_80.gcode': GCODE_TEMPLATES['star'],
             'starter_spiral_archimedes.gcode': GCODE_TEMPLATES['spiral'],
             'starter_denso_lettering.gcode': GCODE_TEMPLATES['denso']
         }

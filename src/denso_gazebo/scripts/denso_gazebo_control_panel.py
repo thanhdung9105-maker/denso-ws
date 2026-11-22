@@ -597,9 +597,9 @@ class DensoGazeboPanel(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle('DENSO VS-6556 - BẢNG ĐIỀU KHIỂN ROBOT TRONG GAZEBO')
-        self.resize(1300, 740)
-        self.move(120, 40)
-        self.setMinimumSize(960, 580)
+        self.resize(900, 930)
+        self.move(960, 60)
+        self.setMinimumSize(880, 550)
 
         self.setStyleSheet("""
             QMainWindow { background-color: #0b1120; }
@@ -757,14 +757,14 @@ class DensoGazeboPanel(QMainWindow):
                     item_name=self.tab_gcode.lbl_img_path.text()
                 )
 
-        # Tab 7: BẢNG SO SÁNH & TEST THUẬT TOÁN ĐƯỜNG THẲNG & NĂNG LƯỢNG (BENCHMARK)
-        from denso_trajectory_benchmark_tab import DensoTrajectoryBenchmarkTab
-        self.tab_benchmark = DensoTrajectoryBenchmarkTab(
+        # Tab 7: TỐI ƯU HÓA NĂNG LƯỢNG VẼ G-CODE ĐA CẤU HÌNH (MOMENT & 6 MOTOR POWERS)
+        from denso_gcode_energy_optimizer_tab import DensoGCodeEnergyOptimizerTab
+        self.tab_benchmark = DensoGCodeEnergyOptimizerTab(
             bridge=self.bridge,
             engine=self.engine,
             parent=self
         )
-        self.tabs.addTab(self.tab_benchmark, "⚡ 7. TEST THUẬT TOÁN")
+        self.tabs.addTab(self.tab_benchmark, "⚡ 7. TỐI ƯU NĂNG LƯỢNG G-CODE")
         self.tabs.setCurrentIndex(4)
 
         main_layout.addWidget(self.tabs, 1)
@@ -2595,10 +2595,14 @@ class DensoGazeboPanel(QMainWindow):
         # Cập nhật nét vẽ tức thời trong Gazebo Sim theo chuyển động thực tế
         if hasattr(self, 'tab_gcode') and self.tab_gcode is not None:
             trail_pub = getattr(self.tab_gcode, 'trail_pub', None)
-            worker = getattr(self.tab_gcode, 'worker', None)
-            is_worker_running = worker is not None and worker.isRunning()
+            worker_gcode = getattr(self.tab_gcode, 'worker', None)
+            worker_opt = getattr(getattr(self, 'tab_optimizer', None), 'worker', None)
+            is_worker_running = (
+                (worker_gcode is not None and worker_gcode.isRunning()) or
+                (worker_opt is not None and worker_opt.isRunning())
+            )
             
-            # Khi không chạy luồng G-Code tự động, theo dõi ngòi bút khi người dùng điều khiển thủ công
+            # Khi không chạy bất kỳ luồng vẽ tự động nào (Tab 5 hoặc Tab 7), theo dõi ngòi bút khi người dùng điều khiển thủ công
             if trail_pub is not None and not is_worker_running and is_conn:
                 try:
                     tfs, _ = self.engine.get_dh_transforms(pos)

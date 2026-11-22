@@ -51,8 +51,8 @@ def generate_launch_description():
 
     launch_rviz_arg = DeclareLaunchArgument(
         'launch_rviz',
-        default_value='false',
-        description='Launch RViz2 visualizer (default false to save CPU and eliminate lag in Gazebo)'
+        default_value='true',
+        description='Launch RViz2 visualizer'
     )
 
     # Launch Gazebo Simulation with controllers and single robot_state_publisher
