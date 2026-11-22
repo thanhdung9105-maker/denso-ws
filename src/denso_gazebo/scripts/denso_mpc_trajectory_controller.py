@@ -321,11 +321,11 @@ class DensoPostureMPCOptimizer:
                 "Khớp mặt bích J6 xoay vuông góc -90° ngược chiều, thay đổi hướng gia tốc ly tâm và mô-men quay của cổ tay."
             ),
             PostureCandidate(
-                "posture_5_tilt_fwd_168",
-                "Tư thế 5: Nghiêng Vát Vươn Trước 168° (Forward Tilt 168°)",
-                "Nghiêng Trước 168°",
-                math.radians(168.0), 0.0, True, "#a855f7",
-                "Khớp gập uốn cổ tay J5 gập sâu 26° (gấp 2.2 lần chuẩn), cánh tay vai J2 mở rộng góc vươn 38.5°, cẳng tay hạ thấp."
+                "posture_5_tilt_flange_15",
+                "Tư thế 5: Khớp 6 Nghiêng Góc 15° (Tilted Flange / Khớp 6 Nghiêng)",
+                "Khớp 6 Nghiêng 15°",
+                math.radians(165.0), 0.0, True, "#a855f7",
+                "Mặt bích Khớp 6 nghiêng 15° so với phương thẳng đứng (tương tự tư thế cầm bút viết thư pháp), khớp cổ tay J5 gập sâu 24.8° để bù trừ, vẫn vẽ chuẩn xác 100% hình vuông."
             ),
             PostureCandidate(
                 "posture_6_compound_yaw45",

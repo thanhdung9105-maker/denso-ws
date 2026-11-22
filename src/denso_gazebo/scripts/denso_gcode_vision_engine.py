@@ -1349,22 +1349,10 @@ class TrajectoryExecutionWorker(QThread):
 
         max_dq = max(abs(q_start[i] - q_curr[i]) for i in range(min(len(q_start), len(q_curr))))
         if max_dq > 0.03:
-            transit_dur = max(1.8, min(4.2, max_dq / 1.0))
+            transit_dur = max(1.5, min(3.5, max_dq / 1.0))
             self.sig_status.emit(f"🤖 Đang di chuyển cánh tay tới điểm bắt đầu ({transit_dur:.1f}s)...", "info")
             self.bridge.send_trajectory(q_start, duration_sec=transit_dur, zero_velocity=True)
-            
-            t_start = time.time()
-            max_wait = transit_dur * 3.0 + 1.0
-            while (time.time() - t_start < max_wait) and self.is_running:
-                pos_act = list(self.bridge.latest_positions)
-                if len(pos_act) >= 6:
-                    dq = max(abs(pos_act[i] - q_start[i]) for i in range(6))
-                    if dq < 0.035:
-                        break
-                time.sleep(0.04)
-                with self.pause_cond:
-                    while self.is_paused and self.is_running:
-                        self.pause_cond.wait()
+            time.sleep(transit_dur + 0.3)
             q_curr = list(q_start)
 
         # BƯỚC 1.5: Tối ưu hóa dự báo MPC nếu chọn chế độ MPC
@@ -1474,19 +1462,19 @@ class TrajectoryExecutionWorker(QThread):
                         continue
                     q_target = q_sol
 
-                is_last_pt = (p_idx == n_pts - 1)
+                is_last_pt = (p_idx == n_pts - 1) and (s_idx == len(self.strokes) - 1)
                 if self.algo_mode == "ros2":
                     dt_step = max(0.045, min(0.14, 0.068 / self.speed_scale))
                     stop_at_pt = is_last_pt or is_sharp_corner
                 elif self.algo_mode == "mpc":
-                    dt_step = max(0.035, min(0.10, 0.050 / self.speed_scale))
+                    dt_step = max(0.040, min(0.090, 0.055 / self.speed_scale))
                     stop_at_pt = is_last_pt
                 else:
-                    dt_step = max(0.032, min(0.11, 0.048 / self.speed_scale))
+                    dt_step = max(0.035, min(0.090, 0.050 / self.speed_scale))
                     stop_at_pt = is_last_pt
 
                 is_draw_effective = bool(is_drawing and z_draw <= 188.0 and pos_m[2] <= 0.188)
-                self.bridge.send_trajectory(q_target, duration_sec=dt_step, zero_velocity=stop_at_pt)
+                self.bridge.send_trajectory(q_target, duration_sec=dt_step * 1.35, zero_velocity=stop_at_pt)
                 q_curr = list(q_target)
 
                 # Xuất bản vệt vẽ tức thời thời gian thực tới RViz2 & Gazebo Sim
@@ -2046,18 +2034,6 @@ class ImageGCodeDrawingTab(QWidget):
         self.btn_start_mpc.clicked.connect(lambda: self._start_execution("mpc"))
         ctrl_btns.addWidget(self.btn_start_mpc)
 
-        self.btn_draw_optimal_mpc = QPushButton("🏆 VẼ TƯ THẾ TỐI ƯU (MPC)")
-        self.btn_draw_optimal_mpc.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ec4899, stop:1 #a855f7);
-                color: white; font-weight: bold; border-radius: 5px; padding: 8px 10px; font-size: 11px;
-                border: 1px solid #f472b6;
-            }
-            QPushButton:hover { background: #db2777; border-color: #fbcfe8; }
-        """)
-        self.btn_draw_optimal_mpc.clicked.connect(self._draw_selected_posture_mpc)
-        ctrl_btns.addWidget(self.btn_draw_optimal_mpc)
-
         self.btn_pause = QPushButton("⏸️ Tạm Dừng")
         self.btn_pause.setStyleSheet(self._btn_secondary())
         self.btn_pause.clicked.connect(self._toggle_pause)
@@ -2298,6 +2274,7 @@ class ImageGCodeDrawingTab(QWidget):
         splitter.setStretchFactor(1, 6)
 
         main_layout.addWidget(splitter)
+        QTimer.singleShot(50, self._load_initial_sample)
 
     def _group_style(self):
         return """
@@ -2368,11 +2345,15 @@ class ImageGCodeDrawingTab(QWidget):
         """
 
     def _load_initial_sample(self):
-        sample_path = os.path.join(self.sample_dir, "star_5point.png")
-        if os.path.exists(sample_path):
-            self.processor.load_image(sample_path)
-            self.lbl_img_path.setText(f"Tệp: star_5point.png")
-            self.process_image_to_trajectory()
+        # Mặc định nạp ngay mẫu Hình Vuông Chuẩn 80x80 mm (Tâm X=-380, Y=0) cho Tab 5
+        idx_sq = self.combo_gcode_presets.findData("square")
+        if idx_sq >= 0:
+            self.combo_gcode_presets.setCurrentIndex(idx_sq)
+        elif "square" in BUILTIN_GCODE_PATTERNS:
+            pat = BUILTIN_GCODE_PATTERNS["square"]
+            self.txt_gcode.setPlainText(pat.get("gcode", ""))
+            self._reload_from_editor(show_dialog=False)
+            self._run_mpc_posture_evaluation()
 
     def _browse_image(self):
         fn, _ = QFileDialog.getOpenFileName(
@@ -2500,6 +2481,8 @@ class ImageGCodeDrawingTab(QWidget):
         self.btn_start.setEnabled(False)
         self.btn_start_ros2.setEnabled(False)
         self.btn_start_mpc.setEnabled(False)
+        if hasattr(self, "btn_draw_selected_posture"):
+            self.btn_draw_selected_posture.setEnabled(False)
         if hasattr(self, "btn_draw_optimal_mpc"):
             self.btn_draw_optimal_mpc.setEnabled(False)
         self.btn_pause.setText("⏸️ Tạm Dừng")
@@ -2521,6 +2504,8 @@ class ImageGCodeDrawingTab(QWidget):
             self.btn_start.setEnabled(True)
             self.btn_start_ros2.setEnabled(True)
             self.btn_start_mpc.setEnabled(True)
+            if hasattr(self, "btn_draw_selected_posture"):
+                self.btn_draw_selected_posture.setEnabled(True)
             if hasattr(self, "btn_draw_optimal_mpc"):
                 self.btn_draw_optimal_mpc.setEnabled(True)
             self.btn_pause.setText("⏸️ Tạm Dừng")
@@ -2550,6 +2535,8 @@ class ImageGCodeDrawingTab(QWidget):
         self.btn_start.setEnabled(True)
         self.btn_start_ros2.setEnabled(True)
         self.btn_start_mpc.setEnabled(True)
+        if hasattr(self, "btn_draw_selected_posture"):
+            self.btn_draw_selected_posture.setEnabled(True)
         if hasattr(self, "btn_draw_optimal_mpc"):
             self.btn_draw_optimal_mpc.setEnabled(True)
         self.btn_pause.setText("⏸️ Tạm Dừng")
@@ -2561,7 +2548,7 @@ class ImageGCodeDrawingTab(QWidget):
         pat = BUILTIN_GCODE_PATTERNS[shape_key]
         gcode_text = pat.get("gcode", "")
         self.txt_gcode.setPlainText(gcode_text)
-        self._reload_from_editor()
+        self._reload_from_editor(show_dialog=False)
         self.lbl_exec_status.setText(f"Đã nạp mẫu [{pat.get('name', shape_key)}]. Đang phân tích tư thế tối ưu...")
         self.lbl_exec_status.setStyleSheet("color: #38bdf8; font-weight: bold;")
         # Tự động chạy đánh giá tư thế MPC cho hình này
@@ -2729,7 +2716,7 @@ class ImageGCodeDrawingTab(QWidget):
             self.txt_gcode.setPlainText(content)
             self._reload_from_editor()
 
-    def _reload_from_editor(self):
+    def _reload_from_editor(self, show_dialog: bool = True):
         text = self.txt_gcode.toPlainText()
         spacing = self.sp_point_spacing.value()
         zd = self.sp_z_draw.value()
@@ -2747,7 +2734,8 @@ class ImageGCodeDrawingTab(QWidget):
             self.joint_table_widget.set_strokes(strokes, item_name="G-Code Editor")
         self._init_monitor_from_strokes(strokes)
         self.lbl_exec_status.setText(f"Đã nạp {len(strokes)} nét từ G-code | {val_res['valid_points']} điểm hợp lệ.")
-        QMessageBox.information(self, "Thông báo", f"Đã phân tích thành công {len(strokes)} nét vẽ từ mã G-code!")
+        if show_dialog:
+            QMessageBox.information(self, "Thông báo", f"Đã phân tích thành công {len(strokes)} nét vẽ từ mã G-code!")
 
     def _init_monitor_from_strokes(self, strokes: List[Stroke]):
         """Khởi tạo giá trị trên khung giám sát tức thời từ điểm đầu tiên của quỹ đạo."""
