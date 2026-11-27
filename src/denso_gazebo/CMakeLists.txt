@@ -13,6 +13,7 @@ install(DIRECTORY
   config
   urdf
   worlds
+  drawing_samples
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -21,6 +22,12 @@ install(PROGRAMS
   scripts/test_gazebo_motion.py
   scripts/denso_gazebo_control_panel.py
   scripts/denso_gcode_vision_engine.py
+  scripts/denso_gcode_energy_optimizer.py
+  scripts/denso_gcode_energy_optimizer_tab.py
+  scripts/denso_mpc_trajectory_controller.py
+  scripts/denso_robot_energy_parameters.py
+  scripts/denso_rl_policy_optimizer.py
+  scripts/demo_ofoegbu2026_empc.py
   scripts/denso_gcode_joint_table.py
   scripts/denso_gcode_catalog.py
   scripts/denso_trajectory_benchmark_tab.py

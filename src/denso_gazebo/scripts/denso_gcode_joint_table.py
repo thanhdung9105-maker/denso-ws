@@ -387,43 +387,40 @@ def export_records_to_html(records: List[GCodePointRecord], file_path: str, titl
 
 
 
-def export_records_to_gcode(records, file_path, default_feed: float = 2000.0):
-    """Xuất file G-code 6 trục (A, B, C, U, V, W) chuẩn định dạng theo yêu cầu:
-    G90 ; absolute positioning
-    G1 A-10.33 B-2.98 C14.47 U-10.90 V43.18 W12.76 F2000
-    G1 A-19.93 B-22.77 C-33.81 U-4.94 V-14.31 W-17.39
-    Không thêm bớt bất kỳ thông tin nào khác, F mặc định là 2000."""
+def format_joint_gcode(samples, default_feed: float = 1200.0) -> str:
+    """Encode degree samples as DENSO G-code in A, B, C, U, V, W order."""
+    lines = ["G90 ; absolute positioning"]
+    first_draw = True
+    for q_deg, is_draw in samples:
+        coords = []
+        for axis, value in zip("ABCUVW", q_deg):
+            angle = round(float(value), 2)
+            coords.append(f"{axis}{(angle or 0.0):.2f}")
+        line = ("G1" if is_draw else "G0") + " " + " ".join(coords)
+        if is_draw and first_draw:
+            feed = int(round(default_feed)) if default_feed and default_feed > 0 else 1200
+            line += f" F{feed}"
+            first_draw = False
+        lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
+def export_records_to_gcode(records, file_path, default_feed: float = 1200.0):
+    """Save six-axis G-code for the available joint records."""
     try:
+        samples = (
+            (r.q_deg[:6], bool(getattr(r, "is_draw", True)))
+            for r in records if r.q_deg and len(r.q_deg) >= 6
+        )
+        text = format_joint_gcode(samples, default_feed)
         os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
         with open(file_path, mode="w", encoding="utf-8") as f:
-            f.write("G90 ; absolute positioning\n")
-            first_f = True
-            for r in records:
-                if r.q_deg and len(r.q_deg) >= 5:
-                    def fmt_coord(v: float) -> str:
-                        rv = round(float(v), 2)
-                        if abs(rv) < 1e-6:
-                            rv = 0.0
-                        return f"{rv:.2f}"
-
-                    w_deg = r.q_deg[5] if len(r.q_deg) >= 6 else 0.0
-                    a_s = fmt_coord(r.q_deg[0])
-                    b_s = fmt_coord(r.q_deg[1])
-                    c_s = fmt_coord(r.q_deg[2])
-                    u_s = fmt_coord(r.q_deg[3])
-                    v_s = fmt_coord(r.q_deg[4])
-                    w_s = fmt_coord(w_deg)
-
-                    line = f"G1 A{a_s} B{b_s} C{c_s} U{u_s} V{v_s} W{w_s}"
-                    if first_f:
-                        feed_int = int(round(default_feed)) if default_feed and default_feed > 0 else 2000
-                        line += f" F{feed_int}"
-                        first_f = False
-                    f.write(line + "\n")
+            f.write(text)
         return True
     except Exception as e:
         print(f"[ERROR] Xuat G-code that bai: {e}")
         return False
+
 
 def records_to_tsv(records: List[GCodePointRecord], unit: str = "deg") -> str:
     """Tạo chuỗi dữ liệu phân cách bằng Tab để người dùng dán trực tiếp vào Excel (Ctrl+V)."""
@@ -473,7 +470,7 @@ def extract_records_from_strokes(strokes: Any, engine: Any = None) -> List[GCode
             y = float(getattr(pt, "y", 0.0))
             z = float(getattr(pt, "z", 0.0))
             is_draw = bool(getattr(pt, "is_draw", is_stroke_draw))
-            feed = float(getattr(pt, "feedrate", 2000.0))
+            feed = float(getattr(pt, "feedrate", 1200.0))
             cmd = getattr(pt, "cmd", "G01" if is_draw else "G00")
 
             q_sol = getattr(pt, "q_sol", None)
@@ -710,7 +707,7 @@ class GCodeJointAnglesTableWidget(QWidget):
         self.btn_export_gcode = QPushButton("💾 XUẤT 6-LINK G-CODE (A, B, C, U, V, W)...")
         self.btn_export_gcode.setToolTip(
             "Xuất tệp G-code 6 trục (A/B/C/U/V/W) thẳng vào thư mục OneDrive/Máy tính/Denso\n"
-            "Định dạng G90, F2000 ở dòng đầu tiên, tọa độ chuẩn 2 chữ số thập phân."
+            "Định dạng G90, F1200 ở dòng đầu tiên, tọa độ chuẩn 2 chữ số thập phân."
         )
         self.btn_export_gcode.setStyleSheet("""
             QPushButton {
@@ -1319,7 +1316,7 @@ class GCodeJointAnglesTableWidget(QWidget):
                     '   Xuất IK khả thi: ' + str(valid_cnt) + '\n'
                     '   Bỏ qua IK lỗi: ' + str(skipped) + '\n'
                     '   Định dạng: G90 ; absolute positioning\n'
-                    '   Tốc độ mặc định: F2000 (2 chữ số thập phân)')
+                    '   Tốc độ mặc định: F1200 (2 chữ số thập phân)')
             QMessageBox.information(self, 'Xuất G-Code thành công', info)
         else:
             QMessageBox.critical(self, 'Loi', 'Khong the xuat G-code ra: ' + file_path)

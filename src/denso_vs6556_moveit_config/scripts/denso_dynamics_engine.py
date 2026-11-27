@@ -452,7 +452,30 @@ class DensoDynamicsEngine:
             "is_near_singularity": (w < 1e-3 or cond > 50.0),
         }
 
-    def solve_ik_analytical_point_p(self, target_pos_m, elbow_up=True, q_seed=None):
+    def compute_6dof_manipulability(self, q, use_flange=True, char_length_m=0.35):
+        """
+        Computes homogenized 6-DOF Yoshikawa manipulability w_6dof(q) = sqrt(det(J_h * J_h^T))
+        where J_h = [J_v / L_c; J_w] (L_c = 0.35 m characteristic reach for DENSO VS-6556),
+        capturing BOTH arm boundary singularities and spherical wrist singularities (J5 -> 0°).
+        """
+        J = self.compute_geometric_jacobian(q, use_flange=use_flange).copy()
+        L_c = max(1e-3, float(char_length_m))
+        J[:3, :] /= L_c
+        singular_vals = np.linalg.svd(J, compute_uv=False)
+        w_6dof = float(np.prod(singular_vals))
+        s_min = float(singular_vals[-1])
+        s_max = float(singular_vals[0])
+        cond = (s_max / s_min) if s_min > 1e-9 else float('inf')
+        abs_j5_deg = abs(math.degrees(float(q[4]))) if len(q) >= 5 else 90.0
+        return {
+            "manipulability": w_6dof,
+            "condition_number": cond,
+            "singular_values": singular_vals,
+            "abs_j5_deg": abs_j5_deg,
+            "is_near_singularity": bool(w_6dof < 0.065 or cond > 28.0 or abs_j5_deg < 11.0),
+        }
+
+    def solve_ik_analytical_point_p(self, target_pos_m, elbow_up=True, q_seed=None, shoulder_branch=None):
         """
         Closed-Form Analytical Geometric IK for Point P (Link 5 Wrist Center)
         with inverted pitch axes (Joint 2, 3 around -Y).
@@ -483,6 +506,11 @@ class DensoDynamicsEngine:
         q1_fwd = (q1_fwd + math.pi) % (2.0 * math.pi) - math.pi
 
         modes = [(q1_back, -r_xy), (q1_fwd, r_xy)]
+        if shoulder_branch is not None:
+            branch_index = int(shoulder_branch)
+            if branch_index not in (0, 1):
+                return None, False, 1.0
+            modes = [modes[branch_index]]
         dz = z - z2
         candidates = []
 
@@ -664,7 +692,7 @@ class DensoDynamicsEngine:
                 candidates.sort(key=lambda item: float(np.linalg.norm(item[0][:3] - np.array(q_seed)[:3])))
             return candidates[0][0], True, candidates[0][1]
 
-    def solve_ik_analytical_6dof(self, target_pos_m, target_rot_matrix, elbow_up=True, q_seed=None):
+    def solve_ik_analytical_6dof(self, target_pos_m, target_rot_matrix, elbow_up=True, q_seed=None, shoulder_branch=None, wrist_flip=None):
         """
         Closed-Form Analytical Geometric IK for Full 6-DOF Pose (Position + SO(3) Orientation)
         via Pieper's Spherical Wrist Decoupling (Tâm cổ tay cầu khâu 4-5-6 giao nhau tại Point P).
@@ -685,7 +713,9 @@ class DensoDynamicsEngine:
 
         # Step 2: Solve Joint 1, 2, 3 using closed-form Point P solver
         q_seed_123 = q_seed[:3] if q_seed is not None else None
-        q123_sol, ok123, _ = self.solve_ik_analytical_point_p(p_wrist, elbow_up=elbow_up, q_seed=q_seed_123)
+        q123_sol, ok123, _ = self.solve_ik_analytical_point_p(
+            p_wrist, elbow_up=elbow_up, q_seed=q_seed_123, shoulder_branch=shoulder_branch
+        )
         if not ok123 or q123_sol is None:
             return None, False, 1.0, 1.0
 
@@ -703,7 +733,9 @@ class DensoDynamicsEngine:
         sin_q5_pos = math.sqrt(max(0.0, 1.0 - cos_q5**2))
 
         candidates = []
-        for s5 in [sin_q5_pos, -sin_q5_pos]:
+        for wrist_index, s5 in enumerate([sin_q5_pos, -sin_q5_pos]):
+            if wrist_flip is not None and wrist_index != int(wrist_flip):
+                continue
             q5 = math.atan2(s5, cos_q5)
             if abs(s5) > 1e-4:
                 q4 = math.atan2(-r23 / s5, -r13 / s5)

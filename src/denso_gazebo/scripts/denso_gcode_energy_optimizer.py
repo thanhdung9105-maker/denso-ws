@@ -23,6 +23,18 @@ import re
 from typing import List, Dict, Tuple, Optional, Any
 import numpy as np
 
+try:
+    from denso_robot_energy_parameters import (
+        MOTOR_RATED_POWERS_W, COPPER_LOSS_COEFFICIENTS, TORQUE_LIMITS_NM,
+        validate_energy_parameters,
+    )
+except ImportError:
+    from .denso_robot_energy_parameters import (
+        MOTOR_RATED_POWERS_W, COPPER_LOSS_COEFFICIENTS, TORQUE_LIMITS_NM,
+        validate_energy_parameters,
+    )
+validate_energy_parameters()
+
 # Load robot dynamics engine
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "denso_vs6556_moveit_config", "scripts"))
 try:
@@ -51,11 +63,11 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # THÔNG SỐ DANH ĐỊNH ĐỘNG CƠ & VẬT LÝ ROBOT (USER SPECIFICATIONS)
 # -----------------------------------------------------------------------------
-MOTOR_RATED_POWERS = np.array([750.0, 400.0, 200.0, 80.0, 50.0, 50.0])  # Watts
+MOTOR_RATED_POWERS = MOTOR_RATED_POWERS_W.copy()  # Watts, joints J1..J6
 LINK_MASSES = np.array([7.5, 6.3, 4.8, 2.6, 1.0, 0.3])                  # kg
-TORQUE_LIMITS = np.array([80.0, 100.0, 60.0, 25.0, 20.0, 15.0])         # N*m
+TORQUE_LIMITS = TORQUE_LIMITS_NM.copy()                            # N*m
 GEAR_RATIOS = np.array([80.0, 100.0, 80.0, 50.0, 50.0, 50.0])
-COPPER_LOSS_COEFFS = np.array([1.2, 1.5, 1.8, 2.2, 2.5, 2.5])          # Hệ số tổn hao Joule đồng
+COPPER_LOSS_COEFFS = COPPER_LOSS_COEFFICIENTS.copy()                 # Hệ số surrogate, cần hiệu chuẩn
 IDLE_POWER_RATIO = 0.03                                                   # Công suất không tải 3% P_rated
 
 # Định nghĩa các trường hợp cấu hình và thuật toán điều khiển khảo sát thuần MPC & CNC
@@ -118,14 +130,14 @@ BUILTIN_GCODE_PATTERNS = {
         "gcode": """; Hinh vuong 80x80mm tai tam X=-380, Y=0
 G21
 G90
-G00 Z205.00 F2500
+G00 Z205.00 F1200
 G00 X-420.00 Y-40.00
-G01 Z180.00 F1000
-G01 X-340.00 Y-40.00 F1500
-G01 X-340.00 Y40.00 F1500
-G01 X-420.00 Y40.00 F1500
-G01 X-420.00 Y-40.00 F1500
-G00 Z205.00 F2500
+G01 Z180.00 F1200
+G01 X-340.00 Y-40.00 F1200
+G01 X-340.00 Y40.00 F1200
+G01 X-420.00 Y40.00 F1200
+G01 X-420.00 Y-40.00 F1200
+G00 Z205.00 F1200
 G00 X-380.00 Y0.00
 M30
 """
@@ -136,11 +148,11 @@ M30
         "gcode": """; Vong tron R=40mm tai tam X=-380, Y=0
 G21
 G90
-G00 Z205.00 F2500
+G00 Z205.00 F1200
 G00 X-340.00 Y0.00
-G01 Z180.00 F1000
-G02 X-340.00 Y0.00 I-40.00 J0.00 F1500
-G00 Z205.00 F2500
+G01 Z180.00 F1200
+G02 X-340.00 Y0.00 I-40.00 J0.00 F1200
+G00 Z205.00 F1200
 G00 X-380.00 Y0.00
 M30
 """
@@ -151,15 +163,15 @@ M30
         "gcode": """; Ngoi sao 5 canh 80mm tai tam X=-380, Y=0
 G21
 G90
-G00 Z205.00 F2500
+G00 Z205.00 F1200
 G00 X-340.00 Y0.00
-G01 Z180.00 F1000
-G01 X-403.51 Y-38.04 F1500
-G01 X-367.64 Y23.51 F1500
-G01 X-367.64 Y-23.51 F1500
-G01 X-403.51 Y38.04 F1500
-G01 X-340.00 Y0.00 F1500
-G00 Z205.00 F2500
+G01 Z180.00 F1200
+G01 X-403.51 Y-38.04 F1200
+G01 X-367.64 Y23.51 F1200
+G01 X-367.64 Y-23.51 F1200
+G01 X-403.51 Y38.04 F1200
+G01 X-340.00 Y0.00 F1200
+G00 Z205.00 F1200
 G00 X-380.00 Y0.00
 M30
 """
@@ -170,13 +182,13 @@ M30
         "gcode": """; Tam giac deu canh 80mm tai tam X=-380, Y=0
 G21
 G90
-G00 Z205.00 F2500
+G00 Z205.00 F1200
 G00 X-333.81 Y0.00
-G01 Z180.00 F1000
-G01 X-403.09 Y-40.00 F1500
-G01 X-403.09 Y40.00 F1500
-G01 X-333.81 Y0.00 F1500
-G00 Z205.00 F2500
+G01 Z180.00 F1200
+G01 X-403.09 Y-40.00 F1200
+G01 X-403.09 Y40.00 F1200
+G01 X-333.81 Y0.00 F1200
+G00 Z205.00 F1200
 G00 X-380.00 Y0.00
 M30
 """

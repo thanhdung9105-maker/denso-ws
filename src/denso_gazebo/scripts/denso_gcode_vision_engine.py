@@ -13,6 +13,7 @@ import math
 import time
 import json
 import threading
+from collections import deque
 from typing import List, Tuple, Dict, Any, Optional
 
 import numpy as np
@@ -40,7 +41,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSlider,
     QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QFileDialog,
     QTextEdit, QProgressBar, QGroupBox, QSplitter, QFrame,
-    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QTabWidget, QGridLayout
+    QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QTabWidget, QGridLayout, QScrollArea
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QPointF, QRectF, QThread
 from PyQt5.QtGui import (
@@ -95,7 +96,7 @@ except ImportError:
 # DATA STRUCTURES
 # =============================================================================
 class CartesianPoint:
-    def __init__(self, x: float, y: float, z: float, is_draw: bool = True, feedrate: float = 2000.0):
+    def __init__(self, x: float, y: float, z: float, is_draw: bool = True, feedrate: float = 1200.0):
         self.x = float(x)  # mm
         self.y = float(y)  # mm
         self.z = float(z)  # mm
@@ -144,6 +145,7 @@ class ImageGCodeProcessor:
         self.strokes: List[Stroke] = []
         self.gcode_text: str = ""
         self.summary: Dict[str, Any] = {}
+        self.image_profile: str = "default"
 
     def load_image(self, file_path: str) -> bool:
         if not os.path.exists(file_path):
@@ -152,10 +154,13 @@ class ImageGCodeProcessor:
         if img is None:
             return False
         self.original_image = img
+        basename = os.path.splitext(os.path.basename(file_path))[0].lower()
+        self.image_profile = "logo_bk" if basename in {"logobk", "logo_bk", "hcmut_logo"} else "default"
         return True
 
     def set_image(self, img_array: np.ndarray):
         self.original_image = img_array.copy()
+        self.image_profile = "default"
 
     def process(
         self,
@@ -178,11 +183,17 @@ class ImageGCodeProcessor:
         target_height_mm: float = 200.0,
         keep_aspect: bool = True,
         rotation_deg: float = 0.0,
-        draw_feed: float = 2000.0,
-        travel_feed: float = 2500.0
+        draw_feed: float = 1200.0,
+        travel_feed: float = 1200.0
     ) -> List[Stroke]:
         if self.original_image is None:
             return []
+
+        is_bk_logo = self.image_profile == "logo_bk"
+        if is_bk_logo:
+            # Logo BK có nhiều vùng tô đặc và lỗ chữ nhỏ; dùng nét ngoài sạch,
+            # tránh chạy cả hai mép của từng vùng mực gây nét chồng.
+            draw_feed = min(float(draw_feed), 600.0)
 
         # 1. Chuyển sang ảnh xám
         if len(self.original_image.shape) == 3:
@@ -197,16 +208,23 @@ class ImageGCodeProcessor:
             gray = cv2.bitwise_not(gray)
 
         # 3. Làm mượt lọc nhiễu Gaussian
-        if blur_ksize > 1:
-            k = blur_ksize if blur_ksize % 2 == 1 else blur_ksize + 1
+        if blur_ksize > 1 or is_bk_logo:
+            requested_blur = max(int(blur_ksize), 5) if is_bk_logo else int(blur_ksize)
+            k = requested_blur if requested_blur % 2 == 1 else requested_blur + 1
             blurred = cv2.GaussianBlur(gray, (k, k), 0)
         else:
             blurred = gray
 
         # 4. Tách biên / Ngưỡng nhị phân
-        if threshold_mode == "canny":
-            # Đối với mẫu thử hình học và logo (có độ tương phản rõ rệt):
-            # Tự động trích xuất Otsu threshold để lấy chính xác 1 đường viền duy nhất (triệt tiêu 100% nét đôi)
+        if is_bk_logo:
+            # Mẫu logo BK là mực đen trên nền trắng. Otsu ổn định hơn Canny
+            # với cạnh khử răng cưa; giữ đúng cực tính dù người dùng đổi Invert.
+            threshold_type = cv2.THRESH_BINARY if invert else cv2.THRESH_BINARY_INV
+            _, binary = cv2.threshold(
+                blurred, 0, 255, threshold_type + cv2.THRESH_OTSU
+            )
+        elif threshold_mode == "canny":
+            # Mẫu tương phản cao dùng Otsu; fallback Canny nếu mặt nạ quá phức tạp.
             _, binary_otsu = cv2.threshold(
                 blurred, 0, 255,
                 (cv2.THRESH_BINARY_INV if invert else cv2.THRESH_BINARY) + cv2.THRESH_OTSU
@@ -229,21 +247,31 @@ class ImageGCodeProcessor:
 
         self.processed_mask = binary.copy()
 
-        # 5. Rút trích đường viền (Contours)
-        contours, hierarchy = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+        # 5. Rút trích đường viền (Contours). Logo BK chỉ đi viền ngoài của
+        # từng vùng mực, bỏ các contour lồng bên trong lỗ chữ để tránh nét kép.
+        retrieval_mode = cv2.RETR_EXTERNAL if is_bk_logo else cv2.RETR_TREE
+        chain_mode = cv2.CHAIN_APPROX_SIMPLE if is_bk_logo else cv2.CHAIN_APPROX_NONE
+        contours, hierarchy = cv2.findContours(binary, retrieval_mode, chain_mode)
 
         if not contours:
             return []
 
-        # Lọc bỏ nhiễu quá ngắn
+        # Lọc nhiễu; contour logo được xem là đường kín để làm mượt cả điểm nối.
         filtered_contours = []
+        contour_is_closed = bool(is_bk_logo)
+        min_perimeter = 12.0 if is_bk_logo else 8.0
         for cnt in contours:
-            if cv2.arcLength(cnt, False) >= 8.0:
-                if approx_epsilon > 0.0:
-                    cnt_approx = cv2.approxPolyDP(cnt, approx_epsilon, False)
-                    filtered_contours.append(cnt_approx)
-                else:
-                    filtered_contours.append(cnt)
+            perimeter = cv2.arcLength(cnt, contour_is_closed)
+            if perimeter < min_perimeter:
+                continue
+            if is_bk_logo and cv2.contourArea(cnt) < 2.0:
+                continue
+            if approx_epsilon > 0.0:
+                epsilon = max(float(approx_epsilon), 1.5) if is_bk_logo else float(approx_epsilon)
+                cnt_approx = cv2.approxPolyDP(cnt, epsilon, contour_is_closed)
+                filtered_contours.append(cnt_approx)
+            else:
+                filtered_contours.append(cnt)
 
         if not filtered_contours:
             return []
@@ -287,6 +315,8 @@ class ImageGCodeProcessor:
             pts_2d = cnt.reshape(-1, 2)
             if len(pts_2d) < 2:
                 continue
+            if is_bk_logo and not np.array_equal(pts_2d[0], pts_2d[-1]):
+                pts_2d = np.vstack((pts_2d, pts_2d[0]))
 
             mm_pts = [pixel_to_robot_xy(p[0], p[1]) for p in pts_2d]
 
@@ -312,7 +342,12 @@ class ImageGCodeProcessor:
                 accum_dist += (seg_len - curr_pos)
 
             if len(sampled_stroke) > 1:
-                if math.hypot(sampled_stroke[-1][0] - mm_pts[-1][0], sampled_stroke[-1][1] - mm_pts[-1][1]) > (spacing * 0.4):
+                tail_gap = math.hypot(
+                    sampled_stroke[-1][0] - mm_pts[-1][0],
+                    sampled_stroke[-1][1] - mm_pts[-1][1]
+                )
+                close_tolerance = 0.05 if is_bk_logo else spacing * 0.4
+                if tail_gap > close_tolerance:
                     sampled_stroke.append(mm_pts[-1])
                 raw_strokes.append(sampled_stroke)
 
@@ -502,10 +537,11 @@ class ImageGCodeProcessor:
 
         return "\n".join(lines)
 
-    def parse_gcode(self, gcode_str: str, point_spacing_mm: float = 1.5, z_draw_thresh: float = 185.0) -> List[Stroke]:
+    def parse_gcode(self, gcode_str: str, point_spacing_mm: float = 1.5,
+                    z_draw_thresh: float = 185.0, *, joint_fk=None) -> List[Stroke]:
         strokes: List[Stroke] = []
         curr_x, curr_y, curr_z = -380.0, 0.0, 205.0
-        curr_feed = 2000.0
+        curr_feed = 1200.0
         modal_cmd = "G00"
         current_stroke: Optional[Stroke] = None
         spacing = max(float(point_spacing_mm), 0.5)
@@ -563,32 +599,37 @@ class ImageGCodeProcessor:
                     params.get("W", 0.0)
                 ]
                 q_rad = [math.radians(v) for v in q_deg]
-                # Forward Kinematics Denso VS-6556 chuẩn DH
-                q1, q2, q3, q4, q5, q6 = q_rad
-                def _dh(a, alpha, d, th):
-                    ct, st = math.cos(th), math.sin(th)
-                    ca, sa = math.cos(alpha), math.sin(alpha)
-                    return np.array([
-                        [ct, -st * ca,  st * sa, a * ct],
-                        [st,  ct * ca, -ct * sa, a * st],
-                        [0.0,      sa,       ca,      d],
-                        [0.0,     0.0,      0.0,    1.0],
-                    ])
-                A1 = _dh(-0.075, -math.pi/2, 0.335,   q1)
-                A2 = _dh( 0.270,  0.0,       0.0,    -q2 - math.pi/2)
-                A3 = _dh( 0.090,  math.pi/2, 0.0,    -q3 + math.pi/2)
-                A4 = _dh( 0.000, -math.pi/2, 0.295,   q4)
-                A5 = _dh( 0.000,  math.pi/2, 0.0,    -q5)
-                A6 = _dh( 0.000,  0.0,       0.09004, q6)
-                T6 = A1 @ A2 @ A3 @ A4 @ A5 @ A6
-                target_x = float(T6[0, 3] * 1000.0)
-                target_y = float(T6[1, 3] * 1000.0)
-                target_z = float(T6[2, 3] * 1000.0)
+                if joint_fk is not None:
+                    target_x, target_y, target_z = joint_fk(q_rad)
+                else:
+                    # Forward Kinematics Denso VS-6556 chuẩn DH
+                    q1, q2, q3, q4, q5, q6 = q_rad
+                    def _dh(a, alpha, d, th):
+                        ct, st = math.cos(th), math.sin(th)
+                        ca, sa = math.cos(alpha), math.sin(alpha)
+                        return np.array([
+                            [ct, -st * ca,  st * sa, a * ct],
+                            [st,  ct * ca, -ct * sa, a * st],
+                            [0.0,      sa,       ca,      d],
+                            [0.0,     0.0,      0.0,    1.0],
+                        ])
+                    A1 = _dh(-0.075, -math.pi/2, 0.335,   q1)
+                    A2 = _dh( 0.270,  0.0,       0.0,    -q2 - math.pi/2)
+                    A3 = _dh( 0.090,  math.pi/2, 0.0,    -q3 + math.pi/2)
+                    A4 = _dh( 0.000, -math.pi/2, 0.295,   q4)
+                    A5 = _dh( 0.000,  math.pi/2, 0.0,    -q5)
+                    A6 = _dh( 0.000,  0.0,       0.09004, q6)
+                    T6 = A1 @ A2 @ A3 @ A4 @ A5 @ A6
+                    target_x, target_y, target_z = map(float, T6[:3, 3] * 1000.0)
 
+                joint_move_is_draw = modal_cmd in ["G1", "G01"]
+                if current_stroke and current_stroke.is_draw != joint_move_is_draw:
+                    strokes.append(current_stroke)
+                    current_stroke = None
                 if current_stroke is None:
-                    current_stroke = Stroke(is_draw=True)
+                    current_stroke = Stroke(is_draw=joint_move_is_draw)
 
-                pt = CartesianPoint(target_x, target_y, target_z, is_draw=True, feedrate=curr_feed)
+                pt = CartesianPoint(target_x, target_y, target_z, is_draw=joint_move_is_draw, feedrate=curr_feed)
                 pt.q_sol = np.array(q_rad)
                 pt.is_valid = True
                 current_stroke.add_point(pt)
@@ -842,6 +883,7 @@ class GazeboDrawingTrailPublisher:
         
         self.paper_z = 0.1765  # Cao hơn mặt giấy 0.1745m đúng 2mm, triệt tiêu hoàn toàn z-fighting
         self.point_size = 2.0  # Kích thước hạt mực mảnh, sắc nét không bị nhòe khối
+        self.line_half_width_m = 0.0035
         self.lock = threading.Lock()
         
         self._is_running = True
@@ -889,6 +931,14 @@ class GazeboDrawingTrailPublisher:
     def set_thickness(self, thickness_mm: float):
         with self.lock:
             self.point_size = max(1.5, min(4.0, float(thickness_mm) * 0.8))
+            self.line_half_width_m = max(0.0035, self.point_size * 0.0018)
+            self._dirty_event.set()
+
+    def set_line_width(self, width_mm: float):
+        # Dùng nét mảnh riêng cho hình nhiều chi tiết; không đổi độ dày mẫu khác.
+        with self.lock:
+            width_m = max(0.001, min(8.0, float(width_mm) / 1000.0))
+            self.line_half_width_m = width_m * 0.5
             self._dirty_event.set()
 
     def set_algo_mode(self, algo_mode: str):
@@ -905,9 +955,9 @@ class GazeboDrawingTrailPublisher:
         if not self.is_gz_connected:
             return
 
-        # Vệt mực chỉ xuất hiện khi đầu bút thực sự chạm bàn vẽ (Z <= 188mm)
-        # Triệt tiêu 100% đường nối transit trên không trung (Air-transit cutting line)
-        effective_draw = bool(is_draw and z_mm <= 188.0)
+        # Tin cậy cờ is_draw đã phân tách theo ngưỡng hạ bút z_draw_thresh của đường G-code
+        # (Các đoạn G00 chuyển tiếp trên không luôn có is_draw=False)
+        effective_draw = bool(is_draw)
 
         x_m = float(x_mm / 1000.0)
         y_m = float(y_mm / 1000.0)
@@ -1015,7 +1065,7 @@ class GazeboDrawingTrailPublisher:
                 cur_stroke = list(self.current_stroke)
                 active_algo = self.active_algo
                 tip = self.current_tip
-                pt_size = self.point_size
+                half_width_m = self.line_half_width_m
 
             if need_clear:
                 try:
@@ -1035,7 +1085,7 @@ class GazeboDrawingTrailPublisher:
 
             try:
                 mv = self.gz_marker_v_pb2.Marker_V()
-                half_w = max(0.0035, float(pt_size) * 0.0018)  # Nét vẽ rộng ~7mm sắc nét, đậm màu, nhìn rõ từ xa trên Gazebo
+                half_w = max(0.0005, float(half_width_m))
 
                 # Vẽ tất cả các trường hợp theo bảng màu tương ứng
                 for mode_k, cfg in GAZEBO_ALGO_COLOR_MAP.items():
@@ -1114,6 +1164,13 @@ class DrawingTrailPublisher:
             self.trail_thickness_m = max(0.001, thickness_mm / 1000.0)
         if hasattr(self, 'gz_trail') and self.gz_trail:
             self.gz_trail.set_thickness(thickness_mm)
+
+    def set_line_width(self, width_mm: float):
+        width_m = max(0.001, min(8.0, float(width_mm) / 1000.0))
+        with self.lock:
+            self.trail_thickness_m = width_m
+        if hasattr(self, 'gz_trail') and self.gz_trail:
+            self.gz_trail.set_line_width(width_mm)
 
     def add_point(self, x_mm: float, y_mm: float, z_mm: float, is_draw: bool):
         effective_draw = bool(is_draw and z_mm <= 188.0)
@@ -1272,6 +1329,8 @@ class TrajectoryExecutionWorker(QThread):
         self.speed_scale: float = 1.0
         self.algo_mode: str = "mpc"  # Mặc định thuần MPC: Giữ nguyên vẹn 100% biên dạng hình học G-Code, không bo tròn góc
         self.custom_q_traj: Optional[np.ndarray] = None
+        self.custom_dt_steps: Optional[np.ndarray] = None
+        self.sample_period_s: float = 0.05
         self.posture_title: str = ""
 
         self.is_running = False
@@ -1284,12 +1343,16 @@ class TrajectoryExecutionWorker(QThread):
         speed_scale: float = 1.0,
         algo_mode: str = "iga",
         custom_q_traj: Optional[np.ndarray] = None,
-        posture_title: str = ""
+        posture_title: str = "",
+        sample_period_s: float = 0.05,
+        custom_dt_steps: Optional[np.ndarray] = None,
     ):
         self.strokes = strokes
         self.speed_scale = max(0.1, min(3.0, speed_scale))
         self.algo_mode = "ros2" if algo_mode == "ros2" else ("mpc" if algo_mode == "mpc" else "iga")
         self.custom_q_traj = custom_q_traj
+        self.custom_dt_steps = None if custom_dt_steps is None else np.asarray(custom_dt_steps, dtype=float)
+        self.sample_period_s = max(0.036, min(0.14, float(sample_period_s)))
         self.posture_title = posture_title
         if self.trail_pub:
             self.trail_pub.set_algo_mode(self.algo_mode)
@@ -1357,8 +1420,11 @@ class TrajectoryExecutionWorker(QThread):
 
         # BƯỚC 1.5: Tối ưu hóa dự báo MPC nếu chọn chế độ MPC
         mpc_lookup = {}
+        mpc_reference = None
+        mpc_ctl = None
         if self.custom_q_traj is not None and len(self.custom_q_traj) > 0:
             # Áp dụng trực tiếp quỹ đạo tư thế tối ưu được tuyển chọn bởi MPC
+            mpc_reference = np.asarray(self.custom_q_traj, dtype=float)
             k_idx = 0
             for s_i, st in enumerate(self.strokes):
                 for p_i in range(len(st.points)):
@@ -1401,96 +1467,213 @@ class TrajectoryExecutionWorker(QThread):
             except Exception:
                 pass
 
-        # BƯỚC 2: Thực thi từng nét vẽ liên tục tức thời mượt mà (Instant Fluid Execution)
+        if self.algo_mode == "mpc" and mpc_ctl is None:
+            try:
+                from denso_mpc_trajectory_controller import DensoMPCController
+                mpc_ctl = DensoMPCController(dynamics_engine=self.engine, horizon=10, dt=0.05)
+            except Exception:
+                mpc_ctl = None
+
+        # BƯỚC 2: dựng và gửi spline liên tục theo từng nét.
+        # Không phát JointTrajectory mới cho từng điểm vì mỗi message thay spline
+        # đang chạy trong joint_trajectory_controller.
+        total_flat_idx = 0
+        last_cartesian = np.array([first_pt.x, first_pt.y, first_pt.z], dtype=float)
+        velocity_limits = np.array([4.5815, 4.1888, 5.2360, 5.2360, 5.2360, 7.3304])
+        acceleration_limits = np.array([15.0, 12.0, 15.0, 20.0, 20.0, 25.0])
+
+        def _joint_velocities(q_path, t_path, stop_flags):
+            qd = np.zeros_like(q_path)
+            if len(q_path) > 2:
+                qd[1:-1] = (q_path[2:] - q_path[:-2]) / (t_path[2:, None] - t_path[:-2, None])
+            elif len(q_path) == 2:
+                qd[0] = qd[1] = (q_path[1] - q_path[0]) / max(t_path[1] - t_path[0], 1e-6)
+            qd[0] = 0.0
+            qd[-1] = 0.0
+            for idx, must_stop in enumerate(stop_flags):
+                if must_stop:
+                    qd[idx] = 0.0
+            return qd
+
         for s_idx, stroke in enumerate(self.strokes):
             if not self.is_running:
                 break
-
             with self.pause_cond:
                 while self.is_paused and self.is_running:
                     self.pause_cond.wait()
-
             if not self.is_running:
                 break
 
-            is_drawing = stroke.is_draw
             stroke_pts = stroke.points
             if not stroke_pts:
                 continue
 
             n_pts = len(stroke_pts)
+            q_targets = []
+            step_intervals = []
+            corner_stops = []
+            cartesian_pts = []
+            q_seed_cur = list(q_curr)
+
+            for p_idx, pt in enumerate(stroke_pts):
+                pos_m = [pt.x / 1000.0, pt.y / 1000.0, pt.z / 1000.0]
+                if (s_idx, p_idx) in mpc_lookup:
+                    q_target = np.asarray(mpc_lookup[(s_idx, p_idx)], dtype=float)
+                elif pt.q_sol is not None:
+                    q_target = np.asarray(pt.q_sol, dtype=float)
+                else:
+                    q_target, ok, _, _ = self.engine.inverse_kinematics(
+                        pos_m, q_seed=q_seed_cur, use_flange=True, mode="hybrid",
+                        tool_pitch_rad=math.pi
+                    )
+                    if not ok or q_target is None:
+                        self.sig_status.emit(
+                            f"❌ Dừng an toàn: IK không tới được điểm {total_flat_idx + 1} "
+                            f"({pt.x:.1f}, {pt.y:.1f}, {pt.z:.1f}) mm.",
+                            "error",
+                        )
+                        self.is_running = False
+                        break
+                    q_target = np.asarray(q_target, dtype=float)
+
+                q_seed_cur = q_target.tolist()
+                xyz = np.array([pt.x, pt.y, pt.z], dtype=float)
+                cart_dist_mm = float(np.linalg.norm(xyz - last_cartesian))
+                feed_mm_min = max(100.0, float(getattr(pt, "feedrate", 1200.0)))
+                cart_dt = cart_dist_mm / (feed_mm_min / 60.0) / self.speed_scale
+
+                if self.custom_dt_steps is not None and total_flat_idx > 0:
+                    dt_idx = total_flat_idx - 1
+                    nominal_step = (
+                        float(self.custom_dt_steps[dt_idx])
+                        if dt_idx < len(self.custom_dt_steps)
+                        else self.sample_period_s
+                    )
+                elif self.algo_mode == "ros2":
+                    nominal_step = 0.068
+                else:
+                    nominal_step = self.sample_period_s if self.custom_q_traj is not None else 0.055
+
+                if q_targets:
+                    q_prev = q_targets[-1]
+                else:
+                    q_prev = np.asarray(q_curr, dtype=float)
+                joint_dt = float(np.max(
+                    np.abs(q_target - q_prev) / (0.82 * velocity_limits)
+                ))
+                interval = max(0.025, nominal_step / self.speed_scale, cart_dt, joint_dt)
+                q_targets.append(q_target)
+                step_intervals.append(interval)
+                cartesian_pts.append((pt.x, pt.y, pt.z, bool(stroke.is_draw)))
+
+                is_corner = p_idx == 0 or p_idx == n_pts - 1
+                if stroke.is_draw and 0 < p_idx < n_pts - 1:
+                    prev_pt = stroke_pts[p_idx - 1]
+                    next_pt = stroke_pts[p_idx + 1]
+                    v1 = np.array([pt.x - prev_pt.x, pt.y - prev_pt.y], dtype=float)
+                    v2 = np.array([next_pt.x - pt.x, next_pt.y - pt.y], dtype=float)
+                    n1, n2 = float(np.linalg.norm(v1)), float(np.linalg.norm(v2))
+                    if n1 > 1e-4 and n2 > 1e-4:
+                        cos_a = float(np.clip(np.dot(v1 / n1, v2 / n2), -1.0, 1.0))
+                        is_corner = cos_a < 0.80
+                corner_stops.append(bool(is_corner))
+                last_cartesian = xyz
+                total_flat_idx += 1
+
+            if not self.is_running:
+                break
+            if not q_targets:
+                continue
+
+            def _make_stroke_plan(first_idx, q_origin, resumed=False):
+                q_path = np.vstack([np.asarray(q_origin, dtype=float)[:6], *q_targets[first_idx:]])
+                t_path = [0.0]
+                for target_idx in range(first_idx, len(q_targets)):
+                    dt = step_intervals[target_idx]
+                    if resumed and target_idx == first_idx:
+                        dt = max(0.12, dt)
+                    t_path.append(t_path[-1] + dt)
+                t_path = np.asarray(t_path, dtype=float)
+                stops = [True] + corner_stops[first_idx:]
+                qd_path = _joint_velocities(q_path, t_path, stops)
+                if len(q_path) >= 3:
+                    qdd_path = np.gradient(qd_path, t_path, axis=0)
+                    accel_ratio = float(np.max(np.abs(qdd_path) / (0.82 * acceleration_limits[None, :])))
+                    if accel_ratio > 1.0:
+                        t_path *= math.sqrt(accel_ratio)
+                        qd_path = _joint_velocities(q_path, t_path, stops)
+                return q_path, t_path, qd_path
+
+            def _send_stroke_plan(first_idx, q_origin, resumed=False):
+                q_path, t_path, qd_path = _make_stroke_plan(first_idx, q_origin, resumed)
+                self.bridge.send_multi_point_trajectory(
+                    [(q_path[i], float(t_path[i])) for i in range(len(q_path))],
+                    velocities=qd_path.tolist(),
+                )
+                return time.monotonic(), t_path[1:]
+
+            try:
+                plan_start, target_offsets = _send_stroke_plan(0, q_curr)
+                plan_target_start_idx = 0
+            except Exception as exc:
+                self.sig_status.emit(f"❌ Không gửi được spline vẽ: {exc}", "error")
+                self.is_running = False
+                break
+
             for p_idx, pt in enumerate(stroke_pts):
                 if not self.is_running:
                     break
 
-                with self.pause_cond:
-                    while self.is_paused and self.is_running:
-                        self.pause_cond.wait()
+                while self.is_running:
+                    with self.pause_cond:
+                        if self.is_paused:
+                            while self.is_paused and self.is_running:
+                                self.pause_cond.wait()
+                            if not self.is_running:
+                                break
+                            q_hold = list(self.bridge.latest_positions[:6])
+                            if len(q_hold) < 6:
+                                q_hold = list(q_curr[:6])
+                            try:
+                                plan_start, target_offsets = _send_stroke_plan(
+                                    p_idx, q_hold, resumed=True
+                                )
+                                plan_target_start_idx = p_idx
+                            except Exception as exc:
+                                self.sig_status.emit(f"❌ Không thể tiếp tục spline sau tạm dừng: {exc}", "error")
+                                self.is_running = False
+                                break
+                    # Khi resume, target_offsets được lập lại từ waypoint đang chờ.
+                    due_time = plan_start + 0.05 + float(
+                        target_offsets[p_idx - plan_target_start_idx]
+                    )
+                    remaining = due_time - time.monotonic()
+                    if remaining <= 0.0:
+                        break
+                    time.sleep(min(0.01, remaining))
 
                 if not self.is_running:
                     break
 
                 x_draw, y_draw, z_draw = pt.x, pt.y, pt.z
-                is_sharp_corner = False
-                if is_drawing and 0 < p_idx < n_pts - 1:
-                    p_prev = stroke_pts[p_idx - 1]
-                    p_next = stroke_pts[p_idx + 1]
-                    v1 = np.array([pt.x - p_prev.x, pt.y - p_prev.y])
-                    v2 = np.array([p_next.x - pt.x, p_next.y - pt.y])
-                    n1 = float(np.linalg.norm(v1))
-                    n2 = float(np.linalg.norm(v2))
-                    if n1 > 1e-4 and n2 > 1e-4:
-                        cos_a = float(np.clip(np.dot(v1 / n1, v2 / n2), -1.0, 1.0))
-                        if cos_a < 0.80:  # Góc gãy > ~36 độ
-                            is_sharp_corner = True
-                            # Giữ nguyên 100% tọa độ góc nhọn (Chuẩn gia công CNC, không làm tròn/méo góc)
-                            x_draw = pt.x
-                            y_draw = pt.y
-
                 pos_m = [x_draw / 1000.0, y_draw / 1000.0, z_draw / 1000.0]
-                if (s_idx, p_idx) in mpc_lookup:
-                    q_target = mpc_lookup[(s_idx, p_idx)]
-                elif pt.q_sol is not None:
-                    q_target = pt.q_sol
-                else:
-                    q_sol, ok, _, _ = self.engine.inverse_kinematics(
-                        pos_m, q_seed=q_curr, use_flange=True, mode="hybrid",
-                        tool_pitch_rad=math.pi
-                    )
-                    if not ok or q_sol is None:
-                        continue
-                    q_target = q_sol
-
-                is_last_pt = (p_idx == n_pts - 1) and (s_idx == len(self.strokes) - 1)
-                if self.algo_mode == "ros2":
-                    dt_step = max(0.045, min(0.14, 0.068 / self.speed_scale))
-                    stop_at_pt = is_last_pt or is_sharp_corner
-                elif self.algo_mode == "mpc":
-                    dt_step = max(0.040, min(0.090, 0.055 / self.speed_scale))
-                    stop_at_pt = is_last_pt
-                else:
-                    dt_step = max(0.035, min(0.090, 0.050 / self.speed_scale))
-                    stop_at_pt = is_last_pt
-
-                is_draw_effective = bool(is_drawing and z_draw <= 188.0 and pos_m[2] <= 0.188)
-                self.bridge.send_trajectory(q_target, duration_sec=dt_step * 1.35, zero_velocity=stop_at_pt)
-                q_curr = list(q_target)
-
-                # Xuất bản vệt vẽ tức thời thời gian thực tới RViz2 & Gazebo Sim
+                is_draw_effective = bool(stroke.is_draw)
+                q_target = q_targets[p_idx]
                 if self.trail_pub:
                     self.trail_pub.add_point(x_draw, y_draw, z_draw, is_draw_effective)
                     self.trail_pub.publish_update(current_pos_m=pos_m, is_draw=is_draw_effective)
 
-                # Cập nhật tiến trình GUI & con trỏ trên Canvas 2D tức thời
                 curr_pt_idx += 1
                 pct = (curr_pt_idx / total_pts * 100.0) if total_pts > 0 else 0.0
-                q_list = [float(v) for v in q_target]
-                self.sig_progress.emit(curr_pt_idx, total_pts, pct, x_draw, y_draw, z_draw, is_draw_effective, q_list)
+                self.sig_progress.emit(
+                    curr_pt_idx, total_pts, pct, x_draw, y_draw, z_draw,
+                    is_draw_effective, [float(v) for v in q_target]
+                )
 
-                time.sleep(dt_step * (1.08 if (self.algo_mode == "ros2" and is_sharp_corner) else 0.90))
-
-            if is_drawing and self.trail_pub:
+            if stroke.is_draw and self.trail_pub:
                 self.trail_pub.end_stroke()
+            if q_targets:
+                q_curr = q_targets[-1].tolist()
 
         if self.is_running:
             if self.algo_mode == "ros2":
@@ -1525,6 +1708,12 @@ class InteractiveDrawingCanvas(QWidget):
         self.active_algo: str = "iga"
         self.current_cursor: Optional[Tuple[float, float, float, bool]] = None
         self.processed_pixmap: Optional[QPixmap] = None
+        self.show_amstar = True
+        self.show_amstar_trace = False
+        self.amstar_job_complete = False
+        self.amstar_points = deque(maxlen=24000)
+        self.amstar_cursor = None
+        self.amstar_reference = None
 
         # Camera view (zoom & pan)
         self.scale_factor = 1.0
@@ -1568,6 +1757,29 @@ class InteractiveDrawingCanvas(QWidget):
         self.current_cursor = None
         self.update()
 
+    def clear_amstar_trail(self):
+        self.amstar_points.clear()
+        self.amstar_cursor = None
+        if self.show_amstar:
+            self.update()
+
+    def update_amstar_cursor(self, position, stroke_id):
+        if position is None:
+            if self.amstar_points and self.amstar_points[-1] is not None:
+                self.amstar_points.append(None)
+            self.amstar_cursor = None
+        else:
+            x, y, z = position
+            self.amstar_cursor = (x, y, z, stroke_id is not None)
+            last = self.amstar_points[-1] if self.amstar_points else None
+            if stroke_id is None:
+                if last is not None:
+                    self.amstar_points.append(None)
+            elif last is None or stroke_id != last[2] or math.hypot(x - last[0], y - last[1]) >= 0.1:
+                self.amstar_points.append((x, y, stroke_id))
+        if self.show_amstar:
+            self.update()
+
     def reset_view(self):
         self.scale_factor = 1.0
         self.pan_offset = QPointF(0.0, 0.0)
@@ -1608,11 +1820,16 @@ class InteractiveDrawingCanvas(QWidget):
         cx = w / 2.0 + self.pan_offset.x()
         cy = h / 2.0 + self.pan_offset.y()
 
-        ppm = (min(w, h) / (self.ws_width * 1.6)) * self.scale_factor
+        strokes = self.strokes
+        center_x, center_y = self.ws_center_x, self.ws_center_y
+        width, height = self.ws_width, self.ws_height
+        if self.show_amstar and self.amstar_reference is not None:
+            strokes, (center_x, center_y, width, height) = self.amstar_reference
+        ppm = (min(w, h) / (max(width, height) * 1.6)) * self.scale_factor
 
         def to_canvas(rx: float, ry: float) -> QPointF:
-            px = cx + (ry - self.ws_center_y) * ppm
-            py = cy - (rx - self.ws_center_x) * ppm
+            px = cx + (ry - center_y) * ppm
+            py = cy - (rx - center_x) * ppm
             return QPointF(px, py)
 
         # 1. Vẽ lưới tọa độ Millimeter Grid
@@ -1627,10 +1844,10 @@ class InteractiveDrawingCanvas(QWidget):
                 painter.drawLine(0, int(gy), w, int(gy))
 
         # 2. Khung giới hạn bàn vẽ (Workspace Bounding Box)
-        hw = self.ws_width / 2.0
-        hh = self.ws_height / 2.0
-        p_tl = to_canvas(self.ws_center_x + hh, self.ws_center_y - hw)
-        p_br = to_canvas(self.ws_center_x - hh, self.ws_center_y + hw)
+        hw = width / 2.0
+        hh = height / 2.0
+        p_tl = to_canvas(center_x + hh, center_y - hw)
+        p_br = to_canvas(center_x - hh, center_y + hw)
         rect_ws = QRectF(p_tl, p_br).normalized()
 
         painter.setPen(QPen(QColor("#1e293b"), 1, Qt.DashLine))
@@ -1642,17 +1859,29 @@ class InteractiveDrawingCanvas(QWidget):
         painter.drawLine(int(cx), int(cy - 15), int(cx), int(cy + 15))
         painter.setPen(QColor("#64748b"))
         painter.setFont(QFont("Arial", 8))
-        painter.drawText(int(cx + 6), int(cy - 6), f"Tâm ({self.ws_center_x:.0f}, {self.ws_center_y:.0f})")
+        painter.drawText(int(cx + 6), int(cy - 6), f"Tâm ({center_x:.0f}, {center_y:.0f})")
 
-        # 3. Vẽ đường chạy dao G-code dự kiến (Template Toolpath)
-        for s in self.strokes:
+        completed_amstar_path = (self.show_amstar and self.amstar_job_complete
+                                 and self.amstar_reference is not None and not self.show_amstar_trace)
+        # 3. Vẽ các nét G-code theo từng lần hạ bút.
+        for s in strokes:
             if not s.points:
+                continue
+            if completed_amstar_path:
+                if s.is_draw:
+                    painter.setPen(QPen(QColor("#22d3ee"), 2.8, Qt.SolidLine, Qt.FlatCap, Qt.MiterJoin))
+                    first, *remaining = s.points
+                    path = QPainterPath(to_canvas(first.x, first.y))
+                    for point in remaining:
+                        path.lineTo(to_canvas(point.x, point.y))
+                    painter.drawPath(path)
                 continue
 
             if not s.is_draw:
                 painter.setPen(QPen(QColor(234, 179, 8, 90), 1, Qt.DashLine))
             else:
-                painter.setPen(QPen(QColor(148, 163, 184, 70), 1.3, Qt.DashLine))
+                opacity = 145 if self.show_amstar and self.amstar_reference is not None else 70
+                painter.setPen(QPen(QColor(148, 163, 184, opacity), 1.3, Qt.DashLine))
 
             pts_canvas = [to_canvas(pt.x, pt.y) for pt in s.points]
             for i in range(len(pts_canvas) - 1):
@@ -1668,7 +1897,22 @@ class InteractiveDrawingCanvas(QWidget):
             ("sweet", "#06b6d4", 2.8),
             ("pink", "#ec4899", 2.8),
         ]
-        for algo_key, hex_col, width_px in trail_styles:
+        if self.show_amstar and not completed_amstar_path:
+            painter.setPen(QPen(QColor("#22d3ee"), 2.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            path = QPainterPath()
+            previous_stroke = None
+            for point in self.amstar_points:
+                if point is None:
+                    previous_stroke = None
+                    continue
+                x, y, stroke_id = point
+                if stroke_id == previous_stroke:
+                    path.lineTo(to_canvas(x, y))
+                else:
+                    path.moveTo(to_canvas(x, y))
+                previous_stroke = stroke_id
+            painter.drawPath(path)
+        for algo_key, hex_col, width_px in ([] if self.show_amstar else trail_styles):
             pen_trail = QPen(QColor(hex_col), width_px, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             painter.setPen(pen_trail)
             draw_path = QPainterPath()
@@ -1692,8 +1936,9 @@ class InteractiveDrawingCanvas(QWidget):
             painter.drawPath(draw_path)
 
         # 5. Vẽ đầu ngòi bút hiện tại (Active Pen Cursor)
-        if self.current_cursor is not None:
-            cur_x, cur_y, cur_z, cur_draw = self.current_cursor
+        cursor = self.amstar_cursor if self.show_amstar else self.current_cursor
+        if cursor is not None:
+            cur_x, cur_y, cur_z, cur_draw = cursor
             p_cursor = to_canvas(cur_x, cur_y)
 
             glow_col = QColor("#10b981") if cur_draw else QColor("#f59e0b")
@@ -1719,6 +1964,23 @@ class InteractiveDrawingCanvas(QWidget):
 # =============================================================================
 # MAIN UI TAB: IMAGE & G-CODE DRAWING INTERFACE
 # =============================================================================
+class PostureEvaluationWorker(QThread):
+    completed = pyqtSignal(object, str, int)
+
+    def __init__(self, optimizer, waypoints, generation):
+        super().__init__()
+        self.optimizer = optimizer
+        self.waypoints = waypoints
+        self.generation = generation
+
+    def run(self):
+        try:
+            result = self.optimizer.optimize_and_select_best_posture(self.waypoints, dt=0.05)
+            self.completed.emit(result, "", self.generation)
+        except Exception as exc:
+            self.completed.emit(None, str(exc), self.generation)
+
+
 class ImageGCodeDrawingTab(QWidget):
     """
     Giao diện tích hợp hoàn chỉnh Tab 5:
@@ -1729,6 +1991,8 @@ class ImageGCodeDrawingTab(QWidget):
     5. Kiểm tra an toàn IK & Khả thi khớp
     6. Điều khiển thực thi mượt mà & Hiển thị vệt vẽ RViz2 + Canvas
     """
+    amstar_reference_requested = pyqtSignal(str)
+
     def __init__(self, bridge, engine: DensoDynamicsEngine, parent=None):
         super().__init__(parent)
         self.bridge = bridge
@@ -1745,8 +2009,19 @@ class ImageGCodeDrawingTab(QWidget):
 
         # Khởi tạo bộ tuyển chọn tư thế tối ưu MPC
         self.posture_optimizer = DensoPostureMPCOptimizer(dynamics_engine=self.engine) if DensoPostureMPCOptimizer else None
+        self._posture_eval_generation = 0
+        self.posture_eval_worker = None
+        self._last_posture_roll_range = None
         self.latest_posture_evaluation: Optional[Dict[str, Any]] = None
         self.selected_posture_res: Optional[Dict[str, Any]] = None
+        self._pending_posture_action = None
+        self._suppress_posture_eval_rerun = False
+        self._amstar_next_plan = None
+        self._amstar_active_plan = None
+        self._amstar_job_name = ""
+        self._amstar_job_active = False
+        self._amstar_file_position = 0
+        self._amstar_previous_event = None
 
         self.init_ui()
         # Nạp mẫu thử lười (Lazy load) khi người dùng mở Tab 5, giúp khởi động ứng dụng tức thì trong 0.2s
@@ -1769,9 +2044,10 @@ class ImageGCodeDrawingTab(QWidget):
         # CỘT TRÁI: ĐIỀU KHIỂN & CÀI ĐẶT
         # ---------------------------------------------------------------------
         left_widget = QWidget()
+        left_widget.setStyleSheet("background-color: #0b1120;")
         left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(4, 4, 4, 4)
-        left_layout.setSpacing(8)
+        left_layout.setContentsMargins(3, 3, 3, 3)
+        left_layout.setSpacing(4)
 
         # 1. Box Chọn ảnh
         box_input = QGroupBox("📁 1. CHỌN ẢNH ĐẦU VÀO & MẪU THỬ")
@@ -1952,6 +2228,37 @@ class ImageGCodeDrawingTab(QWidget):
         row_eval.addWidget(self.btn_eval_postures)
         post_lay.addLayout(row_eval)
 
+        row_j6 = QHBoxLayout()
+        lbl_j6 = QLabel("Quét J6 roll quanh trục bút (°):")
+        lbl_j6.setStyleSheet("color: #cbd5e1; font-size: 11px;")
+        row_j6.addWidget(lbl_j6)
+        self.sp_j6_roll_min = QDoubleSpinBox()
+        self.sp_j6_roll_max = QDoubleSpinBox()
+        self.sp_j6_roll_step = QDoubleSpinBox()
+        for spin in (self.sp_j6_roll_min, self.sp_j6_roll_max):
+            spin.setRange(-360.0, 360.0)
+            spin.setDecimals(1)
+            spin.setSingleStep(5.0)
+            spin.setSuffix("°")
+            spin.setStyleSheet(self._spin_style())
+        self.sp_j6_roll_min.setValue(-45.0)
+        self.sp_j6_roll_max.setValue(45.0)
+        self.sp_j6_roll_step.setRange(1.0, 360.0)
+        self.sp_j6_roll_step.setDecimals(1)
+        self.sp_j6_roll_step.setValue(45.0)
+        self.sp_j6_roll_step.setSuffix("°")
+        self.sp_j6_roll_step.setStyleSheet(self._spin_style())
+        for spin in (self.sp_j6_roll_min, self.sp_j6_roll_max, self.sp_j6_roll_step):
+            spin.valueChanged.connect(self._on_j6_roll_range_changed)
+        row_j6.addWidget(QLabel("Từ"))
+        row_j6.addWidget(self.sp_j6_roll_min)
+        row_j6.addWidget(QLabel("đến"))
+        row_j6.addWidget(self.sp_j6_roll_max)
+        row_j6.addWidget(QLabel("bước"))
+        row_j6.addWidget(self.sp_j6_roll_step)
+        row_j6.addStretch(1)
+        post_lay.addLayout(row_j6)
+
         row_post_sel = QHBoxLayout()
         lbl_p = QLabel("Tư thế đã chọn:")
         lbl_p.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: bold;")
@@ -1999,25 +2306,17 @@ class ImageGCodeDrawingTab(QWidget):
         post_lay.addLayout(row_post_actions)
 
         left_layout.addWidget(box_posture)
+        # Posture selection and evaluation now live in Tab 7; keep this widget
+        # instantiated but hidden because Tab 7 transfers its selected result here.
+        box_posture.hide()
 
-        # 5. Box Thực thi & Vệt vẽ
-        box_exec = QGroupBox("🎮 5. ĐIỀU KHIỂN ROBOT VẼ & VỆT DI CHUYỂN")
+        # 4. Box Thực thi & Vệt vẽ
+        box_exec = QGroupBox("🎮 ĐIỀU KHIỂN VẼ ROBOT")
         box_exec.setStyleSheet(self._group_style())
         ex_lay = QVBoxLayout(box_exec)
         ex_lay.setSpacing(6)
 
         ctrl_btns = QHBoxLayout()
-        self.btn_start_ros2 = QPushButton("🟠 VẼ THEO ROS 2 (Đối Chứng)")
-        self.btn_start_ros2.setStyleSheet("""
-            QPushButton {
-                background-color: #d97706; color: white; font-weight: bold;
-                border-radius: 5px; padding: 8px 10px; font-size: 11px;
-            }
-            QPushButton:hover { background-color: #b45309; }
-        """)
-        self.btn_start_ros2.clicked.connect(lambda: self._start_execution("ros2"))
-        ctrl_btns.addWidget(self.btn_start_ros2)
-
         # Nút IGA/Hình học C2 ẩn đi theo yêu cầu độ chính xác cao (Tránh bo tròn méo góc)
         self.btn_start = QPushButton("🟢 VẼ THEO IGA")
         self.btn_start.setVisible(False)
@@ -2044,17 +2343,13 @@ class ImageGCodeDrawingTab(QWidget):
         ctrl_btns.addWidget(self.btn_stop)
         ex_lay.addLayout(ctrl_btns)
 
-        util_btns = QHBoxLayout()
         self.btn_clear_trail = QPushButton("🧹 Xóa Vệt Vẽ (Clear Trail)")
         self.btn_clear_trail.setStyleSheet(self._btn_secondary())
         self.btn_clear_trail.clicked.connect(self._clear_all_trails)
-        util_btns.addWidget(self.btn_clear_trail)
 
         self.btn_home = QPushButton("🏠 Về Vị Trí Sẵn Sàng (Home)")
         self.btn_home.setStyleSheet(self._btn_secondary())
         self.btn_home.clicked.connect(self._go_home)
-        util_btns.addWidget(self.btn_home)
-        ex_lay.addLayout(util_btns)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setStyleSheet("""
@@ -2112,7 +2407,7 @@ class ImageGCodeDrawingTab(QWidget):
         t_lay.addWidget(self.lbl_live_angles)
 
         # Hàng 4: Dòng lệnh G-code tức thời (terminal style)
-        self.lbl_live_gcode = QLabel("G1 A0.00 B0.00 C0.00 U0.00 V0.00 W0.00 F2000")
+        self.lbl_live_gcode = QLabel("G1 A0.00 B0.00 C0.00 U0.00 V0.00 W0.00 F1200")
         self.lbl_live_gcode.setStyleSheet("""
             background-color: #050b14; color: #4ade80; font-family: 'Consolas', 'Courier New', monospace;
             font-size: 12px; font-weight: bold; border: 1px solid #14532d; border-radius: 4px;
@@ -2152,10 +2447,28 @@ class ImageGCodeDrawingTab(QWidget):
 
         ex_lay.addLayout(export_row)
 
-        left_layout.addWidget(box_exec)
+        # This controller is reparented into Tab 7 by the main control panel.
+        self.box_exec = box_exec
+        quick_control = QGroupBox("🎨 THAO TÁC NHANH & BỘ ĐIỀU KHIỂN VẼ")
+        quick_control.setStyleSheet(self._group_style())
+        quick_layout = QVBoxLayout(quick_control)
+        quick_layout.setContentsMargins(8, 8, 8, 8)
+        quick_actions = QHBoxLayout()
+        quick_actions.addWidget(self.btn_clear_trail)
+        quick_actions.addWidget(self.btn_home)
+        quick_layout.addLayout(quick_actions)
+        self.btn_open_tab7_controller = QPushButton("🎮 MỞ BỘ ĐIỀU KHIỂN VẼ Ở TAB 7")
+        self.btn_open_tab7_controller.setStyleSheet(self._btn_accent())
+        self.btn_open_tab7_controller.clicked.connect(self._switch_to_tab7_controller)
+        quick_layout.addWidget(self.btn_open_tab7_controller)
+        left_layout.addWidget(quick_control)
 
         left_layout.addStretch(1)
-        splitter.addWidget(left_widget)
+        controls_scroll = QScrollArea()
+        controls_scroll.setWidgetResizable(True)
+        controls_scroll.setFrameShape(QFrame.NoFrame)
+        controls_scroll.setWidget(left_widget)
+        splitter.addWidget(controls_scroll)
 
         # ---------------------------------------------------------------------
         # CỘT PHẢI: CANVAS 2D & XEM MÃ G-CODE & THỐNG KÊ
@@ -2168,8 +2481,26 @@ class ImageGCodeDrawingTab(QWidget):
         """)
 
         # Sub-tab 1: Interactive Canvas
+        canvas_panel = QWidget()
+        canvas_layout = QVBoxLayout(canvas_panel)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        source_row = QHBoxLayout()
+        self.canvas_source = QComboBox()
+        self.canvas_source.setStyleSheet(self._combo_style())
+        self.canvas_source.addItem("AmstarRobot · G-code khi hoàn tất", "amstar")
+        self.canvas_source.addItem("AmstarRobot · Vệt lấy mẫu IP", "amstar_trace")
+        self.canvas_source.addItem("Gazebo", "gazebo")
+        self.amstar_canvas_status = QLabel("Đang chờ ROBOT_STATE từ 192.168.1.249")
+        self.amstar_canvas_status.setTextFormat(Qt.PlainText)
+        self.amstar_canvas_status.setStyleSheet("color: #67e8f9;")
+        self.amstar_canvas_status.setWordWrap(True)
+        source_row.addWidget(self.canvas_source)
+        source_row.addWidget(self.amstar_canvas_status, 1)
+        canvas_layout.addLayout(source_row)
         self.canvas = InteractiveDrawingCanvas(self)
-        right_tabs.addTab(self.canvas, "🖼️ Bản Đồ Nét Vẽ & Vệt Di Chuyển 2D")
+        canvas_layout.addWidget(self.canvas, 1)
+        self.canvas_source.currentIndexChanged.connect(self._change_canvas_source)
+        right_tabs.addTab(canvas_panel, "🖼️ Bản Đồ Nét Vẽ & Vệt Di Chuyển 2D")
 
         # Sub-tab 2: G-Code Text Editor
         gcode_panel = QWidget()
@@ -2279,10 +2610,10 @@ class ImageGCodeDrawingTab(QWidget):
         return """
             QGroupBox {
                 background-color: #0b1120; border: 1px solid #1e293b;
-                border-radius: 8px; margin-top: 10px; padding-top: 14px;
-                color: #38bdf8; font-size: 11px; font-weight: bold;
+                border-radius: 7px; margin-top: 13px; padding: 12px 8px 8px;
+                color: #38bdf8; font-size: 10px; font-weight: bold;
             }
-            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 4px; }
+            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 5px; background-color: #0b1120; }
             QLabel { color: #cbd5e1; font-size: 11px; }
         """
 
@@ -2376,7 +2707,11 @@ class ImageGCodeDrawingTab(QWidget):
                 self.process_image_to_trajectory()
 
     def _on_trail_thick_changed(self, val):
-        if self.trail_pub:
+        if not self.trail_pub:
+            return
+        if getattr(self.processor, "image_profile", "default") == "logo_bk":
+            self.trail_pub.set_line_width(min(float(val), 2.4))
+        else:
             self.trail_pub.set_thickness(val)
 
     def process_image_to_trajectory(self):
@@ -2395,7 +2730,10 @@ class ImageGCodeDrawingTab(QWidget):
         th = self.sp_height.value()
 
         if self.trail_pub:
-            self.trail_pub.set_thickness(thick)
+            if getattr(self.processor, "image_profile", "default") == "logo_bk":
+                self.trail_pub.set_line_width(min(float(thick), 2.4))
+            else:
+                self.trail_pub.set_thickness(thick)
 
         strokes = self.processor.process(
             point_spacing_mm=spacing,
@@ -2414,6 +2752,14 @@ class ImageGCodeDrawingTab(QWidget):
         )
 
         self.current_strokes = strokes
+        self._posture_eval_generation += 1
+        self.selected_posture_res = None
+        self.latest_posture_evaluation = None
+        if hasattr(self, "combo_postures"):
+            self.combo_postures.blockSignals(True)
+            self.combo_postures.clear()
+            self.combo_postures.addItem("Chưa phân tích tư thế cho đường vẽ này", None)
+            self.combo_postures.blockSignals(False)
         self.canvas.set_data(strokes, cx, cy, tw, th)
         self.txt_gcode.setPlainText(self.processor.gcode_text)
 
@@ -2463,14 +2809,21 @@ class ImageGCodeDrawingTab(QWidget):
             return
 
         algo_mode = "ros2" if algo_mode == "ros2" else ("mpc" if algo_mode == "mpc" else "iga")
-        self.canvas.set_algo_mode(algo_mode)
+        # Mỗi lượt chạy bắt đầu bằng một bản vẽ sạch; tránh chồng nét từ các lần
+        # chạy trước cùng màu khiến hình vuông trông thành vệt rối.
+        self.canvas.clear_trail()
         if self.trail_pub:
+            self.trail_pub.clear()
             self.trail_pub.set_algo_mode(algo_mode)
+        self.canvas.set_algo_mode(algo_mode)
 
+        sel_res = getattr(self, "selected_posture_res", None) or {}
         self.worker = TrajectoryExecutionWorker(self.bridge, self.engine, self.trail_pub)
         self.worker.load_strokes(
             self.current_strokes, speed_scale=1.0, algo_mode=algo_mode,
-            custom_q_traj=custom_q_traj, posture_title=posture_title
+            custom_q_traj=custom_q_traj, posture_title=posture_title,
+            sample_period_s=float(sel_res.get("sample_period_s", 0.05)),
+            custom_dt_steps=sel_res.get("dt_steps") if custom_q_traj is not None else None,
         )
         self.worker.sig_progress.connect(self._on_worker_progress)
         self.worker.sig_status.connect(self._on_worker_status)
@@ -2478,7 +2831,6 @@ class ImageGCodeDrawingTab(QWidget):
 
         self.progress_bar.setValue(0)
         self.btn_start.setEnabled(False)
-        self.btn_start_ros2.setEnabled(False)
         self.btn_start_mpc.setEnabled(False)
         if hasattr(self, "btn_draw_selected_posture"):
             self.btn_draw_selected_posture.setEnabled(False)
@@ -2501,13 +2853,133 @@ class ImageGCodeDrawingTab(QWidget):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.btn_start.setEnabled(True)
-            self.btn_start_ros2.setEnabled(True)
             self.btn_start_mpc.setEnabled(True)
             if hasattr(self, "btn_draw_selected_posture"):
                 self.btn_draw_selected_posture.setEnabled(True)
             if hasattr(self, "btn_draw_optimal_mpc"):
                 self.btn_draw_optimal_mpc.setEnabled(True)
             self.btn_pause.setText("⏸️ Tạm Dừng")
+
+    def _change_canvas_source(self):
+        source = self.canvas_source.currentData()
+        self.canvas.show_amstar = source != "gazebo"
+        self.canvas.show_amstar_trace = source == "amstar_trace"
+        self.amstar_canvas_status.setVisible(self.canvas.show_amstar)
+        self.canvas.reset_view()
+
+    def prepare_amstar_job(self, filename, gcode):
+        self._amstar_next_plan = self._make_amstar_plan(filename, gcode)
+
+    def load_amstar_reference(self, filename, gcode):
+        if filename != self._amstar_job_name or self._amstar_active_plan is not None:
+            return
+        plan = self._make_amstar_plan(filename, gcode)
+        if plan is not None:
+            self._amstar_active_plan = plan
+            self.canvas.amstar_reference = plan[1]
+            self.canvas.update()
+
+    def _make_amstar_plan(self, filename, gcode):
+        try:
+            strokes = ImageGCodeProcessor().parse_gcode(gcode, joint_fk=self._amstar_tip_mm)
+        except (ValueError, OverflowError, KeyError, TypeError):
+            return None
+        if any(p.q_sol is None for stroke in strokes for p in stroke.points):
+            return None
+        points = []
+        origins = []
+        deltas = []
+        stroke_ids = []
+        for stroke_id, stroke in enumerate(strokes):
+            stroke_points = [(p.x, p.y, p.z) for p in stroke.points if p.is_draw]
+            points.extend(stroke_points)
+            for start, end in zip(stroke_points, stroke_points[1:]):
+                origins.append(start[:2])
+                deltas.append((end[0] - start[0], end[1] - start[1]))
+                stroke_ids.append(stroke_id)
+        if not points or not origins:
+            return None
+        xs, ys, zs = zip(*points)
+        bounds = (
+            0.5 * (min(xs) + max(xs)), 0.5 * (min(ys) + max(ys)),
+            max(80.0, max(ys) - min(ys)), max(80.0, max(xs) - min(xs)),
+        )
+        vectors = np.asarray(deltas, dtype=float)
+        lengths_sq = np.maximum(np.sum(vectors * vectors, axis=1), 1e-12)
+        return (filename, (strokes, bounds), (min(zs), max(zs)),
+                np.asarray(origins, dtype=float), vectors, lengths_sq, stroke_ids)
+
+    def _amstar_tip_mm(self, angles_rad):
+        fk = self.engine.compute_forward_kinematics(angles_rad, use_flange=True)
+        position = tuple(float(value) * 1000.0 for value in fk["position_m"])
+        if len(position) != 3 or not all(math.isfinite(value) for value in position):
+            raise ValueError("Invalid Amstar TCP position")
+        return position
+
+    def update_amstar_drawing(self, sample):
+        if sample is None:
+            self.amstar_canvas_status.setText("Mất kết nối IP · 192.168.1.249")
+            self._amstar_previous_event = None
+            self.canvas.update_amstar_cursor(None, None)
+            return
+
+        active = sample.job_state in ("printing", "paused") and bool(sample.filename)
+        new_job = (sample.filename != self._amstar_job_name
+                   or (active and (not self._amstar_job_active
+                                   or sample.file_position < self._amstar_file_position)))
+        self._amstar_job_active = active
+        self._amstar_job_name = sample.filename
+        self._amstar_file_position = sample.file_position
+        was_complete = self.canvas.amstar_job_complete
+        self.canvas.amstar_job_complete = sample.job_state == "complete" and bool(sample.filename)
+        if new_job:
+            old_plan = self._amstar_active_plan
+            plan = self._amstar_next_plan
+            if not plan or plan[0] != sample.filename:
+                plan = old_plan if old_plan and old_plan[0] == sample.filename else None
+            self._amstar_active_plan = plan
+            self.canvas.amstar_reference = plan[1] if plan else None
+            self.canvas.clear_amstar_trail()
+        previous_time = self._amstar_previous_event
+        just_completed = self.canvas.amstar_job_complete and not was_complete
+        if (self._amstar_active_plan is None and sample.filename
+                and (new_job or just_completed or previous_time is None)):
+            self.amstar_reference_requested.emit(sample.filename)
+        if previous_time is not None and not 0.0 <= sample.eventtime - previous_time <= 0.8:
+            self.canvas.update_amstar_cursor(None, None)
+        self._amstar_previous_event = sample.eventtime
+
+        angles = sample.motion_angles_deg or sample.angles_deg
+        try:
+            position = self._amstar_tip_mm(np.deg2rad(angles))
+        except (ValueError, KeyError, TypeError):
+            self.amstar_canvas_status.setText("Đã kết nối IP. Không tính được tọa độ đầu bút.")
+            self.canvas.update_amstar_cursor(None, None)
+            return
+        stroke_id = None
+        if active and sample.job_state == "printing":
+            plan = self._amstar_active_plan
+            if plan is not None:
+                _, _, (low, high), origins, deltas, lengths_sq, stroke_ids = plan
+                if low - 2.0 <= position[2] <= high + 2.0:
+                    # Use the nearest stroke only to split the trail. Draw the sampled XY unmodified.
+                    offsets = np.asarray(position[:2]) - origins
+                    fraction = np.clip(np.sum(offsets * deltas, axis=1) / lengths_sq, 0.0, 1.0)
+                    error = offsets - fraction[:, None] * deltas
+                    stroke_id = stroke_ids[int(np.argmin(np.sum(error * error, axis=1)))]
+            elif abs(position[2] - self.sp_z_draw.value()) <= 2.0:
+                stroke_id = 0
+        source = "Góc chuyển động" if sample.motion_angles_deg else "Góc lệnh ROBOT_STATE"
+        title = "Đã kết nối IP" if self.canvas.amstar_job_complete else f"Đã kết nối IP · {source}"
+        if sample.filename:
+            state = {"printing": "Đang chạy", "paused": "Tạm dừng", "complete": "Hoàn tất",
+                     "cancelled": "Đã hủy", "error": "Lỗi trên robot"}.get(sample.job_state, "Đang chờ")
+            title += f" · {state} · {sample.filename}"
+        if self.canvas.amstar_job_complete and self._amstar_active_plan is None:
+            title += " · Chưa nạp được G-code"
+        if self.amstar_canvas_status.text() != title:
+            self.amstar_canvas_status.setText(title)
+        self.canvas.update_amstar_cursor(position, stroke_id)
 
     def _on_worker_progress(self, curr, total, pct, x, y, z, is_draw, q_target=None):
         self.progress_bar.setValue(int(pct))
@@ -2532,7 +3004,6 @@ class ImageGCodeDrawingTab(QWidget):
 
     def _on_worker_finished(self):
         self.btn_start.setEnabled(True)
-        self.btn_start_ros2.setEnabled(True)
         self.btn_start_mpc.setEnabled(True)
         if hasattr(self, "btn_draw_selected_posture"):
             self.btn_draw_selected_posture.setEnabled(True)
@@ -2553,66 +3024,193 @@ class ImageGCodeDrawingTab(QWidget):
         # Tự động chạy đánh giá tư thế MPC cho hình này
         QTimer.singleShot(100, self._run_mpc_posture_evaluation)
 
+    def _on_j6_roll_range_changed(self, _value=None):
+        if self._last_posture_roll_range is None:
+            return
+        current = (
+            self.sp_j6_roll_min.value(),
+            self.sp_j6_roll_max.value(),
+            self.sp_j6_roll_step.value(),
+        )
+        if current == self._last_posture_roll_range:
+            return
+        self.latest_posture_evaluation = None
+        self.selected_posture_res = None
+        self.combo_postures.blockSignals(True)
+        self.combo_postures.clear()
+        self.combo_postures.addItem("Thông số J6 đã đổi — hãy đánh giá lại", None)
+        self.combo_postures.blockSignals(False)
+        self.lbl_posture_detail.setText("Thông số quét J6 đã đổi. Hãy chạy lại đánh giá MPC trước khi vẽ hoặc xuất G-code.")
+
+    def apply_precomputed_posture(self, evaluation, selected, gcode, spacing_mm):
+        """Nạp đồng bộ danh sách điểm (strokes) đã tính ở Tab 7 cùng dãy góc khớp q_traj trong 1 lần."""
+        strokes = evaluation.get("strokes") if isinstance(evaluation, dict) else None
+        if not strokes:
+            z_thresh = float((evaluation or {}).get("z_draw_thresh", self.sp_z_draw.value() + 2.0))
+            strokes = self.processor.parse_gcode(
+                gcode, point_spacing_mm=float(spacing_mm), z_draw_thresh=z_thresh
+            )
+        expected = sum(len(st.points) for st in strokes)
+        q = np.asarray(selected.get("q_traj"), dtype=float)
+        if q.shape != (expected, 6):
+            raise ValueError(f"Quỹ đạo {q.shape} không khớp {expected} điểm Tab 7.")
+
+        worker_running = bool(self.posture_eval_worker and self.posture_eval_worker.isRunning())
+        self._suppress_posture_eval_rerun = worker_running
+        self._posture_eval_generation += 1
+
+        self.txt_gcode.blockSignals(True)
+        self.txt_gcode.setPlainText(gcode)
+        self.txt_gcode.blockSignals(False)
+        self.sp_point_spacing.blockSignals(True)
+        self.sp_point_spacing.setValue(float(spacing_mm))
+        self.sp_point_spacing.blockSignals(False)
+
+        self.current_strokes = strokes
+        self.latest_posture_evaluation = evaluation
+        self.selected_posture_res = selected
+
+        cx = self.sp_center_x.value()
+        cy = self.sp_center_y.value()
+        tw = self.sp_width.value()
+        th = self.sp_height.value()
+        self.canvas.set_data(strokes, cx, cy, tw, th)
+        val_res = self.validator.validate(strokes)
+        if hasattr(self, "joint_table_widget") and self.joint_table_widget is not None:
+            self.joint_table_widget.set_strokes(strokes, item_name="Tab 7 EMPC")
+        self._init_monitor_from_strokes(strokes)
+
+        self.combo_postures.blockSignals(True)
+        self.combo_postures.clear()
+        ranked = evaluation.get("all_ranked_postures", [])
+        for item in ranked:
+            self.combo_postures.addItem(
+                f"Hạng {item['rank']}: {item['posture'].badge} | J6 {item['j6_roll_deg']:+.1f}° | E={item['energy_joules']:.1f}J",
+                item,
+            )
+        self.combo_postures.setCurrentIndex(next((i for i, v in enumerate(ranked) if v is selected), 0))
+        self.combo_postures.blockSignals(False)
+        self.lbl_posture_detail.setText(
+            f"Nhận từ Tab 7: {selected['posture'].name}; J6 {selected['j6_roll_deg']:+.1f}°, "
+            f"E={selected['energy_joules']:.1f}J, sai lệch {selected['max_path_error_mm']:.4f}mm, {expected} điểm."
+        )
+        self.lbl_exec_status.setText(
+            f"Đã nạp đồng bộ {len(strokes)} nét ({expected} điểm, {val_res['valid_points']} hợp lệ) từ Tab 7."
+        )
+
     def _run_mpc_posture_evaluation(self):
         if not self.current_strokes:
             QMessageBox.warning(self, "Chú ý", "Vui lòng phân rã điểm ảnh hoặc nạp mã G-code trước!")
             return
-
         if not self.posture_optimizer:
-            QMessageBox.warning(self, "Lỗi", "Không tìm thấy bộ điều khiển tối ưu DensoPostureMPCOptimizer!")
+            QMessageBox.warning(self, "Lỗi", "Không tìm thấy bộ điều khiển DensoPostureMPCOptimizer!")
+            return
+        if self.posture_eval_worker is not None and self.posture_eval_worker.isRunning():
             return
 
-        self.lbl_posture_detail.setText("⏳ Đang mô phỏng và phân tích toàn diện 6 tư thế khớp qua MPC (RNEA & Jerk)...")
-        self.lbl_posture_detail.setStyleSheet("color: #fbbf24; font-weight: bold;")
-        QApplication.processEvents()
-
-        # Trích xuất toàn bộ chuỗi điểm Cartesian từ current_strokes
         raw_waypoints = []
         for stroke in self.current_strokes:
             for pt in stroke.points:
                 raw_waypoints.append([pt.x * 1e-3, pt.y * 1e-3, pt.z * 1e-3, pt.is_draw])
-
         if len(raw_waypoints) < 4:
             self.lbl_posture_detail.setText("⚠️ Số lượng điểm vẽ quá ít để phân tích MPC.")
             return
 
-        eval_res = self.posture_optimizer.optimize_and_select_best_posture(raw_waypoints, dt=0.05)
-        if not eval_res or not eval_res.get("all_ranked_postures"):
-            self.lbl_posture_detail.setText("❌ Không có tư thế nào đạt nghiệm động học trong không gian làm việc này.")
+        roll_range = (
+            self.sp_j6_roll_min.value(),
+            self.sp_j6_roll_max.value(),
+            self.sp_j6_roll_step.value(),
+        )
+        try:
+            self.posture_optimizer.set_j6_roll_range(*roll_range)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Dải góc J6 không hợp lệ", str(exc))
+            return
+
+        self._last_posture_roll_range = roll_range
+        self.latest_posture_evaluation = None
+        self.selected_posture_res = None
+        self.combo_postures.blockSignals(True)
+        self.combo_postures.clear()
+        self.combo_postures.addItem("Đang đánh giá các góc J6 và tư thế...", None)
+        self.combo_postures.blockSignals(False)
+        self.btn_eval_postures.setEnabled(False)
+        for spin in (self.sp_j6_roll_min, self.sp_j6_roll_max, self.sp_j6_roll_step):
+            spin.setEnabled(False)
+        self.lbl_posture_detail.setText("⏳ MPC đang đánh giá các tư thế và góc J6; giao diện vẫn hoạt động...")
+        self.lbl_posture_detail.setStyleSheet("color: #fbbf24; font-weight: bold;")
+        self.posture_eval_worker = PostureEvaluationWorker(
+            self.posture_optimizer, raw_waypoints, self._posture_eval_generation
+        )
+        self.posture_eval_worker.completed.connect(self._on_posture_eval_finished)
+        self.posture_eval_worker.start()
+
+    def _on_posture_eval_finished(self, eval_res, error, generation):
+        self.btn_eval_postures.setEnabled(True)
+        for spin in (self.sp_j6_roll_min, self.sp_j6_roll_max, self.sp_j6_roll_step):
+            spin.setEnabled(True)
+        if generation != self._posture_eval_generation:
+            # Tab7 may have loaded a precomputed case while this Tab5 scan was
+            # still running. Discard the stale result without starting a new scan
+            # that would overwrite the selected case.
+            if self._suppress_posture_eval_rerun:
+                self._suppress_posture_eval_rerun = False
+                return
+            QTimer.singleShot(0, self._run_mpc_posture_evaluation)
+            return
+        if error:
+            self.lbl_posture_detail.setText(f"❌ MPC không hoàn tất: {error}")
             self.lbl_posture_detail.setStyleSheet("color: #f87171; font-weight: bold;")
+            return
+        if not eval_res or not eval_res.get("all_ranked_postures"):
+            self.lbl_posture_detail.setText("❌ Không có tư thế nào thỏa IK, sai lệch đường, tốc độ và giới hạn mô-men.")
+            self.lbl_posture_detail.setStyleSheet("color: #f87171; font-weight: bold;")
+            self.latest_posture_evaluation = None
+            self.selected_posture_res = None
             return
 
         self.latest_posture_evaluation = eval_res
         ranked = eval_res["all_ranked_postures"]
         best = eval_res["best_posture"]
-
         self.combo_postures.blockSignals(True)
         self.combo_postures.clear()
-        for r in ranked:
-            p_obj = r["posture"]
-            star = "🏆 Hạng 1 (TỐI ƯU NHẤT)" if r.get("is_best") else f"Hạng {r['rank']}"
-            txt = f"{star}: {p_obj.badge} | E={r['energy_joules']:.0f}J | Jerk={r['jerk_score']:.0f} | Tải={r['max_torque_pct']:.1f}%"
-            self.combo_postures.addItem(txt, r)
+        for result in ranked:
+            posture = result["posture"]
+            star = "🏆 Hạng 1 (TỐI ƯU NHẤT)" if result.get("is_best") else f"Hạng {result['rank']}"
+            label = (
+                f"{star}: {posture.badge} | E={result['energy_joules']:.0f}J "
+                f"| Jerk={result['jerk_score']:.0f} | Tải={result['max_torque_pct']:.1f}%"
+            )
+            self.combo_postures.addItem(label, result)
         self.combo_postures.setCurrentIndex(0)
         self.combo_postures.blockSignals(False)
-
         self.selected_posture_res = best
-        p_best = best["posture"]
-        q_traj_best = best.get("q_traj")
-        q_mid_best_str = ""
-        if q_traj_best is not None and len(q_traj_best) > 0:
-            q_mid = np.round(np.rad2deg(q_traj_best[len(q_traj_best) // 2]), 1).tolist()
-            q_mid_best_str = f"• Góc 6 khớp trung tâm q: [{q_mid[0]}°, {q_mid[1]}°, {q_mid[2]}°, {q_mid[3]}°, {q_mid[4]}°, {q_mid[5]}°]\n"
 
+        posture = best["posture"]
+        q_traj = best.get("q_traj")
+        q_mid_text = ""
+        if q_traj is not None and len(q_traj) > 0:
+            q_mid = np.round(np.rad2deg(q_traj[len(q_traj) // 2]), 1).tolist()
+            q_mid_text = f"• Góc 6 khớp trung tâm q: [{q_mid[0]}°, {q_mid[1]}°, {q_mid[2]}°, {q_mid[3]}°, {q_mid[4]}°, {q_mid[5]}°]\n"
         self.lbl_posture_detail.setText(
-            f"🏆 MPC LỰA CHỌN TỐI ƯU NHẤT: {p_best.name}\n"
-            f"{q_mid_best_str}"
-            f"• Năng lượng: {best['energy_joules']:.1f} J (Thấp nhất) | Jerk: {best['jerk_score']:.1f} | Tải đỉnh vai J2: {best['max_torque_pct']:.1f}%\n"
-            f"• Phân bổ mô-men & khối lượng: {p_best.desc}"
+            f"🏆 TƯ THẾ TỐI ƯU: {posture.name}\n"
+            f"{q_mid_text}"
+            f"• J6 roll: {best['j6_roll_deg']:+.1f}° | Sai lệch đường tối đa: {best['max_path_error_mm']:.3f} mm\n"
+            f"• Năng lượng: {best['energy_joules']:.1f} J | Jerk: {best['jerk_score']:.1f} "
+            f"| Tải đỉnh: {best['max_torque_pct']:.1f}% | MPC cost: {best['mpc_cost']:.2f}\n"
+            f"• {posture.desc}"
         )
         self.lbl_posture_detail.setStyleSheet("color: #4ade80; font-size: 11px; font-weight: bold;")
-        self.lbl_exec_status.setText(f"✅ MPC đã tuyển chọn tư thế tối ưu: [{p_best.badge}] ({best['energy_joules']:.0f} J)")
+        self.lbl_exec_status.setText(
+            f"✅ Tư thế tối ưu: {posture.badge} — {best['energy_joules']:.0f} J"
+        )
         self.lbl_exec_status.setStyleSheet("color: #4ade80; font-weight: bold;")
+        pending = self._pending_posture_action
+        self._pending_posture_action = None
+        if pending == "best":
+            QTimer.singleShot(0, self._draw_best_optimal_posture)
+        elif pending == "selected":
+            QTimer.singleShot(0, self._draw_selected_posture_mpc)
 
     def _on_posture_selected_changed(self, idx: int):
         data = self.combo_postures.currentData()
@@ -2633,7 +3231,8 @@ class ImageGCodeDrawingTab(QWidget):
         self.lbl_posture_detail.setText(
             f"{tag}: {p_obj.name}\n"
             f"{q_mid_str}"
-            f"• Năng lượng: {data['energy_joules']:.1f} J | Jerk: {data['jerk_score']:.1f} | Tải đỉnh vai J2: {data['max_torque_pct']:.1f}% (MPC Cost: {data['mpc_cost']:.1f})\n"
+            f"• J6 roll: {data['j6_roll_deg']:+.1f}° | Sai lệch đường tối đa: {data['max_path_error_mm']:.3f} mm\n"
+            f"• Năng lượng: {data['energy_joules']:.1f} J | Jerk: {data['jerk_score']:.1f} | Tải đỉnh: {data['max_torque_pct']:.1f}% (MPC Cost: {data['mpc_cost']:.1f})\n"
             f"• Phân bổ mô-men & khối lượng: {p_obj.desc}"
         )
         self.lbl_posture_detail.setStyleSheet(f"color: {col}; font-size: 11px; font-weight: bold;")
@@ -2645,17 +3244,20 @@ class ImageGCodeDrawingTab(QWidget):
             return
 
         if not self.selected_posture_res:
-            self._run_mpc_posture_evaluation()
-
-        if not self.selected_posture_res:
-            QMessageBox.warning(self, "Lỗi", "Chưa có dữ liệu tư thế để thực thi!")
+            self._pending_posture_action = "selected"
+            if not (self.posture_eval_worker and self.posture_eval_worker.isRunning()):
+                self._run_mpc_posture_evaluation()
+            self.lbl_posture_detail.setText("Đã xếp lệnh vẽ; sẽ chạy sau khi MPC tính xong.")
             return
 
         q_traj = self.selected_posture_res.get("q_traj")
         p_name = self.selected_posture_res["posture"].name
-        self.lbl_exec_status.setText(f"🤖 Đang thực thi [{p_name}] để so sánh...")
+        use_mpc = bool(self.selected_posture_res.get("mpc_feasible", True))
+        run_mode = "mpc" if use_mpc else "iga"
+        source = "MPC" if use_mpc else "IK/RNEA dự phòng"
+        self.lbl_exec_status.setText(f"🤖 Đang chạy [{p_name}] theo {source}...")
         self.lbl_exec_status.setStyleSheet("color: #38bdf8; font-weight: bold;")
-        self._start_execution("mpc", custom_q_traj=q_traj, posture_title=p_name)
+        self._start_execution(run_mode, custom_q_traj=q_traj, posture_title=p_name)
 
     def _draw_best_optimal_posture(self):
         """Tự động chọn tư thế đạt giải Hạng 1 và thực thi."""
@@ -2664,10 +3266,10 @@ class ImageGCodeDrawingTab(QWidget):
             return
 
         if not self.latest_posture_evaluation or not self.latest_posture_evaluation.get("best_posture"):
-            self._run_mpc_posture_evaluation()
-
-        if not self.latest_posture_evaluation or not self.latest_posture_evaluation.get("best_posture"):
-            QMessageBox.warning(self, "Lỗi", "Chưa có dữ liệu tư thế tối ưu!")
+            self._pending_posture_action = "best"
+            if not (self.posture_eval_worker and self.posture_eval_worker.isRunning()):
+                self._run_mpc_posture_evaluation()
+            self.lbl_posture_detail.setText("Đã xếp lệnh vẽ tư thế tối ưu; sẽ chạy sau khi MPC tính xong.")
             return
 
         best = self.latest_posture_evaluation["best_posture"]
@@ -2684,6 +3286,7 @@ class ImageGCodeDrawingTab(QWidget):
         if self.trail_pub:
             self.trail_pub.clear()
         self.canvas.clear_trail()
+        self.canvas.clear_amstar_trail()
         self.progress_bar.setValue(0)
         self.lbl_exec_status.setText("Đã xóa sạch vệt vẽ trên RViz2 và Canvas.")
 
@@ -2721,6 +3324,14 @@ class ImageGCodeDrawingTab(QWidget):
         zd = self.sp_z_draw.value()
         strokes = self.processor.parse_gcode(text, point_spacing_mm=spacing, z_draw_thresh=zd + 2.0)
         self.current_strokes = strokes
+        self._posture_eval_generation += 1
+        self.selected_posture_res = None
+        self.latest_posture_evaluation = None
+        if hasattr(self, "combo_postures"):
+            self.combo_postures.blockSignals(True)
+            self.combo_postures.clear()
+            self.combo_postures.addItem("Chưa phân tích tư thế cho đường vẽ này", None)
+            self.combo_postures.blockSignals(False)
 
         cx = self.sp_center_x.value()
         cy = self.sp_center_y.value()
@@ -2790,7 +3401,7 @@ class ImageGCodeDrawingTab(QWidget):
 
             A_s, B_s, C_s, U_s, V_s, W_s = [fmt(d) for d in deg]
             self.lbl_live_angles.setText(f"Góc 6-Link: A={A_s}° B={B_s}° C={C_s}° U={U_s}° V={V_s}° W={W_s}°")
-            feed_s = " F2000" if curr <= 1 else ""
+            feed_s = " F1200" if curr <= 1 else ""
             self.lbl_live_gcode.setText(f"G1 A{A_s} B{B_s} C{C_s} U{U_s} V{V_s} W{W_s}{feed_s}")
         elif q_target is not None and len(q_target) >= 5:
             deg = [math.degrees(float(q)) for q in q_target[:5]]
@@ -2802,7 +3413,7 @@ class ImageGCodeDrawingTab(QWidget):
 
             A_s, B_s, C_s, U_s, V_s = [fmt(d) for d in deg]
             self.lbl_live_angles.setText(f"Góc 6-Link: A={A_s}° B={B_s}° C={C_s}° U={U_s}° V={V_s}° W=0.00°")
-            feed_s = " F2000" if curr <= 1 else ""
+            feed_s = " F1200" if curr <= 1 else ""
             self.lbl_live_gcode.setText(f"G1 A{A_s} B{B_s} C{C_s} U{U_s} V{V_s} W0.00{feed_s}")
         else:
             self.lbl_live_angles.setText("Góc 6-Link: A=--- B=--- C=--- U=--- V=--- W=---")
@@ -2826,7 +3437,26 @@ class ImageGCodeDrawingTab(QWidget):
             QMessageBox.warning(self, "Xuất G-Code 6 Link", "Chưa có dữ liệu quỹ đạo! Vui lòng nạp ảnh hoặc G-code trước.")
             return
 
+        selected = self.selected_posture_res
+        current_roll_range = (
+            self.sp_j6_roll_min.value(),
+            self.sp_j6_roll_max.value(),
+            self.sp_j6_roll_step.value(),
+        )
+        if not selected or self._last_posture_roll_range != current_roll_range:
+            QMessageBox.warning(self, "Chưa có tư thế hiện hành", "Hãy đánh giá và chọn tư thế cho đường vẽ hiện tại trước khi xuất G-code.")
+            return
         records = extract_records_from_strokes(self.current_strokes, self.engine)
+        if selected and selected.get("q_traj") is not None:
+            q_traj = selected["q_traj"]
+            if len(q_traj) != len(records):
+                QMessageBox.warning(self, "Lỗi xuất G-code", "Số điểm nghiệm MPC không khớp số điểm đường vẽ. Hãy đánh giá lại tư thế.")
+                return
+            for record, q_rad in zip(records, q_traj):
+                record.q_rad = [float(v) for v in q_rad]
+                record.q_deg = [math.degrees(float(v)) for v in q_rad]
+                record.is_valid = True
+                record.status = "MPC / IK"
         if not records:
             QMessageBox.warning(self, "Xuất G-Code 6 Link", "Không thể trích xuất các điểm quỹ đạo!")
             return
@@ -2864,12 +3494,23 @@ class ImageGCodeDrawingTab(QWidget):
                 f"   • Số điểm bỏ qua (IK lỗi): {skipped}\n"
                 f"   • Cấu trúc 6 trục: A=Link1(J1), B=Link2(J2), C=Link3(J3), U=Link4(J4), V=Link5(J5), W=Link6(J6)\n"
                 f"   • Trục W (Khớp xoay mặt bích Link 6): Đã tích hợp đầy đủ\n"
-                f"   • Định dạng: G90 ; absolute positioning, F2000 ở dòng đầu tiên\n"
+                f"   • Định dạng: G90 ; absolute positioning, F1200 ở dòng đầu tiên\n"
                 f"   • Độ chính xác góc: 2 chữ số thập phân chuẩn CNC"
             )
             QMessageBox.information(self, "Xuất G-Code 6 Link Thành Công", info)
         else:
             QMessageBox.critical(self, "Lỗi", f"Không thể ghi tệp G-code ra:\n{file_path}")
+
+    def _switch_to_tab7_controller(self):
+        """Mở Tab 7, nơi tập trung bộ điều khiển thực thi quỹ đạo."""
+        p = self.parent()
+        while p is not None:
+            if hasattr(p, "tabs") and isinstance(p.tabs, QTabWidget):
+                for i in range(p.tabs.count()):
+                    if p.tabs.widget(i).__class__.__name__ == "DensoGCodeEnergyOptimizerTab":
+                        p.tabs.setCurrentIndex(i)
+                        return
+            p = p.parent()
 
     def _switch_to_tab6(self):
         """Chuyển ngay sang Tab 6 (Bảng Tra Góc 6-Link)."""

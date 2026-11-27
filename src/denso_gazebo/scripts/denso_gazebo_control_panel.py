@@ -59,6 +59,10 @@ from PyQt5.QtGui import QColor, QFont
 
 JOINT_NAMES = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
 JOINT_NAME_TO_IDX = {name: i for i, name in enumerate(JOINT_NAMES)}
+# URDF joint velocity limits in joint_1 through joint_6 order (rad/s).
+GAZEBO_JOINT_VELOCITY_LIMITS = (4.5815, 4.1888, 5.2360, 5.2360, 5.2360, 7.3304)
+GAZEBO_FOLLOW_MIN_DURATION_SEC = 0.030  # Three arm_controller updates at 100 Hz.
+GAZEBO_FOLLOW_SPEED_FRACTION = 0.90
 
 JOINT_INFO = [
     {
@@ -159,6 +163,8 @@ class GazeboRosBridge:
         self.latest_efforts = [0.0] * len(JOINT_NAMES)
         self.last_msg_time = 0.0
         self.lock = threading.Lock()
+        self._motion_lock = threading.Lock()
+        self._amstar_follow_enabled = False
         self.pending_cartesian_target = None
 
     def start(self):
@@ -298,9 +304,30 @@ class GazeboRosBridge:
                 self.last_msg_time
             )
 
-    def send_trajectory(self, target_rads, duration_sec=2.0, zero_velocity=True):
+    def set_amstar_follow(self, enabled):
+        with self._motion_lock:
+            self._amstar_follow_enabled = bool(enabled)
+
+    def amstar_follow_enabled(self):
+        with self._motion_lock:
+            return self._amstar_follow_enabled
+
+    def _publish_gazebo_motion(self, trajectory, from_amstar=False):
+        with self._motion_lock:
+            if not self.traj_pub or not rclpy.ok():
+                return False
+            if from_amstar:
+                if not self._amstar_follow_enabled or self.traj_pub.get_subscription_count() == 0:
+                    return False
+            else:
+                # Explicit simulation inputs take over from the feedback stream.
+                self._amstar_follow_enabled = False
+            self.traj_pub.publish(trajectory)
+            return True
+
+    def send_trajectory(self, target_rads, duration_sec=2.0, zero_velocity=True, *, from_amstar=False):
         if not self.traj_pub:
-            return
+            return False
         traj = JointTrajectory()
         traj.joint_names = JOINT_NAMES
 
@@ -315,7 +342,7 @@ class GazeboRosBridge:
         point.time_from_start.nanosec = nanosec
 
         traj.points = [point]
-        self.traj_pub.publish(traj)
+        return self._publish_gazebo_motion(traj, from_amstar=from_amstar)
 
     def send_multi_point_trajectory(self, trajectory_points, velocities=None):
         """
@@ -348,7 +375,7 @@ class GazeboRosBridge:
             point.time_from_start.nanosec = target_ns % 1_000_000_000
             traj.points.append(point)
             
-        self.traj_pub.publish(traj)
+        return self._publish_gazebo_motion(traj)
 
     def publish_forward_kinematics(self, fk_data):
         if not self.node or not self.ee_pose_pub:
@@ -559,6 +586,10 @@ class DensoGazeboPanel(QMainWindow):
         super().__init__()
         self.bridge = bridge
         self.is_deg_mode = True
+        self.amstar_state = None
+        self._amstar_sample_time = 0.0
+        self._follow_last_target = None
+        self._follow_correction_at = 0.0
         self.live_drag = False
         self.target_rads = [0.0] * len(JOINT_NAMES)
         self.actual_rads = [0.0] * len(JOINT_NAMES)
@@ -709,6 +740,10 @@ class DensoGazeboPanel(QMainWindow):
         self.status_badge = QLabel('🔴 Đang dò tìm Gazebo...', self)
         self.status_badge.setStyleSheet('background-color: #7f1d1d; color: #fecaca; padding: 5px 14px; border-radius: 12px; font-weight: bold; font-size: 12px;')
         h_layout.addWidget(self.status_badge)
+        self.amstar_badge = QLabel("AMSTAR IP · ĐANG KẾT NỐI", self)
+        self.amstar_badge.setToolTip("AmstarRobot qua Moonraker · 192.168.1.249")
+        self.amstar_badge.setStyleSheet("background: #1e293b; color: #cbd5e1; padding: 5px 12px; border-radius: 12px; font-weight: bold;")
+        h_layout.addWidget(self.amstar_badge)
         main_layout.addWidget(header)
 
         # Bộ hẹn giờ chống đơ (Debounce Timer): khi gõ số nhanh chỉ tính toán 1 lần sau khi dừng gõ 200ms
@@ -758,13 +793,20 @@ class DensoGazeboPanel(QMainWindow):
                 )
 
         # Tab 7: TỐI ƯU HÓA NĂNG LƯỢNG VẼ G-CODE ĐA CẤU HÌNH (MOMENT & 6 MOTOR POWERS)
-        from denso_gcode_energy_optimizer_tab import DensoGCodeEnergyOptimizerTab
+        from denso_gcode_energy_optimizer_tab import AmstarStateMonitor, DensoGCodeEnergyOptimizerTab
         self.tab_benchmark = DensoGCodeEnergyOptimizerTab(
             bridge=self.bridge,
             engine=self.engine,
             parent=self
         )
         self.tabs.addTab(self.tab_benchmark, "⚡ 7. TỐI ƯU NĂNG LƯỢNG G-CODE")
+        self.tab_benchmark.attach_drawing_controls(self.tab_gcode.box_exec)
+        self.tab_benchmark.amstar_job_prepared.connect(self.tab_gcode.prepare_amstar_job)
+        self.amstar_monitor = AmstarStateMonitor(self)
+        self.amstar_monitor.updated.connect(self._on_amstar_state)
+        self.tab_gcode.amstar_reference_requested.connect(self.amstar_monitor.request_gcode)
+        self.amstar_monitor.gcode_received.connect(self.tab_gcode.load_amstar_reference)
+        self.amstar_monitor.start()
         self.tabs.setCurrentIndex(4)
 
         main_layout.addWidget(self.tabs, 1)
@@ -2292,6 +2334,17 @@ class DensoGazeboPanel(QMainWindow):
 
         tab_layout.addWidget(options_box)
 
+        follow_row = QHBoxLayout()
+        self.cb_follow_amstar = QCheckBox("Gazebo bám robot thật (IP)")
+        self.cb_follow_amstar.setStyleSheet("color: #99f6e4; font-weight: bold;")
+        self.cb_follow_amstar.setToolTip("ROBOT_STATE trên AmstarRobot → Gazebo. Tắt để điều khiển Gazebo độc lập.")
+        follow_row.addWidget(self.cb_follow_amstar)
+        self.amstar_follow_status = QLabel("Gazebo độc lập")
+        self.amstar_follow_status.setStyleSheet("color: #94a3b8;")
+        self.amstar_follow_status.setWordWrap(True)
+        follow_row.addWidget(self.amstar_follow_status, 1)
+        tab_layout.addLayout(follow_row)
+
         # Presets Bar
         preset_box = QFrame(self)
         preset_box.setStyleSheet('background-color: #111827; border: 1px solid #1f2937; border-radius: 8px;')
@@ -2302,10 +2355,12 @@ class DensoGazeboPanel(QMainWindow):
         p_lbl.setStyleSheet('font-weight: bold; color: #38bdf8;')
         p_layout.addWidget(p_lbl)
 
+        self.preset_buttons = []
         for name, angles in PRESETS.items():
             btn = QPushButton(name, self)
             btn.setStyleSheet('background-color: #1e293b; padding: 6px 12px; font-size: 12px;')
             btn.clicked.connect(lambda _, a=angles: self.apply_preset(a))
+            self.preset_buttons.append(btn)
             p_layout.addWidget(btn)
 
         tab_layout.addWidget(preset_box)
@@ -2315,10 +2370,14 @@ class DensoGazeboPanel(QMainWindow):
         j_layout = QVBoxLayout(joints_box)
         j_layout.setSpacing(6)
         j_layout.setContentsMargins(12, 14, 12, 10)
+        self.amstar_joint_status = QLabel("AmstarRobot · 192.168.1.249 · Đang chờ ROBOT_STATE")
+        self.amstar_joint_status.setStyleSheet("color: #67e8f9;")
+        j_layout.addWidget(self.amstar_joint_status)
 
         self.sliders = []
         self.spin_boxes = []
         self.actual_labels = []
+        self.amstar_angle_labels = []
         self.effort_labels = []
 
         for i, info in enumerate(JOINT_INFO):
@@ -2385,6 +2444,13 @@ class DensoGazeboPanel(QMainWindow):
         self.actual_labels.append(act_lbl)
         row.addWidget(act_lbl)
 
+        ip_lbl = QLabel(f'IP {"ABCUVW"[idx]}: —', self)
+        ip_lbl.setFixedWidth(126)
+        ip_lbl.setStyleSheet('color: #67e8f9; font-weight: bold; font-size: 12px;')
+        ip_lbl.setToolTip("Góc ROBOT_STATE từ AmstarRobot (góc bộ điều khiển).")
+        self.amstar_angle_labels.append(ip_lbl)
+        row.addWidget(ip_lbl)
+
         eff_lbl = QLabel('Lực: 0.0 Nm', self)
         eff_lbl.setFixedWidth(120)
         eff_lbl.setStyleSheet('color: #94a3b8; font-size: 11px;')
@@ -2406,6 +2472,8 @@ class DensoGazeboPanel(QMainWindow):
 
         # Tự động tính toán lại và cập nhật xem trước IK khi thay đổi khâu mục tiêu
         self.ik_target_mode.currentIndexChanged.connect(lambda _: self._calc_ik())
+        self.cb_follow_amstar.toggled.connect(self._toggle_amstar_follow)
+        self.cb_follow_amstar.setChecked(True)
 
     def _toggle_live_drag(self, enabled):
         self.live_drag = enabled
@@ -2438,6 +2506,119 @@ class DensoGazeboPanel(QMainWindow):
             self._sync_slider_from_target(i)
 
         self.updating_widgets = False
+        self._show_amstar_angles()
+
+    def _on_amstar_state(self, state):
+        self.amstar_state = state
+        online = state is not None
+        badge = "AMSTAR IP · ĐÃ KẾT NỐI" if online else "AMSTAR IP · MẤT KẾT NỐI"
+        if self.amstar_badge.text() != badge:
+            self.amstar_badge.setText(badge)
+            color = "#99f6e4" if online else "#fecaca"
+            background = "#134e4a" if online else "#7f1d1d"
+            self.amstar_badge.setStyleSheet(
+                f"background: {background}; color: {color}; padding: 5px 12px; border-radius: 12px; font-weight: bold;"
+            )
+        self._amstar_sample_time = time.monotonic() if online else 0.0
+        self._follow_amstar_state(state)
+        self._show_amstar_angles()
+        self.tab_gcode.update_amstar_drawing(state)
+        if hasattr(self, "tab_benchmark") and self.tab_benchmark is not None:
+            self.tab_benchmark.update_amstar_telemetry(state)
+
+    def _toggle_amstar_follow(self, enabled):
+        if enabled and self.cb_live.isChecked():
+            self.cb_live.setChecked(False)
+        self.bridge.set_amstar_follow(enabled)
+        self._follow_last_target = None
+        self._follow_correction_at = 0.0
+        for control in (self.cb_live, self.sp_duration, self.btn_read,
+                        *self.spin_boxes, *self.sliders, *self.preset_buttons):
+            control.setEnabled(not enabled)
+        self.btn_send.setEnabled(not enabled and not self.live_drag)
+        if enabled:
+            self._follow_amstar_state(self.amstar_state)
+        else:
+            self.amstar_follow_status.setText("Gazebo độc lập")
+
+    def _check_amstar_follow_takeover(self):
+        if self.cb_follow_amstar.isChecked() and not self.bridge.amstar_follow_enabled():
+            self.cb_follow_amstar.setChecked(False)
+            self.amstar_follow_status.setText("Gazebo độc lập · Đã nhận lệnh điều khiển mô phỏng")
+
+    def _follow_amstar_state(self, state):
+        self._check_amstar_follow_takeover()
+        if not self.cb_follow_amstar.isChecked():
+            return
+        label = self.amstar_follow_status
+        now = time.monotonic()
+        if state is None or now - self._amstar_sample_time > 1.5:
+            self._follow_last_target = None
+            label.setText("Đang chờ góc mới từ AmstarRobot")
+            return
+        angles = state.angles_deg
+        if len(angles) != len(JOINT_INFO):
+            label.setText("Đang chờ đủ sáu góc ROBOT_STATE từ IP")
+            return
+
+        target = []
+        for index, (degrees, info) in enumerate(zip(angles, JOINT_INFO), 1):
+            value = math.radians(degrees)
+            low, high = info["rad_min"], info["rad_max"]
+            if not math.isfinite(value) or not low - 0.001 <= value <= high + 0.001:
+                label.setText(f"Khớp {index} nằm ngoài giới hạn Gazebo")
+                return
+            target.append(max(low, min(value, high)))
+
+        current, _, _, received = self.bridge.get_latest_state()
+        if not received or time.time() - received > 1.5:
+            self._follow_last_target = None
+            label.setText("Đang chờ góc khớp từ Gazebo")
+            return
+        errors = [abs(gazebo - amstar) for gazebo, amstar in zip(current, target)]
+        deviation = max(errors)
+        changed = self._follow_last_target != target
+        correction = now >= self._follow_correction_at and deviation > math.radians(0.25)
+        if changed or correction:
+            travel_duration = max(
+                error / (limit * GAZEBO_FOLLOW_SPEED_FRACTION)
+                for error, limit in zip(errors, GAZEBO_JOINT_VELOCITY_LIMITS)
+            )
+            duration = max(GAZEBO_FOLLOW_MIN_DURATION_SEC, travel_duration)
+            if not self.bridge.send_trajectory(target, duration_sec=duration, zero_velocity=False, from_amstar=True):
+                self._follow_last_target = None
+                label.setText("Đang chờ bộ điều khiển khớp Gazebo")
+                return
+            self._follow_last_target = target
+            self._follow_correction_at = now + duration + 0.12
+            if changed:
+                self._display_joint_target(target)
+        label.setText(f"Đang bám ROBOT_STATE · Lệch tối đa {math.degrees(deviation):.2f}°")
+
+    def _show_amstar_angles(self):
+        state = self.amstar_state
+        if state is None:
+            status = "AmstarRobot · 192.168.1.249 · Chưa có dữ liệu"
+            angles = None
+        else:
+            angles = state.angles_deg
+            status = "AmstarRobot · 192.168.1.249 · ROBOT_STATE"
+        if self.amstar_joint_status.text() != status:
+            self.amstar_joint_status.setText(status)
+        for idx, (axis, label) in enumerate(zip("ABCUVW", self.amstar_angle_labels)):
+            value = "—"
+            tooltip = "Chưa nhận được góc từ AmstarRobot."
+            if angles is not None:
+                angle = angles[idx]
+                value = f"{angle:+.2f}°" if self.is_deg_mode else f"{math.radians(angle):+.3f} rad"
+                tooltip = f"ROBOT_STATE {axis}: {angle:+.2f}°"
+                if state.motion_angles_deg is not None:
+                    tooltip += f"\nGóc chuyển động do Klipper ước tính: {state.motion_angles_deg[idx]:+.2f}°"
+            text = f"IP {axis}: {value}"
+            if label.text() != text:
+                label.setText(text)
+            if label.toolTip() != tooltip:
+                label.setToolTip(tooltip)
 
     def _sync_slider_from_target(self, idx):
         info = JOINT_INFO[idx]
@@ -2500,9 +2681,11 @@ class DensoGazeboPanel(QMainWindow):
         self.bridge.send_trajectory(self.target_rads, duration_sec=dur)
 
     def read_actual_as_target(self):
+        self._display_joint_target(self.actual_rads)
+
+    def _display_joint_target(self, angles_rad):
         self.updating_widgets = True
-        for i in range(len(JOINT_NAMES)):
-            rad = self.actual_rads[i]
+        for i, rad in enumerate(angles_rad):
             self.target_rads[i] = rad
             spin = self.spin_boxes[i]
             if self.is_deg_mode:
@@ -2513,10 +2696,12 @@ class DensoGazeboPanel(QMainWindow):
         self.updating_widgets = False
 
     def stop_and_hold(self):
+        self.cb_follow_amstar.setChecked(False)
         self.read_actual_as_target()
         self.bridge.send_trajectory(self.actual_rads, duration_sec=0.2)
 
     def _update_telemetry(self):
+        self._check_amstar_follow_takeover()
         # Kiểm tra nếu có lệnh mục tiêu Cartesian gửi qua ROS 2 topic /denso/cartesian_target
         pending_tar = self.bridge.pop_pending_cartesian_target()
         if pending_tar is not None:

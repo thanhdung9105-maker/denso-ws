@@ -58,7 +58,7 @@ class Ofoegbu2026EconomicMPC:
         self.torque_limits = np.array([80.0, 100.0, 60.0, 25.0, 20.0, 15.0])    # Nm
         self.vel_limits = np.array([3.5, 3.0, 3.5, 4.5, 4.5, 6.0])               # rad/s
         self.acc_limits = np.array([12.0, 10.0, 12.0, 18.0, 18.0, 24.0])         # rad/s^2
-        self.copper_coeffs = np.array([1.2, 1.5, 1.8, 2.2, 2.5, 2.5])          # Hệ số điện trở thuần R_cu
+        self.copper_coeffs = np.array([1.2, 1.5, 1.8, 2.2, 2.5, 2.5]) / np.array([750.0, 400.0, 200.0, 80.0, 50.0, 50.0])  # R_cu / P_rated
 
         # Xây dựng ma trận Condensed LTI State-Space A, B (Page 7, Eqs. 1-2)
         self._build_condensed_lti_matrices()
